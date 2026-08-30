@@ -1,0 +1,304 @@
+import { db } from "./index";
+import { players, fixtures, news, merchandise, donations, fanMessages, gallery } from "./schema";
+import { count } from "drizzle-orm";
+
+export async function seedDatabaseIfNeeded() {
+  try {
+    // Check if players exist
+    const [{ value: playerCount }] = await db.select({ value: count() }).from(players);
+
+    if (playerCount > 0) {
+      console.log("Database already has data. Skipping seed.");
+      return;
+    }
+
+    console.log("Seeding database with Kariobangi Legends FC data...");
+
+    // 1. Seed Players — using REAL club photos from the uploaded gallery
+    await db.insert(players).values([
+      {
+        name: "Collins 'Chesa' Onyango",
+        position: "Goalkeeper",
+        jerseyNumber: 1,
+        imageUrl: "/images/goalkeeper-catch.jpg",
+        bio: "Born and raised in Kariobangi, Collins is our first-choice keeper known for his lightning-fast reflexes and leadership from the back. He has been with the club since the local grassroots tournaments.",
+        appearances: 22,
+        goals: 0,
+        assists: 1,
+      },
+      {
+        name: "Kelvin 'Kevo' Juma",
+        position: "Defender",
+        jerseyNumber: 15,
+        imageUrl: "/images/tall-player-15.jpg",
+        bio: "A rock-solid center-back who joined the senior team in 2022. Standing tall at 6'2\", he coordinates the defense with absolute focus and is highly respected in the community.",
+        appearances: 24,
+        goals: 2,
+        assists: 0,
+      },
+      {
+        name: "Moses 'Oti' Otieno",
+        position: "Defender",
+        jerseyNumber: 17,
+        imageUrl: "/images/two-players-standing.jpg",
+        bio: "A dynamic left-back known for his energetic overlapping runs and defensive work rate. He runs free football clinics for Kariobangi North kids on Sundays.",
+        appearances: 20,
+        goals: 1,
+        assists: 4,
+      },
+      {
+        name: "Brian 'Neyo' Kamau",
+        position: "Midfielder",
+        jerseyNumber: 18,
+        imageUrl: "/images/two-players-standing.jpg",
+        bio: "The team's visionary playmaker. Brian's precise passing and tactical intelligence have unlocked countless Division One defenses. He is a local college student.",
+        appearances: 25,
+        goals: 4,
+        assists: 11,
+      },
+      {
+        name: "Austin 'Gatuso' Odhiambo",
+        position: "Midfielder",
+        jerseyNumber: 36,
+        imageUrl: "/images/squad-training.jpg",
+        bio: "A defensive midfielder whose tough-tackling, never-say-die attitude embodies the resilient spirit of the Kariobangi streets. Mr. Atanga's first youth recruit.",
+        appearances: 23,
+        goals: 1,
+        assists: 3,
+      },
+      {
+        name: "Erick 'Chicha' Ochieng",
+        position: "Forward",
+        jerseyNumber: 26,
+        imageUrl: "/images/player-running-26.jpg",
+        bio: "Top scorer for the 2025/26 season. A lethal striker inside the box, originally discovered by Mr. Atanga playing barefoot in a local dump-site pitch.",
+        appearances: 25,
+        goals: 16,
+        assists: 5,
+      },
+      {
+        name: "Dennis 'Kaka' Mwangi",
+        position: "Forward",
+        jerseyNumber: 32,
+        imageUrl: "/images/goalkeeper-catch.jpg",
+        bio: "A lightning-quick winger with superb dribbling skills and a crossing accuracy that creates endless chances. Active in community food drives.",
+        appearances: 21,
+        goals: 8,
+        assists: 9,
+      },
+    ]);
+
+    // 2. Seed Fixtures
+    await db.insert(fixtures).values([
+      {
+        opponent: "Githurai All Stars",
+        date: "2026-02-14",
+        isHome: true,
+        homeScore: 2,
+        awayScore: 1,
+        status: "completed",
+        venue: "Kariobangi North Ground, Nairobi",
+      },
+      {
+        opponent: "Liberty Sports Academy",
+        date: "2026-02-21",
+        isHome: false,
+        homeScore: 1,
+        awayScore: 1,
+        status: "completed",
+        venue: "Camp Toyoyo, Nairobi",
+      },
+      {
+        opponent: "Ruiru Hotstars",
+        date: "2026-03-15",
+        isHome: true,
+        status: "upcoming",
+        venue: "Kariobangi North Ground, Nairobi",
+      },
+      {
+        opponent: "Kibera Soccer FC",
+        date: "2026-03-22",
+        isHome: false,
+        status: "upcoming",
+        venue: "Woodley Stadium, Kibera",
+      },
+      {
+        opponent: "Dandora Youth",
+        date: "2026-03-29",
+        isHome: true,
+        status: "upcoming",
+        venue: "Kariobangi North Ground, Nairobi",
+      },
+      {
+        opponent: "Mathare United B",
+        date: "2026-04-05",
+        isHome: false,
+        status: "upcoming",
+        venue: "Mathare Depot Ground",
+      },
+    ]);
+
+    // 3. Seed News — using REAL club training photos
+    await db.insert(news).values([
+      {
+        title: "Mr. Atanga Outlines Vision for Kariobangi Legends FC",
+        summary: "Our beloved founder, Mr. Atanga, shares his inspiring message on the club's growth, youth empowerment, and the power of the Kariobangi community.",
+        content: `At Kariobangi Legends FC, we believe football is far more than a sport—it is a vehicle for social transformation. Our club was founded in the heart of Kariobangi North slums with a clear goal: to give youth an alternative to crime, drugs, and idleness by showcasing and developing their incredible talent.
+
+Mr. Atanga, in collaboration with passionate local community members, established the club on the pillars of Discipline, Respect, and Resilience. 
+
+"Our ultimate goal is not just to win matches and secure promotion to the Premier League," Mr. Atanga explains. "It is about creating legends off the pitch. We want to mold leaders, mentors, and responsible citizens who can support their families and inspire the next generation in Nairobi county."
+
+Wearing our home kits of deep black representing our rock-solid strength and determination, and our away kits of green and white symbolizing hope and growth, we play for the slums. We play to show that greatness can come from anywhere.`,
+        imageUrl: "/images/coaches-discussion.jpg",
+      },
+      {
+        title: "Legends Clinch Gritty 2-1 Victory Against Githurai All Stars",
+        summary: "An 88th-minute header from top scorer Erick 'Chicha' Ochieng secured all three points in front of an electric home crowd at Kariobangi North Ground.",
+        content: `The atmosphere was electric at the Kariobangi North Ground as the Legends hosted Githurai All Stars in a crucial Division One match. 
+
+The match was tightly contested from the first whistle, with our defensive line coordinated impeccably by Kelvin 'Kevo' Juma. In the 23rd minute, playmaker Brian 'Neyo' Kamau delivered an exquisite through-ball that sliced through Githurai's defense, allowing winger Dennis Mwangi to fire us into the lead.
+
+The visitors fought back and equalized through a penalty in the 61st minute, leading to tense exchanges in midfield. Austin 'Gatuso' Odhiambo held the line with multiple crucial tackles to keep Githurai at bay.
+
+As the match seemed headed for a draw, a late corner in the 88th minute found Erick 'Chicha' Ochieng, who soared above the defenders to head home the winner. The crowd erupted into wild celebrations, showcasing the incredible unity and pride of the Kariobangi faithful.`,
+        imageUrl: "/images/goalkeeper-save-wall.jpg",
+      },
+      {
+        title: "Youth Academy Launch: Nurturing Slum Talent & Education",
+        summary: "KLFC formally announces its Under-15 Academy Program in partnership with local schools to offer soccer coaching and academic scholarships.",
+        content: `We are absolutely thrilled to announce the official launch of the Kariobangi Legends Football Club Youth Academy. 
+
+This new program will provide structured elite football training, quality football gear, and nutritious meals to 30 talented young players aged 10 to 15 from Kariobangi slums. More importantly, we have partnered with three local secondary schools to sponsor academic scholarships for academy players who maintain strong academic standings.
+
+"Football and education must go hand-in-hand," founder Mr. Atanga emphasized during the launch ceremony. "By equipping our kids with both athletic skills and academic power, we are giving them double the chance to succeed in life."
+
+We thank our local supporters and international donors who have made this academy possible. There are still sponsorship slots available for individual players—visit our Donors page to see how you can help!`,
+        imageUrl: "/images/squad-training.jpg",
+      },
+    ]);
+
+    // 4. Seed Merchandise — using real generated product photos where available
+    await db.insert(merchandise).values([
+      {
+        name: "Official KLFC Home Jersey 2025/26",
+        description: "Represent the slums' pride. Our premium home jersey is styled in 'Resilience Black' with gold trim and the embroidered lion emblem. High-performance, breathable fabric.",
+        price: 1800,
+        imageUrl: "/images/shop-home-jersey.jpg",
+        sizes: "S, M, L, XL, XXL",
+        kitType: "home",
+      },
+      {
+        name: "Legends Away Jersey (Hope Green)",
+        description: "Stand tall in the official away shirt. Featuring 'Hope Green' symbolizing Nairobi's growth, with black collars and white accents.",
+        price: 1800,
+        imageUrl: "/images/shop-away-green.jpg",
+        sizes: "S, M, L, XL",
+        kitType: "away-green",
+      },
+      {
+        name: "Legends Alternate Away Jersey (Pure White)",
+        description: "A clean, modern look. The secondary away shirt is crisp white with subtle black and green vertical stripes down the left side.",
+        price: 1800,
+        imageUrl: "/images/shop-away-white.jpg",
+        sizes: "S, M, L, XL",
+        kitType: "away-white",
+      },
+      {
+        name: "KLFC Supporter Heavy Knit Scarf",
+        description: "Essential for matchdays at the cold Nairobi evenings. Striking black and green horizontal bars with 'KARIOBANGI LEGENDS' in bold white letters.",
+        price: 850,
+        imageUrl: "/images/shop-scarf.jpg",
+        sizes: "One Size",
+        kitType: "accessory",
+      },
+      {
+        name: "Legends Premium Snapback Cap",
+        description: "Adjustable black supporter's cap with our signature gold lion emblem on the front panel and 'EST. 2018' embroidered on the back.",
+        price: 650,
+        imageUrl: "/images/shop-cap.jpg",
+        sizes: "Adjustable",
+        kitType: "accessory",
+      },
+    ]);
+
+    // 5. Seed initial donations and fan messages
+    await db.insert(donations).values([
+      {
+        donorName: "An anonymous local well-wisher",
+        amount: 5000,
+        message: "Keep guiding the youth in Kariobangi. We believe in your mission!",
+        purpose: "Boots & Equipment",
+      },
+      {
+        donorName: "Atanga's Friends Network",
+        amount: 25000,
+        message: "Supporting transport costs for the away match in Ruiru and Woodley Stadium. Let's get that promotion!",
+        purpose: "Transport & Meals",
+      },
+    ]);
+
+    await db.insert(fanMessages).values([
+      {
+        name: "Mama Otis",
+        message: "Thank you Mr. Atanga and the whole team. My son watches you train every single day. You are our hope!",
+      },
+      {
+        name: "John Kamau",
+        message: "Division One belongs to us this year. Kariobangi Legends to the Kenyan Premier League soon! Black is power!",
+      },
+      {
+        name: "Coach Mike",
+        message: "I played against this team in 2021. Their discipline is outstanding. Kudos to the management and community leaders.",
+      },
+    ]);
+
+    // 6. Seed Photo Gallery — showcasing REAL club training and match photos
+    await db.insert(gallery).values([
+      {
+        imageUrl: "/images/player-running-26.jpg",
+        caption: "Erick 'Chicha' Ochieng (#26) leading a pack during dust-pitch conditioning drills at Kariobangi North Ground.",
+        category: "Training",
+      },
+      {
+        imageUrl: "/images/squad-training.jpg",
+        caption: "The senior squad running warm-up laps together in the official Kariobangi Legends training kits.",
+        category: "Training",
+      },
+      {
+        imageUrl: "/images/coach-portrait.jpg",
+        caption: "Coach walking the touchline before another intense afternoon training session in Nairobi.",
+        category: "Training",
+      },
+      {
+        imageUrl: "/images/goalkeeper-catch.jpg",
+        caption: "Our #32 goalkeeper safely claiming the ball during a shot-stopping session — golden hour magic on the dust pitch.",
+        category: "Training",
+      },
+      {
+        imageUrl: "/images/two-players-standing.jpg",
+        caption: "Moses #17 and Brian #18 catching a breath between drills, representing the Kariobangi brotherhood.",
+        category: "Community",
+      },
+      {
+        imageUrl: "/images/coaches-discussion.jpg",
+        caption: "Our coaching staff in serious tactical discussion — every training session is planned with precision.",
+        category: "Training",
+      },
+      {
+        imageUrl: "/images/tall-player-15.jpg",
+        caption: "Captain Kelvin 'Kevo' Juma (#15) leading the boys through match-simulation drills.",
+        category: "Training",
+      },
+      {
+        imageUrl: "/images/goalkeeper-save-wall.jpg",
+        caption: "Match day action — a diving save in front of the iconic 'BE THE HERO!' wall as the local Kariobangi kids watch on.",
+        category: "Match",
+      },
+    ]);
+
+    console.log("Database seeded successfully with new gallery table!");
+  } catch (error) {
+    console.error("Error seeding database:", error);
+  }
+}
