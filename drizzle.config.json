@@ -2,6 +2,6 @@
   "dialect": "postgresql",
   "schema": "./src/db/schema.ts",
   "dbCredentials": {
-    "url": "postgresql://postgres:YOUR_NEW_PASSWORD@db.xomswzlzxqykvybackou.supabase.co:5432/postgres"
+    "url": "postgresql://postgres:Angose10651!@db.xomswzlzxqykvybackou.supabase.co:5432/postgres"
   }
 }

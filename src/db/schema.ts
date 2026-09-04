@@ -65,3 +65,23 @@ export const gallery = pgTable("gallery", {
   category: text("category").default("Training").notNull(), // 'Match', 'Training', 'Community', 'Academy'
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const management = pgTable("management", {
+  id: serial("id").primaryKey(),
+
+  name: text("name").notNull(),
+
+  position: text("position").notNull(),
+
+  category: text("category").notNull(),
+
+  bio: text("bio").default(""),
+
+  responsibilities: text("responsibilities").default(""),
+
+  imageUrl: text("image_url").default("/images/management-placeholder.jpg"),
+
+  displayOrder: integer("display_order").default(0).notNull(),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

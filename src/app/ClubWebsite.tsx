@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+import React, { useEffect, useState, useTransition } from "react";
 import {
   Shield,
   Activity,
@@ -49,6 +49,9 @@ import {
   addMerchandise,
   updateMerchandiseImage,
   deleteMerchandise,
+  addManagement,
+  updateManagement,
+   deleteManagement,
 } from "./actions";
 
 interface Player {
@@ -117,6 +120,18 @@ interface GalleryItem {
   createdAt: Date;
 }
 
+interface ManagementMember {
+  id: number;
+  name: string;
+  position: string;
+  category: string;
+  bio: string | null;
+  responsibilities: string | null;
+  imageUrl: string | null;
+  displayOrder: number;
+  createdAt: Date;
+}
+
 interface ClubWebsiteProps {
   initialData: {
     players: Player[];
@@ -126,6 +141,7 @@ interface ClubWebsiteProps {
     donations: Donation[];
     fanMessages: FanMessage[];
     gallery: GalleryItem[];
+    management: ManagementMember[];
   };
 }
 
@@ -147,6 +163,9 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
 
   // Gallery filter state
   const [selectedGalleryCategory, setSelectedGalleryCategory] = useState<string>("All");
+  const [selectedGalleryImage, setSelectedGalleryImage] =
+  useState<GalleryItem | null>(null);
+ 
 
   // Form states
   const [donationAmount, setDonationAmount] = useState<number>(1500);
@@ -195,6 +214,16 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
   const [adminGalleryCaption, setAdminGalleryCaption] = useState<string>("");
   const [adminGalleryCategory, setAdminGalleryCategory] =
     useState<string>("Training");
+
+    // Management admin states
+const [adminManagementName, setAdminManagementName] = useState<string>("");
+const [adminManagementPosition, setAdminManagementPosition] = useState<string>("Chairman");
+const [adminManagementCategory, setAdminManagementCategory] = useState<string>("Club Leadership");
+const [adminManagementBio, setAdminManagementBio] = useState<string>("");
+const [adminManagementResponsibilities, setAdminManagementResponsibilities] = useState<string>("");
+const [adminManagementOrder, setAdminManagementOrder] = useState<string>("0");
+const [adminManagementFile, setAdminManagementFile] = useState<File | null>(null);
+const [editingManagementId, setEditingManagementId] = useState<number | null>(null);
   // Merchandise admin state
   const [adminMerchName, setAdminMerchName] = useState<string>("");
   const [adminMerchDesc, setAdminMerchDesc] = useState<string>("");
@@ -219,7 +248,7 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
   };
 
   // Upload an image selected from the computer to Supabase Storage.
-  const uploadSelectedImage = async (file: File, folder: "players" | "gallery" | "news" | "merch") => {
+  const uploadSelectedImage = async (file: File, folder: "gallery" | "news" | "merch" | "players" | "management") => {
     if (!file.type.startsWith("image/")) {
       throw new Error("Please select an image file.");
     }
@@ -354,16 +383,34 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
     setCart([]);
   };
 
-  // Admin Login
-  const handleAdminLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (adminPassword === "kariobangi" || adminPassword === "legends" || adminPassword === "atanga") {
+  const handleAdminLogin = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  try {
+    const response = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        password: adminPassword,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
       setIsAdminAuthenticated(true);
+      setAdminPassword("");
       showToast("Successfully authenticated as Admin Manager.");
     } else {
-      showToast("Incorrect password. Hint: 'atanga' or 'legends'", "error");
+      showToast(result.error || "Incorrect password.", "error");
     }
-  };
+  } catch (error) {
+    console.error("Admin login failed:", error);
+    showToast("Unable to connect to the authentication server.", "error");
+  }
+};
 
   // Admin Add Player
   const handleAdminAddPlayer = (e: React.FormEvent) => {
@@ -407,6 +454,55 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
       }
     });
   };
+
+  // Admin Add Management Official
+const handleAdminAddManagement = (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (!adminManagementName || !adminManagementPosition) {
+    showToast("Name and position are required", "error");
+    return;
+  }
+
+  startTransition(async () => {
+    try {
+      const imageUrl = adminManagementFile
+        ? await uploadSelectedImage(adminManagementFile, "management")
+        : undefined;
+
+      const res = await addManagement({
+        name: adminManagementName,
+        position: adminManagementPosition,
+        category: adminManagementCategory,
+        bio: adminManagementBio,
+        responsibilities: adminManagementResponsibilities,
+        displayOrder: parseInt(adminManagementOrder) || 0,
+        imageUrl,
+      });
+
+      if (res.success) {
+        showToast("Management official added successfully!");
+
+        setAdminManagementName("");
+        setAdminManagementPosition("Chairman");
+        setAdminManagementCategory("Club Leadership");
+        setAdminManagementBio("");
+        setAdminManagementResponsibilities("");
+        setAdminManagementOrder("0");
+        setAdminManagementFile(null);
+      } else {
+        showToast(res.error || "Error adding management official", "error");
+      }
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Error uploading management photo",
+        "error"
+      );
+    }
+  });
+};
 
   // Admin Add Fixture
   const handleAdminAddFixture = (e: React.FormEvent) => {
@@ -512,6 +608,151 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
     });
   };
 
+  const handleAdminEditManagement = (
+  member: ManagementMember
+) => {
+  setEditingManagementId(member.id);
+
+  setAdminManagementName(member.name);
+  setAdminManagementPosition(member.position);
+  setAdminManagementCategory(member.category);
+  setAdminManagementBio(member.bio || "");
+  setAdminManagementResponsibilities(
+    member.responsibilities || ""
+  );
+  setAdminManagementOrder(
+    String(member.displayOrder ?? 0)
+  );
+  setAdminManagementFile(null);
+
+  setActiveTab("admin");
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth",
+  });
+};
+const handleCancelManagementEdit = () => {
+  setEditingManagementId(null);
+
+  setAdminManagementName("");
+  setAdminManagementPosition("Chairman");
+  setAdminManagementCategory("Club Leadership");
+  setAdminManagementBio("");
+  setAdminManagementResponsibilities("");
+  setAdminManagementOrder("0");
+  setAdminManagementFile(null);
+};
+
+const handleAdminDeleteManagement = (managementId: number) => {
+  const confirmed = window.confirm(
+    "Are you sure you want to delete this management official?"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  startTransition(async () => {
+    try {
+      const res = await deleteManagement(managementId);
+
+      if (res.success) {
+        showToast("Management official deleted successfully!");
+
+        if (editingManagementId === managementId) {
+          handleCancelManagementEdit();
+        }
+      } else {
+        showToast(
+          res.error || "Error deleting management official",
+          "error"
+        );
+      }
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Error deleting management official",
+        "error"
+      );
+    }
+  });
+};
+
+const handleAdminUpdateManagement = (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (!editingManagementId) {
+    showToast("No management official selected", "error");
+    return;
+  }
+
+  if (!adminManagementName || !adminManagementPosition) {
+    showToast("Name and position are required", "error");
+    return;
+  }
+
+  startTransition(async () => {
+    try {
+      const imageUrl = adminManagementFile
+        ? await uploadSelectedImage(adminManagementFile, "management")
+        : undefined;
+
+      const currentMember = initialData.management.find(
+        (member) => member.id === editingManagementId
+      );
+
+      const res = await updateManagement(
+        editingManagementId,
+        {
+          name: adminManagementName,
+          position: adminManagementPosition,
+          category: adminManagementCategory,
+          bio: adminManagementBio,
+          responsibilities: adminManagementResponsibilities,
+          displayOrder: parseInt(adminManagementOrder) || 0,
+          imageUrl:
+            imageUrl ||
+            currentMember?.imageUrl ||
+            "/images/management-placeholder.jpg",
+        }
+      );
+
+      if (res.success) {
+        showToast("Management official updated successfully!");
+
+        setEditingManagementId(null);
+        setAdminManagementName("");
+        setAdminManagementPosition("Chairman");
+        setAdminManagementCategory("Club Leadership");
+        setAdminManagementBio("");
+        setAdminManagementResponsibilities("");
+        setAdminManagementOrder("0");
+        setAdminManagementFile(null);
+
+        setActiveTab("management");
+
+        window.scrollTo({
+          top: 0,
+          behavior: "smooth",
+        });
+      } else {
+        showToast(
+          res.error || "Error updating management official",
+          "error"
+        );
+      }
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Error updating management official",
+        "error"
+      );
+    }
+  });
+};
   // ========== DELETE HANDLERS ==========
   const handleDeletePlayer = (id: number, name: string) => {
     if (!confirm(`Are you sure you want to remove "${name}" from the squad?`)) return;
@@ -656,7 +897,7 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
           <img
             src={item.imageUrl}
             alt={item.name}
-            className="w-full h-full object-contain group-hover:scale-105 transition duration-500"
+            className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
           />
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/80 to-transparent p-4">
             <span className="text-yellow-400 text-sm font-black">Ksh {item.price.toLocaleString()}</span>
@@ -743,6 +984,43 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
   const filteredGallery = selectedGalleryCategory === "All"
     ? initialData.gallery
     : initialData.gallery.filter(item => item.category === selectedGalleryCategory);
+    useEffect(() => {
+  if (!selectedGalleryImage) return;
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    const currentIndex = filteredGallery.findIndex(
+      (image) => image.id === selectedGalleryImage.id
+    );
+
+    if (event.key === "Escape") {
+      setSelectedGalleryImage(null);
+    }
+
+    if (event.key === "ArrowLeft") {
+      const previousIndex =
+        currentIndex === 0
+          ? filteredGallery.length - 1
+          : currentIndex - 1;
+
+      setSelectedGalleryImage(filteredGallery[previousIndex]);
+    }
+
+    if (event.key === "ArrowRight") {
+      const nextIndex =
+        currentIndex === filteredGallery.length - 1
+          ? 0
+          : currentIndex + 1;
+
+      setSelectedGalleryImage(filteredGallery[nextIndex]);
+    }
+  };
+
+  window.addEventListener("keydown", handleKeyDown);
+
+  return () => {
+    window.removeEventListener("keydown", handleKeyDown);
+  };
+}, [selectedGalleryImage, filteredGallery]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-emerald-600 selection:text-white">
@@ -800,6 +1078,7 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
               { id: "home", label: "Home" },
               { id: "history", label: "Our Story" },
               { id: "squad", label: "Squad" },
+               { id: "management", label: "Management" },
               { id: "fixtures", label: "Matches" },
               { id: "news", label: "Club News" },
               { id: "gallery", label: "Photo Gallery" },
@@ -1256,15 +1535,25 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
               {filteredGallery.map((item) => (
                 <div
                   key={item.id}
-                  className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-md transition group"
+                  className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group"
+                  
                 >
-                  <div className="h-64 relative bg-slate-900 overflow-hidden">
+                  <div className="h-72 relative bg-slate-900 overflow-hidden">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.imageUrl}
-                      alt={item.caption}
-                      className="w-full h-full object-contain group-hover:scale-105 transition duration-500"
-                    />
+                    <button
+  type="button"
+  onClick={() => {
+    setSelectedGalleryImage(item);
+  }}
+  className="w-full h-full cursor-zoom-in"
+>
+  {/* eslint-disable-next-line @next/next/no-img-element */}
+  <img
+    src={item.imageUrl}
+    alt={item.caption}
+    className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500 ease-out"
+  />
+</button>
                     <span className="absolute top-4 left-4 bg-slate-950/90 text-yellow-400 text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
                       {item.category}
                     </span>
@@ -1306,6 +1595,93 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
             )}
           </div>
         )}
+                    {selectedGalleryImage && (
+              <div
+                className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-300"
+                onClick={() => setSelectedGalleryImage(null)}
+              >
+                <div
+                  className="relative w-full max-w-6xl h-[90vh] flex items-center justify-center"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Close Button */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedGalleryImage(null)}
+                    className="absolute top-2 right-2 z-20 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-2xl transition"
+                    aria-label="Close image"
+                  >
+                    ×
+                  </button>
+
+{/* Previous Button */}
+<button
+  type="button"
+  className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 z-20 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-2xl transition"
+  aria-label="Previous photo"
+  onClick={() => {
+    const currentIndex = filteredGallery.findIndex(
+      (image) => image.id === selectedGalleryImage.id
+    );
+
+    const previousIndex =
+      currentIndex === 0
+        ? filteredGallery.length - 1
+        : currentIndex - 1;
+
+    setSelectedGalleryImage(filteredGallery[previousIndex]);
+  }}
+>
+  ‹
+</button>
+
+{/* Next Button */}
+<button
+  type="button"
+  className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 z-20 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-2xl transition"
+  aria-label="Next photo"
+  onClick={() => {
+    const currentIndex = filteredGallery.findIndex(
+      (image) => image.id === selectedGalleryImage.id
+    );
+
+    const nextIndex =
+      currentIndex === filteredGallery.length - 1
+        ? 0
+        : currentIndex + 1;
+
+    setSelectedGalleryImage(filteredGallery[nextIndex]);
+  }}
+>
+  ›
+</button>
+{/* Photo Counter */}
+<div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-black/60 text-white text-xs font-bold px-4 py-2 rounded-full">
+  {filteredGallery.findIndex(
+    (image) => image.id === selectedGalleryImage.id
+  ) + 1}{" "}
+  / {filteredGallery.length}
+</div>
+                  {/* Large Image */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={selectedGalleryImage.imageUrl}
+                    alt={selectedGalleryImage.caption}
+                    className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-300"
+                  />
+
+                  {/* Caption */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-6 pt-16 rounded-b-lg">
+                    <p className="text-white font-bold text-sm">
+                      {selectedGalleryImage.caption}
+                    </p>
+                    <p className="text-emerald-400 text-xs font-semibold mt-1 uppercase">
+                      {selectedGalleryImage.category}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
         {/* ================= TAB: CLUB HISTORY ================= */}
         {activeTab === "history" && (
@@ -1412,6 +1788,209 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
             </div>
           </div>
         )}
+
+       {/* ================= TAB: MANAGEMENT ================= */}
+{activeTab === "management" && (
+  <div className="space-y-10">
+
+    {/* Header */}
+    <div className="max-w-3xl space-y-3">
+      <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+        Club Leadership & Football Operations
+      </p>
+
+      <h2 className="text-3xl md:text-4xl font-black text-slate-950 tracking-tight">
+        Kariobangi Legends Management
+      </h2>
+
+      <p className="text-sm md:text-base text-slate-600 leading-relaxed">
+        Meet the people responsible for leading, managing and developing
+        Kariobangi Legends Football Club both on and off the pitch.
+      </p>
+    </div>
+
+    {/* Management Hierarchy */}
+    {[
+      "Club Leadership",
+      "Football & Technical",
+      "Team Operations",
+      "Medical & Welfare",
+      "Academy",
+    ].map((category) => {
+      const members = initialData.management.filter(
+        (member) => member.category === category
+      );
+
+      if (members.length === 0) return null;
+
+      return (
+        <section key={category} className="space-y-5">
+
+          {/* Category Heading */}
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-1.5 bg-yellow-400 rounded-full" />
+
+            <div>
+              <h3 className="text-xl md:text-2xl font-black text-slate-950">
+                {category}
+              </h3>
+
+              <p className="text-xs text-slate-500 mt-1">
+                {category === "Club Leadership" &&
+                  "Strategic leadership and overall direction of the club."}
+
+                {category === "Football & Technical" &&
+                  "Football, coaching and technical development."}
+
+                {category === "Team Operations" &&
+                  "Daily team administration, welfare and operations."}
+
+                {category === "Medical & Welfare" &&
+                  "Player health, fitness, recovery and welfare."}
+
+                {category === "Academy" &&
+                  "Youth development and the future of Kariobangi Legends."}
+              </p>
+            </div>
+          </div>
+
+          {/* Officials */}
+          <div
+            className={
+              category === "Club Leadership"
+                ? "grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto"
+                : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+            }
+          >
+            {members.map((member) => (
+              <div
+                key={member.id}
+                className={`bg-white rounded-3xl overflow-hidden border shadow-sm hover:shadow-xl transition-all duration-300 ${
+                  category === "Club Leadership"
+                    ? "border-yellow-400/40"
+                    : "border-slate-100"
+                }`}
+              >
+
+                {/* Photo */}
+                <div
+                  className={`relative bg-slate-100 overflow-hidden ${
+                    category === "Club Leadership"
+                      ? "h-80"
+                      : "h-64"
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={
+                      member.imageUrl ||
+                      "/images/management-placeholder.jpg"
+                    }
+                    alt={`${member.name} - ${member.position}`}
+                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                    onError={(e) => {
+                      e.currentTarget.src =
+                        "/images/management-placeholder.jpg";
+                    }}
+                  />
+
+                  {/* Position Badge */}
+                  <div className="absolute bottom-4 left-4 right-4">
+                    <span className="inline-block bg-slate-950/95 text-yellow-400 text-xs font-black uppercase tracking-wide px-4 py-2.5 rounded-xl shadow-lg">
+                      {member.position}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Information */}
+                <div
+                  className={
+                    category === "Club Leadership"
+                      ? "p-7 space-y-5"
+                      : "p-5 space-y-4"
+                  }
+                >
+
+                  <div>
+                    <h4
+                      className={`font-black text-slate-950 ${
+                        category === "Club Leadership"
+                          ? "text-2xl"
+                          : "text-lg"
+                      }`}
+                    >
+                      {member.name}
+                    </h4>
+
+                    <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide mt-1">
+                      {member.position}
+                    </p>
+                  </div>
+
+                  {/* Responsibilities */}
+                  {member.responsibilities && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        Responsibilities
+                      </p>
+
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        {member.responsibilities}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Biography */}
+                  {member.bio && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        Biography
+                      </p>
+
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        {member.bio}
+                      </p>
+                    </div>
+                  )}
+                  {/* Edit Management Official */}
+{isAdminAuthenticated && (
+  <div className="flex gap-2 mt-4">
+
+    {/* Edit */}
+    <button
+      type="button"
+      onClick={() => handleAdminEditManagement(member)}
+      className="flex-1 bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider hover:bg-slate-900 transition flex items-center justify-center gap-2 cursor-pointer"
+    >
+      <Camera className="w-4 h-4" />
+      Edit
+    </button>
+
+    {/* Delete */}
+    <button
+      type="button"
+      onClick={() => handleAdminDeleteManagement(member.id)}
+      disabled={isPending}
+      className="flex-1 bg-red-600 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider hover:bg-red-700 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+    >
+      Delete
+    </button>
+
+  </div>
+)}
+
+                </div>
+              </div>
+            ))}
+          </div>
+
+        </section>
+      );
+    })}
+
+  </div>
+)}
+
 
         {/* ================= TAB: SQUAD ================= */}
         {activeTab === "squad" && (
@@ -2186,9 +2765,7 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
                 </div>
                 <div className="text-center space-y-1">
                   <h3 className="font-bold text-slate-950">Enter Manager Password</h3>
-                  <p className="text-xs text-slate-500">
-                    To keep simulation simple, any password works (try: <strong>atanga</strong>, <strong>legends</strong>, or <strong>kariobangi</strong>).
-                  </p>
+                  
                 </div>
                 <form onSubmit={handleAdminLogin} className="space-y-3">
                   <input
@@ -2212,11 +2789,19 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
                 <div className="bg-emerald-600 text-white p-4 rounded-2xl flex justify-between items-center text-xs">
                   <span className="font-bold">✓ Authenticated as Kariobangi Legends Manager</span>
                   <button
-                    onClick={() => setIsAdminAuthenticated(false)}
-                    className="bg-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-800 font-bold transition"
-                  >
-                    Logout Admin
-                  </button>
+  onClick={async () => {
+    try {
+      await fetch("/api/admin/logout", {
+        method: "POST",
+      });
+    } finally {
+      setIsAdminAuthenticated(false);
+    }
+  }}
+  className="bg-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-800 font-bold transition"
+>
+  Logout Admin
+</button>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -2417,6 +3002,188 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
                       </button>
                     </form>
                   </div>
+
+                  {/* Action 3: Add Management Official */}
+<div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+
+  <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
+    <UserPlus className="w-5 h-5 text-emerald-600" />
+    {editingManagementId
+      ? "Edit Club Management Official"
+      : "Add Club Management Official"}
+  </h3>
+
+  <p className="text-[11px] text-slate-500">
+    Add Chairman, CEO, Team Manager, coaches, administrators and other club officials.
+    Photos can be uploaded directly from your computer.
+  </p>
+
+  <form
+    onSubmit={
+      editingManagementId
+        ? handleAdminUpdateManagement
+        : handleAdminAddManagement
+    }
+    className="space-y-3 text-xs"
+  >
+
+    {/* Name */}
+    <div className="space-y-1">
+      <label className="font-bold text-slate-500">Full Name</label>
+      <input
+        type="text"
+        placeholder="e.g. John Kamau"
+        value={adminManagementName}
+        onChange={(e) => setAdminManagementName(e.target.value)}
+        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+        required
+      />
+    </div>
+
+    {/* Position */}
+    <div className="space-y-1">
+      <label className="font-bold text-slate-500">Position</label>
+      <select
+        value={adminManagementPosition}
+        onChange={(e) => setAdminManagementPosition(e.target.value)}
+        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+      >
+        <option>Chairman</option>
+        <option>Chief Executive Officer (CEO)</option>
+        <option>Club Secretary</option>
+        <option>Treasurer</option>
+        <option>Team Manager</option>
+        <option>Head Coach</option>
+        <option>Assistant Coach</option>
+        <option>Goalkeeping Coach</option>
+        <option>Fitness & Conditioning Coach</option>
+        <option>Team Doctor / Medical Officer</option>
+        <option>Physiotherapist</option>
+        <option>Team Administrator</option>
+        <option>Kit Manager</option>
+        <option>Team Liaison / Welfare Officer</option>
+        <option>Academy Director</option>
+        <option>Academy Head Coach</option>
+        <option>Youth Development Coach</option>
+        <option>Other</option>
+      </select>
+    </div>
+
+    {/* Category */}
+    <div className="space-y-1">
+      <label className="font-bold text-slate-500">Management Category</label>
+      <select
+        value={adminManagementCategory}
+        onChange={(e) => setAdminManagementCategory(e.target.value)}
+        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+      >
+        <option>Club Leadership</option>
+        <option>Football & Technical</option>
+        <option>Team Operations</option>
+        <option>Medical & Welfare</option>
+        <option>Academy</option>
+      </select>
+    </div>
+
+    {/* Responsibilities */}
+    <div className="space-y-1">
+      <label className="font-bold text-slate-500">Responsibilities</label>
+      <textarea
+        placeholder="Describe the official's responsibilities..."
+        value={adminManagementResponsibilities}
+        onChange={(e) =>
+          setAdminManagementResponsibilities(e.target.value)
+        }
+        rows={3}
+        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+      />
+    </div>
+
+    {/* Bio */}
+    <div className="space-y-1">
+      <label className="font-bold text-slate-500">Short Biography</label>
+      <textarea
+        placeholder="Enter a short biography..."
+        value={adminManagementBio}
+        onChange={(e) => setAdminManagementBio(e.target.value)}
+        rows={3}
+        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+      />
+    </div>
+
+    {/* Display Order */}
+    <div className="space-y-1">
+      <label className="font-bold text-slate-500">Display Order</label>
+      <input
+        type="number"
+        min="0"
+        value={adminManagementOrder}
+        onChange={(e) => setAdminManagementOrder(e.target.value)}
+        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+      />
+      <p className="text-[10px] text-slate-400">
+        Lower numbers appear first.
+      </p>
+    </div>
+
+    {/* Management Photo */}
+    <div className="space-y-1">
+      <label className="font-bold text-slate-500">
+        Official's Photo
+      </label>
+
+      <input
+        type="file"
+        accept="image/*"
+        onChange={(e) => {
+          const file = e.target.files?.[0] || null;
+          setAdminManagementFile(file);
+        }}
+        className="block w-full text-sm text-slate-600
+          file:mr-4 file:py-2.5 file:px-4
+          file:rounded-xl file:border-0
+          file:text-xs file:font-bold
+          file:bg-emerald-50 file:text-emerald-700
+          hover:file:bg-emerald-100"
+      />
+
+      {adminManagementFile && (
+        <p className="text-[10px] text-emerald-600 font-semibold">
+          Selected: {adminManagementFile.name}
+        </p>
+      )}
+    </div>
+
+    {/* Submit */}
+    <button
+      type="submit"
+      disabled={isPending}
+      className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
+    >
+      {isPending
+        ? editingManagementId
+          ? "Updating Official..."
+          : "Adding Official..."
+        : editingManagementId
+          ? "Update Management Official"
+          : "Add Management Official"}
+    </button>
+
+    {/* Cancel Edit */}
+    {editingManagementId && (
+      <button
+        type="button"
+        onClick={handleCancelManagementEdit}
+        className="w-full border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-50 transition cursor-pointer"
+      >
+        Cancel Edit
+      </button>
+    )}
+
+  </form>
+</div>
+
+{/* Action 4: Add Gallery Image (For Showcasing More Images!) */}
 
                   {/* Action 3: Add Gallery Image (For Showcasing More Images!) */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">

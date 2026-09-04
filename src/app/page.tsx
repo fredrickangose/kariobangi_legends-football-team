@@ -28,6 +28,7 @@ export default async function HomePage() {
     donations: clubDataResult.donations || [],
     fanMessages: clubDataResult.fanMessages || [],
     gallery: clubDataResult.gallery || [],
+    management: clubDataResult.management || [],
   };
 
   return <ClubWebsite initialData={initialData} />;
