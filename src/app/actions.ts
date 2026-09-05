@@ -259,8 +259,6 @@ if (!verifyAdminToken(adminCookie?.value)) {
   }
 }
 
-// ========== FIXTURES ==========
-
 export async function addFixture(data: {
   opponent: string;
   date: string;
@@ -271,34 +269,105 @@ export async function addFixture(data: {
   awayScore?: number;
 }) {
   try {
+    const cookieStore = await cookies();
+    const adminCookie = cookieStore.get("kariobangi_admin");
+
+    if (!verifyAdminToken(adminCookie?.value)) {
+      return {
+        success: false,
+        error: "Unauthorized. Admin authentication required.",
+      };
+    }
+
     await db.insert(fixtures).values({
       opponent: data.opponent,
       date: data.date,
       isHome: data.isHome,
       status: data.status,
       venue: data.venue,
-      homeScore: data.homeScore !== undefined ? Number(data.homeScore) : null,
-      awayScore: data.awayScore !== undefined ? Number(data.awayScore) : null,
+      homeScore:
+        data.homeScore !== undefined ? Number(data.homeScore) : null,
+      awayScore:
+        data.awayScore !== undefined ? Number(data.awayScore) : null,
     });
 
     revalidatePath("/");
-    return { success: true, message: "Fixture added successfully!" };
+
+    return {
+      success: true,
+      message: "Fixture added successfully!",
+    };
   } catch (error) {
-    return { success: false, error: String(error) };
+    return {
+      success: false,
+      error: String(error),
+    };
   }
 }
+export async function updateFixture(
+  fixtureId: number,
+  data: {
+    opponent: string;
+    date: string;
+    isHome: boolean;
+    status: string;
+    venue: string;
+    homeScore?: number;
+    awayScore?: number;
+  }
+) {
+  try {
+    const cookieStore = await cookies();
+    const adminCookie = cookieStore.get("kariobangi_admin");
+
+    if (!verifyAdminToken(adminCookie?.value)) {
+      return {
+        success: false,
+        error: "Unauthorized. Admin authentication required.",
+      };
+    }
+
+    await db
+      .update(fixtures)
+      .set({
+        opponent: data.opponent,
+        date: data.date,
+        isHome: data.isHome,
+        status: data.status,
+        venue: data.venue,
+        homeScore:
+          data.homeScore !== undefined ? Number(data.homeScore) : null,
+        awayScore:
+          data.awayScore !== undefined ? Number(data.awayScore) : null,
+      })
+      .where(eq(fixtures.id, fixtureId));
+
+    revalidatePath("/");
+
+    return {
+      success: true,
+      message: "Fixture updated successfully!",
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+// ========== DELETE FIXTURE ==========
 
 export async function deleteFixture(fixtureId: number) {
   try {
     const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
+    const adminCookie = cookieStore.get("kariobangi_admin");
 
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
+    if (!verifyAdminToken(adminCookie?.value)) {
+      return {
+        success: false,
+        error: "Unauthorized. Admin authentication required.",
+      };
+    }
 
     await db
       .delete(fixtures)
@@ -308,7 +377,7 @@ if (!verifyAdminToken(adminCookie?.value)) {
 
     return {
       success: true,
-      message: "Fixture removed.",
+      message: "Fixture deleted successfully!",
     };
   } catch (error) {
     return {
@@ -317,7 +386,6 @@ if (!verifyAdminToken(adminCookie?.value)) {
     };
   }
 }
-
 // ========== NEWS ==========
 
 export async function addNews(data: {

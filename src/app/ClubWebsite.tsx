@@ -9,6 +9,7 @@ import {
   Award,
   History,
   Calendar,
+Trophy,
   Users,
   BookOpen,
   HeartHandshake,
@@ -36,11 +37,9 @@ import {
   submitDonation,
   submitFanMessage,
   addPlayer,
-  addFixture,
   addNews,
   addGalleryImage,
   deletePlayer,
-  deleteFixture,
   deleteNews,
   deleteGalleryImage,
   updatePlayerImage,
@@ -51,7 +50,9 @@ import {
   deleteMerchandise,
   addManagement,
   updateManagement,
-   deleteManagement,
+   deleteManagement,addFixture,
+updateFixture,
+deleteFixture,
 } from "./actions";
 
 interface Player {
@@ -204,6 +205,7 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
   const [adminHomeScore, setAdminHomeScore] = useState<string>("");
   const [adminAwayScore, setAdminAwayScore] = useState<string>("");
   const [adminStatus, setAdminStatus] = useState<string>("upcoming");
+  const [editingFixtureId, setEditingFixtureId] = useState<number | null>(null);
 
   const [adminNewsTitle, setAdminNewsTitle] = useState<string>("");
   const [adminNewsSummary, setAdminNewsSummary] = useState<string>("");
@@ -504,37 +506,125 @@ const handleAdminAddManagement = (e: React.FormEvent) => {
   });
 };
 
-  // Admin Add Fixture
-  const handleAdminAddFixture = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!adminOpponent || !adminDate) {
-      showToast("Opponent name and date are required", "error");
-      return;
-    }
+ // Admin Add Fixture
+const handleAdminAddFixture = (e: React.FormEvent) => {
+  e.preventDefault();
 
-    startTransition(async () => {
-      const res = await addFixture({
+  if (!adminOpponent || !adminDate) {
+    showToast("Opponent name and date are required", "error");
+    return;
+  }
+
+  startTransition(async () => {
+    const res = await addFixture({
+      opponent: adminOpponent,
+      date: adminDate,
+      isHome: adminIsHome,
+      status: adminStatus,
+      venue: adminVenue,
+      homeScore:
+        adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
+      awayScore:
+        adminAwayScore !== "" ? parseInt(adminAwayScore) : undefined,
+    });
+
+    if (res.success) {
+      showToast(
+        "Fixture registered in system! The upcoming match has been updated."
+      );
+
+      setAdminOpponent("");
+      setAdminDate("");
+      setAdminHomeScore("");
+      setAdminAwayScore("");
+    } else {
+      showToast(res.error || "Error adding fixture", "error");
+    }
+  });
+};
+
+
+// Admin Update Fixture / Match Result
+const handleAdminUpdateFixture = (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (!editingFixtureId) {
+    showToast("No match selected for editing", "error");
+    return;
+  }
+
+  if (!adminOpponent || !adminDate) {
+    showToast("Opponent name and date are required", "error");
+    return;
+  }
+
+  startTransition(async () => {
+    try {
+      const res = await updateFixture(editingFixtureId, {
         opponent: adminOpponent,
         date: adminDate,
         isHome: adminIsHome,
         status: adminStatus,
         venue: adminVenue,
-        homeScore: adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
-        awayScore: adminAwayScore !== "" ? parseInt(adminAwayScore) : undefined,
+        homeScore:
+          adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
+        awayScore:
+          adminAwayScore !== "" ? parseInt(adminAwayScore) : undefined,
       });
 
       if (res.success) {
-        showToast("Fixture registered in system! The upcoming match has been updated.");
+        showToast("Match result updated successfully!");
+
+        setEditingFixtureId(null);
         setAdminOpponent("");
         setAdminDate("");
         setAdminHomeScore("");
         setAdminAwayScore("");
+        setAdminStatus("upcoming");
+        setAdminIsHome(true);
+        setAdminVenue("Kariobangi North Ground, Nairobi");
       } else {
-        showToast(res.error || "Error adding fixture", "error");
+        showToast(
+          res.error || "Error updating fixture",
+          "error"
+        );
       }
-    });
-  };
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Error updating fixture",
+        "error"
+      );
+    }
+  });
+};
+// Load an existing fixture into the admin form for editing
+const handleEditFixture = (
+  fixture: (typeof initialData.fixtures)[number]
+) => {
+  setEditingFixtureId(fixture.id);
 
+  setAdminOpponent(fixture.opponent);
+  setAdminDate(fixture.date);
+  setAdminIsHome(fixture.isHome);
+  setAdminVenue(fixture.venue);
+  setAdminStatus(fixture.status);
+
+  setAdminHomeScore(
+    fixture.homeScore !== null && fixture.homeScore !== undefined
+      ? String(fixture.homeScore)
+      : ""
+  );
+
+  setAdminAwayScore(
+    fixture.awayScore !== null && fixture.awayScore !== undefined
+      ? String(fixture.awayScore)
+      : ""
+  );
+
+  showToast(`Editing match vs ${fixture.opponent}`);
+};
   // Admin Add News
   const handleAdminAddNews = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1022,6 +1112,34 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   };
 }, [selectedGalleryImage, filteredGallery]);
 
+  // ================= AUTOMATIC MATCH DATE SORTING =================
+const today = new Date();
+
+const todayString = `${today.getFullYear()}-${String(
+  today.getMonth() + 1
+).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+// Upcoming = future matches only.
+// A match marked Completed (FT) is removed from Upcoming immediately,
+// even if it was played today.
+// Upcoming = today's and future matches that are not completed
+const upcomingFixtures = initialData.fixtures
+  .filter(
+    (fixture) =>
+      fixture.date >= todayString &&
+      fixture.status !== "completed"
+  )
+  .sort((a, b) => a.date.localeCompare(b.date));
+
+// Recent Results = completed matches, including matches completed today,
+// plus any older matches whose date has already passed.
+const recentFixtures = initialData.fixtures
+  .filter(
+    (fixture) =>
+      fixture.status === "completed" ||
+      fixture.date < todayString
+  )
+  .sort((a, b) => b.date.localeCompare(a.date));
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-emerald-600 selection:text-white">
       {/* Toast Alert */}
@@ -1059,49 +1177,79 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           {/* Logo Brand */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab("home")}>
-            <div className="w-12 h-12 rounded-xl bg-slate-950 flex items-center justify-center border-2 border-yellow-500 shadow-md">
-              <Shield className="w-7 h-7 text-yellow-500 fill-yellow-500" />
-            </div>
+           <div className="relative w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl bg-slate-950 border-2 border-yellow-400 shadow-lg flex items-center justify-center overflow-hidden group">
+
+  {/* Subtle club-color glow */}
+  <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/20 via-transparent to-yellow-400/10" />
+
+  {/* Club badge */}
+  {/* eslint-disable-next-line @next/next/no-img-element */}
+  <img
+    src="/assets/logo.jpeg"
+    alt="Kariobangi Legends FC badge"
+    className="relative z-10 w-full h-full object-contain p-1.5 group-hover:scale-105 transition-transform duration-300"
+  />
+
+</div>
             <div>
-              <h1 className="font-extrabold text-base sm:text-lg tracking-tight text-slate-950 flex items-center gap-1">
-                KARIOBANGI LEGENDS
-              </h1>
+              <h1 className="font-black italic text-lg sm:text-xl md:text-2xl tracking-[-0.04em] text-slate-950 leading-none uppercase">
+  KARIOBANGI
+  <span className="text-emerald-600 ml-1">
+    LEGENDS
+  </span>
+</h1>
+<p className="mt-1 text-[9px] sm:text-[10px] font-black text-slate-500 tracking-[0.16em] uppercase">
+  Football Club
+  <span className="text-yellow-500 mx-1">•</span>
+  Division One
+</p>
               <p className="text-[10px] font-semibold text-emerald-600 tracking-wider uppercase">
                 Football Club • Division One
               </p>
             </div>
           </div>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden xl:flex items-center gap-1 text-[13px] font-bold text-slate-700">
-            {[
-              { id: "home", label: "Home" },
-              { id: "history", label: "Our Story" },
-              { id: "squad", label: "Squad" },
-               { id: "management", label: "Management" },
-              { id: "fixtures", label: "Matches" },
-              { id: "news", label: "Club News" },
-              { id: "gallery", label: "Photo Gallery" },
-              { id: "shop", label: "Merchandise Shop" },
-              { id: "donors", label: "Support & Donors" },
-              { id: "fanzone", label: "Fan Zone" },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                className={`px-2.5 py-2 rounded-lg transition-all ${
-                  activeTab === tab.id
-                    ? "bg-slate-950 text-yellow-400 shadow-sm"
-                    : "hover:bg-slate-100 hover:text-slate-950"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
+          {/* ================= DESKTOP NAVIGATION ================= */}
+<nav className="hidden xl:flex items-center gap-1 p-1.5 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm">
+
+  {[
+    { id: "home", label: "Home" },
+    { id: "history", label: "Our Story" },
+    { id: "squad", label: "Squad" },
+    { id: "management", label: "Management" },
+    { id: "fixtures", label: "Matches" },
+    { id: "news", label: "Club News" },
+    { id: "gallery", label: "Photo Gallery" },
+    { id: "shop", label: "Merchandise Shop" },
+    { id: "donors", label: "Support & Donors" },
+    { id: "fanzone", label: "Fan Zone" },
+  ].map((tab) => (
+
+    <button
+      key={tab.id}
+      onClick={() => {
+        setActiveTab(tab.id);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }}
+      className={`relative px-3 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wide transition-all duration-300 whitespace-nowrap cursor-pointer ${
+        activeTab === tab.id
+          ? "bg-slate-950 text-yellow-400 shadow-md"
+          : "text-slate-600 hover:bg-white hover:text-emerald-700 hover:shadow-sm"
+      }`}
+    >
+
+      {/* Active indicator */}
+      {activeTab === tab.id && (
+        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-4 h-0.5 rounded-full bg-yellow-400" />
+      )}
+
+      {tab.label}
+
+    </button>
+
+  ))}
+
+</nav>
 
           {/* Action buttons (Cart, Donate) */}
           <div className="flex items-center gap-2">
@@ -1183,314 +1331,1089 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
         {/* ================= TAB: HOME ================= */}
         {activeTab === "home" && (
           <div className="space-y-12">
-            {/* Custom Hero Banner */}
-            <div className="relative rounded-3xl overflow-hidden bg-slate-950 text-white border border-slate-900 shadow-2xl">
-              {/* Image background overlay */}
-              <div className="absolute inset-0 bg-cover bg-center opacity-45 transform hover:scale-105 transition-transform duration-1000" style={{ backgroundImage: "url('/images/team-hero.jpg')" }}></div>
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent"></div>
-              
-              <div className="relative p-6 sm:p-12 md:p-16 max-w-3xl space-y-6 z-10">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600 text-emerald-100 text-xs font-bold uppercase tracking-wider">
-                  <Activity className="w-3.5 h-3.5 animate-pulse" /> FKF Division One Contenders
-                </span>
-                
-                <h2 className="text-3xl sm:text-5xl md:text-6xl font-black tracking-tight leading-none text-white">
-                  KARIOBANGI <span className="text-yellow-400 block sm:inline">LEGENDS FC</span>
-                </h2>
-                
-                <p className="text-base sm:text-lg text-slate-200 font-medium leading-relaxed">
-                  Rising from the vibrant slums of Kariobangi North in Nairobi County, Kenya. 
-                  Founded by Mr. Erick Otieno Atanga with local community collaboration to empower slum youth 
-                  through elite football, discipline, and education.
-                </p>
+          {/* ================= HERO BANNER ================= */}
+<div className="relative min-h-[440px] sm:min-h-[500px] rounded-3xl overflow-hidden bg-slate-950 text-white border border-slate-800 shadow-2xl">
 
-                <div className="flex flex-wrap gap-3 pt-2">
-                  <button
-                    onClick={() => setActiveTab("history")}
-                    className="bg-white hover:bg-slate-100 text-slate-950 font-extrabold text-sm px-6 py-3.5 rounded-xl transition shadow-lg cursor-pointer flex items-center gap-1"
-                  >
-                    <BookOpen className="w-4 h-4" /> Learn History
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("gallery")}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm px-6 py-3.5 rounded-xl transition shadow-lg cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Camera className="w-4 h-4" /> Team Photo Gallery
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("shop")}
-                    className="bg-slate-900/90 hover:bg-slate-900 text-yellow-400 border border-yellow-500/30 font-extrabold text-sm px-6 py-3.5 rounded-xl transition cursor-pointer flex items-center gap-1"
-                  >
-                    <ShoppingBag className="w-4 h-4" /> Buy Home Kit
-                  </button>
-                </div>
-              </div>
+  {/* Hero background image */}
+  <div
+    className="absolute inset-0 bg-cover bg-center"
+    style={{ backgroundImage: "url('/assets/background.jpeg')" }}
+  />
 
-              {/* Home & Away Kit preview drawer on the side (desktop) */}
-              <div className="hidden lg:grid grid-cols-3 gap-4 absolute bottom-8 right-8 z-10 w-96 bg-slate-900/90 backdrop-blur-md p-4 rounded-2xl border border-slate-800">
-                <div className="text-center">
-                  <p className="text-[10px] text-slate-400 font-bold mb-1">HOME KIT</p>
-                  {renderKitIcon("home")}
-                  <p className="text-[10px] text-yellow-400 font-bold mt-1">Black</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-[10px] text-slate-400 font-bold mb-1">AWAY A</p>
-                  {renderKitIcon("away-green")}
-                  <p className="text-[10px] text-emerald-400 font-bold mt-1">Green</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-[10px] text-slate-400 font-bold mb-1">AWAY B</p>
-                  {renderKitIcon("away-white")}
-                  <p className="text-[10px] text-white font-bold mt-1">White</p>
-                </div>
-              </div>
+  {/* Dark cinematic overlays */}
+  <div className="absolute inset-0 bg-slate-950/55" />
+  <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/75 to-slate-950/20" />
+  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-slate-950/20" />
+
+  {/* Decorative glow */}
+  <div className="absolute -top-24 -right-24 w-72 h-72 bg-emerald-500/20 rounded-full blur-3xl" />
+  <div className="absolute -bottom-24 -left-20 w-72 h-72 bg-yellow-400/10 rounded-full blur-3xl" />
+
+  {/* Hero content */}
+  <div className="relative z-10 min-h-[440px] sm:min-h-[500px] flex items-center">
+    <div className="w-full p-6 sm:p-10 md:p-14 lg:p-16">
+
+      <div className="max-w-3xl space-y-4 sm:space-y-5">
+
+        {/* Club status */}
+        <div className="flex flex-wrap items-center gap-2">
+
+          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-600/90 text-white text-[9px] sm:text-[10px] font-black uppercase tracking-widest shadow-lg">
+            <Activity className="w-3.5 h-3.5 animate-pulse" />
+            FKF Division One
+          </span>
+
+          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/80 border border-white/10 text-slate-200 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest backdrop-blur-sm">
+            Nairobi, Kenya
+          </span>
+
+        </div>
+
+        {/* Main heading */}
+        <div className="space-y-1">
+
+          <p className="text-yellow-400 text-[10px] sm:text-xs font-black uppercase tracking-[0.25em]">
+            Welcome to the Legends
+          </p>
+
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tighter leading-[0.9]">
+            KARIOBANGI
+            <span className="block text-yellow-400">
+              LEGENDS FC
+            </span>
+          </h1>
+
+        </div>
+
+        {/* Club statement */}
+        <p className="max-w-2xl text-xs sm:text-sm md:text-base text-slate-200 leading-relaxed font-medium">
+          Born in Kariobangi North, Nairobi, we are more than a football club.
+          We are a community built on{" "}
+          <span className="text-yellow-400 font-bold">
+            talent, discipline, resilience and hope.
+          </span>{" "}
+          Our mission is to empower young people through football and education.
+        </p>
+
+        {/* CTA buttons */}
+        <div className="flex flex-wrap gap-2.5 pt-1">
+
+          <button
+            onClick={() => setActiveTab("fixtures")}
+            className="group bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-[10px] sm:text-xs uppercase tracking-wider px-5 sm:px-6 py-3 rounded-xl transition-all duration-300 shadow-xl hover:shadow-yellow-400/20 flex items-center gap-2 cursor-pointer"
+          >
+            <Calendar className="w-4 h-4" />
+            Match Centre
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </button>
+
+          <button
+            onClick={() => setActiveTab("players")}
+            className="group bg-white/10 hover:bg-white/20 border border-white/20 text-white font-black text-[10px] sm:text-xs uppercase tracking-wider px-5 sm:px-6 py-3 rounded-xl transition-all duration-300 backdrop-blur-sm flex items-center gap-2 cursor-pointer"
+          >
+            <Users className="w-4 h-4" />
+            Meet the Team
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </button>
+
+          <button
+            onClick={() => setActiveTab("history")}
+            className="bg-slate-950/70 hover:bg-slate-900 border border-yellow-400/30 text-yellow-400 font-black text-[10px] sm:text-xs uppercase tracking-wider px-5 sm:px-6 py-3 rounded-xl transition-all duration-300 flex items-center gap-2 cursor-pointer"
+          >
+            <BookOpen className="w-4 h-4" />
+            Our Story
+          </button>
+
+        </div>
+
+        {/* Club identity strip */}
+        <div className="pt-2">
+
+          <div className="inline-flex flex-wrap items-center gap-4 sm:gap-6 px-4 py-3 rounded-2xl bg-black/40 border border-white/10 backdrop-blur-md">
+
+            <div>
+              <p className="text-yellow-400 text-base sm:text-lg font-black">
+                2018
+              </p>
+
+              <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">
+                Founded
+              </p>
             </div>
 
-            {/* Quick Stats Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { label: "Current League", value: "FKF Division One", desc: "Third Tier of Kenya", icon: Award, color: "text-amber-500" },
-                { label: "Home Stadium", value: "Kariobangi North", desc: "Nairobi County", icon: MapPin, color: "text-emerald-500" },
-                { label: "Founded By", value: "Mr. Erick Otieno Atanga & Community", desc: "Established in 2018", icon: History, color: "text-blue-500" },
-                { label: "Club Focus", value: "Youth Empowerment", desc: "Slum Social Change", icon: HeartHandshake, color: "text-rose-500" },
-              ].map((stat, i) => (
-                <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-start gap-3">
-                  <div className={`p-2.5 rounded-xl bg-slate-50 ${stat.color}`}>
-                    <stat.icon className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500 font-bold uppercase">{stat.label}</p>
-                    <p className="text-base font-extrabold text-slate-900 mt-0.5">{stat.value}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{stat.desc}</p>
-                  </div>
-                </div>
-              ))}
+            <div className="h-7 w-px bg-white/10 hidden sm:block" />
+
+            <div>
+              <p className="text-emerald-400 text-base sm:text-lg font-black">
+                KARIOBANGI
+              </p>
+
+              <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">
+                Home
+              </p>
             </div>
 
-            {/* Upcoming Next Match Banner */}
-            {initialData.fixtures.filter(f => f.status === "upcoming").length > 0 && (
-              <div className="bg-gradient-to-r from-emerald-600 to-slate-900 rounded-3xl p-6 sm:p-8 text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
-                <div className="space-y-2">
-                  <span className="bg-white/20 text-white text-[10px] font-extrabold uppercase px-3 py-1 rounded-full">
-                    Next Fixture
-                  </span>
-                  <h3 className="text-xl sm:text-2xl font-black">
-                    Kariobangi Legends vs {initialData.fixtures.filter(f => f.status === "upcoming")[0].opponent}
-                  </h3>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-200 text-xs">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5" /> Date: {initialData.fixtures.filter(f => f.status === "upcoming")[0].date}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5" /> Venue: {initialData.fixtures.filter(f => f.status === "upcoming")[0].venue}
-                    </span>
-                    <span className="bg-black/30 px-2 py-0.5 rounded text-yellow-400 font-bold">
-                      {initialData.fixtures.filter(f => f.status === "upcoming")[0].isHome ? "HOME MATCH" : "AWAY MATCH"}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setActiveTab("fixtures")}
-                  className="bg-yellow-400 hover:bg-yellow-500 text-slate-950 font-extrabold text-xs uppercase tracking-wider px-6 py-3.5 rounded-xl transition whitespace-nowrap cursor-pointer"
-                >
-                  View Match Center
-                </button>
-              </div>
-            )}
+            <div className="h-7 w-px bg-white/10 hidden sm:block" />
 
-            {/* Gallery teaser for dynamic photos */}
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="text-2xl font-black text-slate-950 tracking-tight flex items-center gap-2">
-                    <Camera className="w-6 h-6 text-emerald-600" /> Life at Kariobangi Legends FC
-                  </h3>
-                  <p className="text-xs text-slate-500">Visual moments of our local Nairobi stars</p>
-                </div>
-                <button
-                  onClick={() => setActiveTab("gallery")}
-                  className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5 cursor-pointer"
-                >
-                  View All Photos <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+            <div>
+              <p className="text-white text-base sm:text-lg font-black">
+                COMMUNITY
+              </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {initialData.gallery.slice(0, 4).map((item) => (
-                  <div key={item.id} className="group relative rounded-2xl overflow-hidden bg-slate-900 border border-slate-100 shadow-sm aspect-video sm:aspect-square">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.imageUrl}
-                      alt={item.caption}
-                      className="w-full h-full object-contain opacity-85 group-hover:opacity-100 group-hover:scale-105 transition duration-500"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent flex flex-col justify-end p-4">
-                      <span className="bg-emerald-600 text-white text-[8px] font-bold px-2 py-0.5 rounded w-fit mb-1 uppercase">
-                        {item.category}
-                      </span>
-                      <p className="text-xs font-bold text-white leading-tight">
-                        {item.caption}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">
+                Our Foundation
+              </p>
             </div>
 
-            {/* News Teaser & Fan board */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Left 2 Cols: News */}
-              <div className="lg:col-span-2 space-y-6">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-2xl font-black text-slate-950 tracking-tight flex items-center gap-2">
-                    <Activity className="w-6 h-6 text-emerald-600" /> Latest Club News
-                  </h3>
-                  <button
-                    onClick={() => setActiveTab("news")}
-                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5 cursor-pointer"
-                  >
-                    All News <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
+          </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {initialData.news.slice(0, 2).map((item) => (
-                    <article
-                      key={item.id}
-                      className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 hover:shadow-md transition flex flex-col"
-                    >
-                      <div className="h-48 relative bg-slate-100">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={item.imageUrl}
-                          alt={item.title}
-                          className="w-full h-full object-contain"
-                        />
-                        <span className="absolute top-4 left-4 bg-slate-950/90 text-yellow-400 text-[10px] font-bold px-2 py-1 rounded">
-                          Official Update
-                        </span>
-                      </div>
-                      <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
-                        <div className="space-y-2">
-                          <p className="text-[11px] text-slate-400 font-bold uppercase">
-                            {new Date(item.createdAt).toLocaleDateString("en-US", {
-                              month: "long",
-                              day: "numeric",
-                              year: "numeric",
-                            })}
-                          </p>
-                          <h4 className="font-extrabold text-base text-slate-900 leading-snug hover:text-emerald-600 transition">
-                            {item.title}
-                          </h4>
-                          <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed">
-                            {item.summary}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setActiveTab("news");
-                            window.scrollTo({ top: 0, behavior: "smooth" });
-                          }}
-                          className="text-xs font-bold text-emerald-600 hover:underline text-left inline-flex items-center gap-0.5 cursor-pointer"
-                        >
-                          Read full article
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
+        </div>
 
-              {/* Right Col: Fan Board */}
-              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-2xl font-black text-slate-950 tracking-tight flex items-center gap-2">
-                    <MessageSquare className="w-6 h-6 text-yellow-500" /> Fan Support Board
-                  </h3>
-                  <button
-                    onClick={() => setActiveTab("fanzone")}
-                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5 cursor-pointer"
-                  >
-                    View Board
-                  </button>
-                </div>
+      </div>
+    </div>
+  </div>
 
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                  <form onSubmit={handleFanSubmit} className="space-y-3">
-                    <input
-                      type="text"
-                      placeholder="Your Name (e.g. Kiprono from Nairobi)"
-                      value={fanName}
-                      onChange={(e) => setFanName(e.target.value)}
-                      className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <textarea
-                      rows={2}
-                      placeholder="e.g. All the best in the upcoming match! Let's win Division One!"
-                      value={fanText}
-                      onChange={(e) => setFanText(e.target.value)}
-                      className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <button
-                      type="submit"
-                      disabled={isPending}
-                      className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition flex items-center justify-center gap-1 cursor-pointer"
-                    >
-                      {isPending ? "Posting..." : "Post Message of Hope"}
-                    </button>
-                  </form>
+  {/* Bottom accent */}
+  <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-yellow-400 to-emerald-500" />
 
-                  <hr className="border-slate-100" />
+</div>
 
-                  <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
-                    {initialData.fanMessages.slice(0, 3).map((msg) => (
-                      <div key={msg.id} className="p-3 bg-slate-50 rounded-xl space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-xs text-slate-900">{msg.name}</span>
-                          <span className="text-[9px] text-slate-400 font-bold">FAITHFUL FAN</span>
-                        </div>
-                        <p className="text-xs text-slate-600 italic">"{msg.message}"</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+{/* ================= CLUB STATS ================= */}
+<section className="space-y-5">
+
+  {/* Section heading */}
+  <div>
+    <div className="flex items-center gap-2 mb-2">
+      <span className="w-2 h-2 rounded-full bg-yellow-400" />
+
+      <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+        The Club
+      </span>
+    </div>
+
+    <h2 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight">
+      Built on More Than Football
+    </h2>
+
+    <p className="text-sm text-slate-500 mt-2 max-w-2xl">
+      A community club driven by football, youth development, discipline and hope.
+    </p>
+  </div>
+
+  {/* Stats cards */}
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+    {/* Current League */}
+    <div className="group relative overflow-hidden rounded-2xl bg-slate-950 p-6 shadow-lg border border-slate-800 hover:-translate-y-1 transition-all duration-300">
+
+      <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-yellow-400/10 blur-2xl group-hover:bg-yellow-400/20 transition-colors" />
+
+      <div className="relative z-10">
+
+        <div className="w-12 h-12 rounded-xl bg-yellow-400/10 border border-yellow-400/20 flex items-center justify-center mb-5">
+          <Award className="w-6 h-6 text-yellow-400" />
+        </div>
+
+        <p className="text-[10px] uppercase tracking-widest font-black text-slate-500">
+          Current League
+        </p>
+
+        <h3 className="text-lg font-black text-white mt-2">
+          FKF Division One
+        </h3>
+
+        <p className="text-xs text-slate-400 mt-1">
+          Third Tier of Kenyan Football
+        </p>
+
+      </div>
+    </div>
+
+
+    {/* Home */}
+    <div className="group relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm border border-slate-100 hover:-translate-y-1 hover:shadow-xl transition-all duration-300">
+
+      <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-emerald-500/10 blur-2xl group-hover:bg-emerald-500/20 transition-colors" />
+
+      <div className="relative z-10">
+
+        <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mb-5">
+          <MapPin className="w-6 h-6 text-emerald-600" />
+        </div>
+
+        <p className="text-[10px] uppercase tracking-widest font-black text-slate-400">
+          Our Home
+        </p>
+
+        <h3 className="text-lg font-black text-slate-950 mt-2">
+          Kariobangi North
+        </h3>
+
+        <p className="text-xs text-slate-500 mt-1">
+          Nairobi County, Kenya
+        </p>
+
+      </div>
+    </div>
+
+
+    {/* Established */}
+    <div className="group relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm border border-slate-100 hover:-translate-y-1 hover:shadow-xl transition-all duration-300">
+
+      <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-blue-500/10 blur-2xl group-hover:bg-blue-500/20 transition-colors" />
+
+      <div className="relative z-10">
+
+        <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center mb-5">
+          <History className="w-6 h-6 text-blue-600" />
+        </div>
+
+        <p className="text-[10px] uppercase tracking-widest font-black text-slate-400">
+          Established
+        </p>
+
+        <h3 className="text-lg font-black text-slate-950 mt-2">
+          2018
+        </h3>
+
+        <p className="text-xs text-slate-500 mt-1">
+          Founded by Erick Otieno Atanga & Community
+        </p>
+
+      </div>
+    </div>
+
+
+    {/* Mission */}
+    <div className="group relative overflow-hidden rounded-2xl bg-emerald-600 p-6 shadow-lg border border-emerald-500 hover:-translate-y-1 transition-all duration-300">
+
+      <div className="absolute -right-10 -top-10 w-32 h-32 rounded-full bg-white/10 blur-2xl" />
+
+      <div className="relative z-10">
+
+        <div className="w-12 h-12 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center mb-5">
+          <HeartHandshake className="w-6 h-6 text-yellow-300" />
+        </div>
+
+        <p className="text-[10px] uppercase tracking-widest font-black text-emerald-100">
+          Our Mission
+        </p>
+
+        <h3 className="text-lg font-black text-white mt-2">
+          Youth Empowerment
+        </h3>
+
+        <p className="text-xs text-emerald-100 mt-1">
+          Football, education, discipline & opportunity
+        </p>
+
+      </div>
+    </div>
+
+  </div>
+
+</section>
+
+            {/* ================= NEXT MATCH ================= */}
+{upcomingFixtures.length > 0 && (
+  <section className="space-y-5">
+
+    {/* Section heading */}
+    <div className="flex items-end justify-between gap-4">
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+            Matchday
+          </span>
+        </div>
+
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight">
+          Next Match
+        </h2>
+      </div>
+
+      <button
+        onClick={() => setActiveTab("fixtures")}
+        className="hidden sm:flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer"
+      >
+        Full Fixtures
+        <ArrowRight className="w-4 h-4" />
+      </button>
+    </div>
+
+    {/* Match card */}
+    <div className="relative overflow-hidden rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl">
+
+      {/* Background decoration */}
+      <div className="absolute inset-0 bg-gradient-to-br from-emerald-950 via-slate-950 to-slate-950" />
+
+      <div className="absolute -top-32 left-1/3 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl" />
+      <div className="absolute -bottom-40 right-0 w-96 h-96 bg-yellow-400/5 rounded-full blur-3xl" />
+
+      {/* Top match information */}
+      <div className="relative z-10 px-5 sm:px-8 pt-6 sm:pt-8">
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+
+          {/* Next match badge */}
+          <span className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest shadow-lg">
+            <Activity className="w-3.5 h-3.5 animate-pulse" />
+            Next Match
+          </span>
+
+          {/* Home / Away */}
+          <span
+            className={`px-3 py-1.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest ${
+              upcomingFixtures[0].isHome
+                ? "bg-yellow-400 text-slate-950"
+                : "bg-white/10 text-slate-200 border border-white/10"
+            }`}
+          >
+            {upcomingFixtures[0].isHome ? "Home Match" : "Away Match"}
+          </span>
+
+        </div>
+
+      </div>
+
+      {/* Teams */}
+      <div className="relative z-10 px-5 sm:px-8 py-8 sm:py-12">
+
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-8 md:gap-6">
+
+          {/* ================= HOME TEAM ================= */}
+          <div className="flex flex-col items-center text-center">
+
+            {/* Logo placeholder */}
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shadow-xl mb-4">
+              <Shield className="w-12 h-12 sm:w-14 sm:h-14 text-emerald-400" />
             </div>
 
-            {/* Meet the Founder section */}
-            <div className="bg-white rounded-2xl border border-slate-100 p-6 sm:p-8 shadow-sm grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-              <div className="h-64 relative rounded-xl overflow-hidden bg-slate-100">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/images/coach-portrait.jpg"
-                  alt="Mr Erick Otieno Atanga"
-                  className="w-full h-full object-contain grayscale hover:grayscale-0 transition duration-500"
-                />
-                <div className="absolute inset-x-0 bottom-0 bg-slate-950/80 p-3 text-center border-t border-yellow-500/20">
-                  <p className="font-bold text-xs text-white">Mr. Erick Otieno Atanga</p>
-                  <p className="text-[9px] text-yellow-400">Founder & Patron</p>
-                </div>
-              </div>
-              <div className="md:col-span-2 space-y-4">
-                <span className="text-xs text-emerald-600 font-bold uppercase tracking-widest">A Vision of Hope</span>
-                <h3 className="text-2xl font-black text-slate-950">"Our Slum is Rich in Gold & Talent"</h3>
-                <p className="text-sm text-slate-700 leading-relaxed italic">
-                  "Kariobangi North slums harbor some of the finest spirits in Nairobi. Through Kariobangi Legends, 
-                  we collaborate directly with parents, traders, and local authorities. We make sure our young players 
-                  remain disciplined, study diligently, and hone their football skills. When we don our heavy black home kits, 
-                  we are sending a clear message to Kenya: we are strong, we are resilient, and we are coming to succeed."
-                </p>
-                <p className="text-xs text-slate-500 font-semibold">— Mr. Erick Otieno Atanga, Club Founder</p>
-                <button
-                  onClick={() => setActiveTab("history")}
-                  className="text-xs font-bold text-slate-950 hover:text-emerald-600 flex items-center gap-1 hover:underline cursor-pointer"
-                >
-                  Read full founding history <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+            <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] text-emerald-400 mb-2">
+              {upcomingFixtures[0].isHome ? "Home" : "Away"}
+            </p>
+
+            <h3 className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight">
+              KARIOBANGI
+            </h3>
+
+            <h3 className="text-xl sm:text-2xl lg:text-3xl font-black text-yellow-400 tracking-tight">
+              LEGENDS FC
+            </h3>
+
+          </div>
+
+          {/* ================= VS ================= */}
+          <div className="flex flex-col items-center">
+
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shadow-xl">
+              <span className="text-xl sm:text-2xl font-black text-white">
+                VS
+              </span>
+            </div>
+
+          </div>
+
+          {/* ================= OPPONENT ================= */}
+          <div className="flex flex-col items-center text-center">
+
+            {/* Opponent logo placeholder */}
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shadow-xl mb-4">
+              <Shield className="w-12 h-12 sm:w-14 sm:h-14 text-slate-400" />
+            </div>
+
+            <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">
+              Opponent
+            </p>
+
+            <h3 className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight">
+              {upcomingFixtures[0].opponent}
+            </h3>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* Match details */}
+      <div className="relative z-10 border-t border-white/10 bg-black/20">
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-white/10">
+
+          {/* Date */}
+          <div className="flex items-center justify-center gap-3 px-5 py-5">
+            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
+              <Calendar className="w-5 h-5 text-yellow-400" />
+            </div>
+
+            <div>
+              <p className="text-[9px] uppercase tracking-widest font-black text-slate-500">
+                Date
+              </p>
+              <p className="text-sm font-bold text-white">
+                {upcomingFixtures[0].date}
+              </p>
             </div>
           </div>
-        )}
+
+          {/* Venue */}
+          <div className="flex items-center justify-center gap-3 px-5 py-5">
+            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
+              <MapPin className="w-5 h-5 text-emerald-400" />
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-[9px] uppercase tracking-widest font-black text-slate-500">
+                Venue
+              </p>
+              <p className="text-sm font-bold text-white truncate max-w-[180px]">
+                {upcomingFixtures[0].venue}
+              </p>
+            </div>
+          </div>
+
+          {/* Status */}
+          <div className="flex items-center justify-center gap-3 px-5 py-5">
+            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
+              <Activity className="w-5 h-5 text-rose-400" />
+            </div>
+
+            <div>
+              <p className="text-[9px] uppercase tracking-widest font-black text-slate-500">
+                Status
+              </p>
+              <p className="text-sm font-bold text-white capitalize">
+                {upcomingFixtures[0].status || "Upcoming"}
+              </p>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* Match Centre button */}
+      <div className="relative z-10 p-5 sm:p-6 border-t border-white/10">
+
+        <button
+          onClick={() => setActiveTab("fixtures")}
+          className="w-full group flex items-center justify-center gap-3 bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black uppercase tracking-wider text-xs sm:text-sm py-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-yellow-400/20 cursor-pointer"
+        >
+          <Trophy className="w-4 h-4" />
+          Match Centre
+          <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+        </button>
+
+      </div>
+
+    </div>
+
+    {/* Mobile fixtures link */}
+    <button
+      onClick={() => setActiveTab("fixtures")}
+      className="sm:hidden w-full flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer"
+    >
+      View Full Fixtures
+      <ArrowRight className="w-4 h-4" />
+    </button>
+
+  </section>
+)}
+           {/* ================= CLUB GALLERY ================= */}
+<div className="space-y-6">
+
+  {/* Section heading */}
+  <div className="flex items-end justify-between gap-4">
+
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="w-2 h-2 rounded-full bg-yellow-400" />
+
+        <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+          Club Media
+        </span>
+      </div>
+
+      <h3 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight flex items-center gap-2">
+        <Camera className="w-6 h-6 text-emerald-600" />
+        Life at Kariobangi Legends
+      </h3>
+
+      <p className="text-sm text-slate-500 mt-2">
+        Moments, memories and stories from our football community.
+      </p>
+    </div>
+
+    <button
+      onClick={() => setActiveTab("gallery")}
+      className="hidden sm:flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-700 transition cursor-pointer"
+    >
+      View All Photos
+      <ArrowRight className="w-4 h-4" />
+    </button>
+
+  </div>
+
+
+  {/* Gallery */}
+  {initialData.gallery.length > 0 ? (
+
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+
+      {initialData.gallery.slice(0, 4).map((item, index) => (
+
+        <div
+          key={item.id}
+          className={`group relative overflow-hidden rounded-3xl bg-slate-100 border border-slate-800 shadow-sm hover:shadow-xl transition-all duration-500 ${
+            index === 0
+              ? "sm:col-span-2 sm:row-span-2 aspect-square"
+              : "aspect-[4/3]"
+          }`}
+        >
+
+          {/* Image */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={item.imageUrl}
+            alt={item.caption}
+           className="absolute inset-0 w-full h-full object-contain group-hover:scale-[1.02] transition-transform duration-500"
+          />
+
+
+          {/* Image overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/10 to-transparent opacity-80 group-hover:opacity-90 transition-opacity duration-300" />
+
+
+          {/* Gallery number */}
+          <div className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 flex items-center justify-center">
+            <span className="text-[10px] font-black text-white">
+              0{index + 1}
+            </span>
+          </div>
+
+
+          {/* Camera icon */}
+          <div className="absolute top-4 left-4 w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+            <Camera className="w-4 h-4 text-white" />
+          </div>
+
+
+          {/* Caption */}
+          <div className="absolute bottom-0 left-0 right-0 p-5">
+
+            <span className="inline-flex items-center bg-emerald-600 text-white text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full mb-2">
+              {item.category}
+            </span>
+
+            <p className="text-sm font-black text-white leading-snug line-clamp-2">
+              {item.caption}
+            </p>
+
+          </div>
+
+        </div>
+
+      ))}
+
+    </div>
+
+  ) : (
+
+    /* Empty gallery */
+    <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
+
+      <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4">
+        <Camera className="w-7 h-7 text-slate-300" />
+      </div>
+
+      <h4 className="font-black text-slate-800">
+        No Gallery Photos Yet
+      </h4>
+
+      <p className="text-sm text-slate-500 mt-2">
+        Club photos and matchday moments will appear here.
+      </p>
+
+    </div>
+
+  )}
+
+
+  {/* Mobile gallery button */}
+  <button
+    onClick={() => setActiveTab("gallery")}
+    className="sm:hidden w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-wider text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-50 transition cursor-pointer"
+  >
+    View All Photos
+    <ArrowRight className="w-4 h-4" />
+  </button>
+
+</div>
+           {/* ================= NEWS & FAN SUPPORT ================= */}
+<div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+  {/* ================= LATEST CLUB NEWS ================= */}
+  <div className="lg:col-span-2 space-y-6">
+
+    {/* Heading */}
+    <div className="flex items-end justify-between gap-4">
+
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="w-2 h-2 rounded-full bg-yellow-400" />
+
+          <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+            From the Club
+          </span>
+        </div>
+
+        <h3 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight flex items-center gap-2">
+          Latest Club News
+        </h3>
+
+        <p className="text-sm text-slate-500 mt-2">
+          Stay updated with the latest from Kariobangi Legends FC.
+        </p>
+      </div>
+
+      <button
+        onClick={() => setActiveTab("news")}
+        className="hidden sm:flex items-center gap-1 text-xs font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-700 transition cursor-pointer"
+      >
+        All News
+        <ArrowRight className="w-4 h-4" />
+      </button>
+
+    </div>
+
+
+    {/* News cards */}
+    {initialData.news.length > 0 ? (
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        {initialData.news.slice(0, 2).map((item, index) => (
+
+          <article
+            key={item.id}
+            className="group bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col"
+          >
+
+            {/* News image */}
+            <div className="h-56 relative bg-slate-100 overflow-hidden">
+
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={item.imageUrl}
+                alt={item.title}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+              />
+
+              {/* Dark image overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent opacity-70" />
+
+              {/* Category */}
+              <span className="absolute top-4 left-4 inline-flex items-center gap-1.5 bg-slate-950/90 text-yellow-400 text-[9px] font-black uppercase tracking-widest px-3 py-2 rounded-full backdrop-blur-sm">
+                <Activity className="w-3 h-3" />
+                Official Update
+              </span>
+
+              {/* News number */}
+              <span className="absolute bottom-4 right-4 w-9 h-9 rounded-full bg-white/90 text-slate-950 flex items-center justify-center text-xs font-black shadow-lg">
+                0{index + 1}
+              </span>
+
+            </div>
+
+
+            {/* News content */}
+            <div className="p-6 flex-1 flex flex-col">
+
+              <div className="flex items-center gap-2 mb-3">
+
+                <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">
+                  {new Date(item.createdAt).toLocaleDateString("en-US", {
+                    month: "long",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </p>
+
+              </div>
+
+
+              <h4 className="font-black text-lg text-slate-950 leading-snug group-hover:text-emerald-600 transition-colors">
+                {item.title}
+              </h4>
+
+
+              <p className="text-sm text-slate-500 line-clamp-3 leading-relaxed mt-3">
+                {item.summary}
+              </p>
+
+
+              <div className="mt-auto pt-5">
+
+                <button
+                  onClick={() => {
+                    setActiveTab("news");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="group/link inline-flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                >
+                  Read Full Story
+
+                  <ArrowRight className="w-4 h-4 group-hover/link:translate-x-1 transition-transform" />
+                </button>
+
+              </div>
+
+            </div>
+
+          </article>
+
+        ))}
+
+      </div>
+
+    ) : (
+
+      /* No news message */
+      <div className="bg-white rounded-3xl border border-dashed border-slate-200 p-10 text-center">
+
+        <Activity className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+
+        <h4 className="font-black text-slate-800">
+          No Club News Yet
+        </h4>
+
+        <p className="text-sm text-slate-500 mt-1">
+          New club updates will appear here.
+        </p>
+
+      </div>
+
+    )}
+
+
+    {/* Mobile All News button */}
+    <button
+      onClick={() => setActiveTab("news")}
+      className="sm:hidden w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-wider text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-50 transition cursor-pointer"
+    >
+      View All News
+      <ArrowRight className="w-4 h-4" />
+    </button>
+
+  </div>
+
+
+  {/* ================= FAN SUPPORT BOARD ================= */}
+  <div className="space-y-6">
+
+    {/* Heading */}
+    <div>
+
+      <div className="flex items-center gap-2 mb-2">
+        <span className="w-2 h-2 rounded-full bg-yellow-400" />
+
+        <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-yellow-600">
+          The Fans
+        </span>
+      </div>
+
+      <h3 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight flex items-center gap-2">
+        Fan Support
+      </h3>
+
+      <p className="text-sm text-slate-500 mt-2">
+        Send your message of support to the Legends.
+      </p>
+
+    </div>
+
+
+    {/* Fan board card */}
+    <div className="relative overflow-hidden bg-slate-950 rounded-3xl border border-slate-800 shadow-xl p-6">
+
+      {/* Decorative glow */}
+      <div className="absolute -top-20 -right-20 w-48 h-48 bg-yellow-400/10 rounded-full blur-3xl" />
+
+      <div className="absolute -bottom-20 -left-20 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl" />
+
+
+      <div className="relative z-10 space-y-5">
+
+        {/* Fan message form */}
+        <form
+          onSubmit={handleFanSubmit}
+          className="space-y-3"
+        >
+
+          <div>
+            <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">
+              Your Name
+            </label>
+
+            <input
+              type="text"
+              placeholder="e.g. Kiprono from Nairobi"
+              value={fanName}
+              onChange={(e) => setFanName(e.target.value)}
+              className="w-full text-xs p-3.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+            />
+          </div>
+
+
+          <div>
+            <label className="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">
+              Message of Support
+            </label>
+
+            <textarea
+              rows={3}
+              placeholder="Let's win the next match!..."
+              value={fanText}
+              onChange={(e) => setFanText(e.target.value)}
+              className="w-full text-xs p-3.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none"
+            />
+          </div>
+
+
+          <button
+            type="submit"
+            disabled={isPending}
+            className="w-full bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer shadow-lg hover:shadow-yellow-400/20 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <HeartHandshake className="w-4 h-4" />
+
+            {isPending ? "Posting..." : "Post Message of Hope"}
+
+            {!isPending && (
+              <ArrowRight className="w-4 h-4" />
+            )}
+
+          </button>
+
+        </form>
+
+
+        {/* Divider */}
+        <div className="flex items-center gap-3">
+          <div className="h-px bg-white/10 flex-1" />
+
+          <span className="text-[9px] text-slate-600 font-black uppercase tracking-widest">
+            From Our Fans
+          </span>
+
+          <div className="h-px bg-white/10 flex-1" />
+        </div>
+
+
+        {/* Fan messages */}
+        <div className="space-y-3 max-h-52 overflow-y-auto pr-1">
+
+          {initialData.fanMessages.length > 0 ? (
+
+            initialData.fanMessages.slice(0, 3).map((msg) => (
+
+              <div
+                key={msg.id}
+                className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition"
+              >
+
+                <div className="flex justify-between items-center gap-3 mb-2">
+
+                  <span className="font-black text-xs text-white truncate">
+                    {msg.name}
+                  </span>
+
+                  <span className="shrink-0 text-[8px] text-yellow-400 font-black uppercase tracking-wider">
+                    Faithful Fan
+                  </span>
+
+                </div>
+
+                <p className="text-xs text-slate-400 italic leading-relaxed">
+                  "{msg.message}"
+                </p>
+
+              </div>
+
+            ))
+
+          ) : (
+
+            <div className="text-center py-5">
+
+              <MessageSquare className="w-7 h-7 text-slate-700 mx-auto mb-2" />
+
+              <p className="text-xs text-slate-500">
+                Be the first fan to leave a message.
+              </p>
+
+            </div>
+
+          )}
+
+        </div>
+
+
+        {/* View board */}
+        <button
+          onClick={() => setActiveTab("fanzone")}
+          className="w-full pt-2 text-xs font-black uppercase tracking-wider text-slate-500 hover:text-yellow-400 transition flex items-center justify-center gap-2 cursor-pointer"
+        >
+          View Fan Board
+          <ChevronRight className="w-4 h-4" />
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+           {/* ================= CLUB STORY / FOUNDER ================= */}
+<section className="space-y-6">
+
+  {/* Section heading */}
+  <div className="flex items-center gap-2">
+    <span className="w-2 h-2 rounded-full bg-yellow-400" />
+
+    <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+      Our Story
+    </span>
+  </div>
+
+  {/* Main story card */}
+  <div className="relative overflow-hidden rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl">
+
+    {/* Decorative background */}
+    <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-emerald-500/10 blur-3xl" />
+    <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-yellow-400/5 blur-3xl" />
+
+    <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[320px_1fr]">
+
+      {/* Founder image */}
+      <div className="relative min-h-[360px] lg:min-h-full bg-slate-900">
+
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/coach-portrait.jpg"
+          alt="Mr. Erick Otieno Atanga"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+
+        {/* Image overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
+
+        {/* Founder label */}
+        <div className="absolute bottom-0 left-0 right-0 p-6">
+
+          <span className="inline-flex items-center bg-yellow-400 text-slate-950 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full mb-3">
+            Founder & Patron
+          </span>
+
+          <h3 className="text-xl font-black text-white">
+            Mr. Erick Otieno Atanga
+          </h3>
+
+        </div>
+
+      </div>
+
+
+      {/* Story content */}
+      <div className="p-7 sm:p-10 lg:p-12 flex flex-col justify-center">
+
+        <p className="text-yellow-400 text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] mb-3">
+          More Than Football
+        </p>
+
+        <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight leading-tight">
+          What is Kariobangi Legends?
+        </h2>
+
+        <p className="mt-5 text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl">
+          Kariobangi Legends is more than a football club — it is a community
+          built through <span className="text-yellow-400 font-bold">football,
+          friendship and opportunity.</span>
+        </p>
+
+        <p className="mt-4 text-sm text-slate-400 leading-relaxed max-w-2xl">
+          Born from a generation of footballers from Kariobangi and Eastlands,
+          the Legends came together through their Sunday
+          <span className="text-white font-bold"> Football & Bonding (FB)</span>
+          sessions and a shared vision to create opportunities for the next
+          generation.
+        </p>
+
+        {/* Milestones */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-8">
+
+          <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <p className="text-yellow-400 text-lg font-black">2023</p>
+            <p className="text-[9px] text-slate-500 font-black uppercase tracking-wider mt-1">
+              CBO Founded
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <p className="text-emerald-400 text-lg font-black">2023</p>
+            <p className="text-[9px] text-slate-500 font-black uppercase tracking-wider mt-1">
+              Youth FC
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <p className="text-white text-lg font-black">2024</p>
+            <p className="text-[9px] text-slate-500 font-black uppercase tracking-wider mt-1">
+              Regional Champions
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <p className="text-yellow-400 text-lg font-black">2026/27</p>
+            <p className="text-[9px] text-slate-500 font-black uppercase tracking-wider mt-1">
+              NSL Target
+            </p>
+          </div>
+
+        </div>
+
+        {/* Read history */}
+        <div className="mt-8">
+
+          <button
+            onClick={() => setActiveTab("history")}
+            className="group inline-flex items-center gap-2 bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-xs uppercase tracking-wider px-6 py-3.5 rounded-xl transition-all duration-300 shadow-lg hover:shadow-yellow-400/20 cursor-pointer"
+          >
+            Read Our Full Story
+
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </button>
+
+        </div>
+
+      </div>
+
+    </div>
+
+    {/* Bottom accent */}
+    <div className="h-1 bg-gradient-to-r from-emerald-500 via-yellow-400 to-emerald-500" />
+
+  </div>
+
+</section>
+        </div>
+      )}
 
         {/* ================= TAB: PHOTO GALLERY ================= */}
         {activeTab === "gallery" && (
@@ -1684,110 +2607,363 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
             )}
 
         {/* ================= TAB: CLUB HISTORY ================= */}
-        {activeTab === "history" && (
-          <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-100 shadow-sm space-y-10">
-            <div className="max-w-3xl space-y-4">
-              <h2 className="text-3xl sm:text-4xl font-black text-slate-950 tracking-tight">
-                Our Story: Kariobangi Legends Football Club
-              </h2>
-              <p className="text-sm text-emerald-600 font-bold uppercase tracking-wider">
-                Molded in Kariobangi North Slums, Nairobi County • Currently playing in Division One
+{activeTab === "history" && (
+  <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-100 shadow-sm space-y-10">
+
+    {/* Header */}
+    <div className="max-w-4xl space-y-4">
+      <h2 className="text-3xl sm:text-4xl font-black text-slate-950 tracking-tight">
+        Our Story: Kariobangi Legends Football Club
+      </h2>
+
+      <p className="text-sm text-emerald-600 font-bold uppercase tracking-wider">
+        From Football & Bonding to Community Football Excellence
+      </p>
+
+      <hr className="w-20 border-2 border-yellow-500" />
+
+      <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
+        Kariobangi Legends is a community institution built by yesteryear
+        football players from Kariobangi and Eastlands who came together
+        through their shared love for football, friendship and community.
+      </p>
+    </div>
+
+    {/* ================= STORY ================= */}
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+
+      {/* Main Story */}
+      <div className="lg:col-span-2 space-y-7 text-sm text-slate-700 leading-relaxed">
+
+        <div>
+          <h3 className="text-xl font-black text-slate-950 mb-3">
+            What Is Kariobangi Legends?
+          </h3>
+
+          <p>
+            Kariobangi Legends is a solid institution built by yesteryear
+            football players around Kariobangi and Eastlands. Many of these
+            players were very talented and contributed significantly to
+            Kenyan football, but did not receive the opportunities they
+            expected. Their football efforts became a subject of discussion
+            as many felt that their potential had not been fully realised.
+          </p>
+        </div>
+
+        {/* Football & Bonding */}
+        <div className="bg-slate-50 rounded-2xl p-5 border-l-4 border-yellow-500">
+          <h3 className="text-lg font-black text-slate-950 mb-2">
+            Football & Bonding
+          </h3>
+
+          <p>
+            These former players came together and formed Legends FC —
+            bringing together old players who still had football in their
+            hearts. Every Sunday, they met to share football experience,
+            score goals, have fun, debate football and reminisce about
+            memorable football moments.
+          </p>
+
+          <p className="mt-3 font-bold text-emerald-700">
+            They called it FB — Football & Bonding.
+          </p>
+        </div>
+
+        {/* Community Transformation */}
+        <div>
+          <h3 className="text-xl font-black text-slate-950 mb-3">
+            From Football & Bonding to Community Action
+          </h3>
+
+          <p>
+            As the bond grew stronger, an idea emerged: the friendship and
+            football fellowship could become something bigger that would
+            positively impact the community.
+          </p>
+
+          <p className="mt-3">
+            The group transformed its friendship into a registered Community
+            Based Organisation. On{" "}
+            <strong>11 August 2023</strong>, Kariobangi Legends CBO was
+            officially registered.
+          </p>
+        </div>
+
+        {/* Community Initiatives */}
+        <div>
+          <h3 className="text-xl font-black text-slate-950 mb-4">
+            Serving the Community
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
+              <p className="font-extrabold text-emerald-700 text-sm">
+                Sanitary Towels Distribution
               </p>
-              <hr className="w-20 border-2 border-yellow-500" />
+              <p className="text-xs text-slate-600 mt-2">
+                Supporting school-going girls through the distribution of
+                sanitary towels.
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-              {/* Timeline on the left */}
-              <div className="lg:col-span-2 space-y-6 text-sm text-slate-700 leading-relaxed">
-                <p>
-                  <strong>Kariobangi Legends Football Club (KLFC)</strong> was founded in 2018 in the densely populated slums of 
-                  <strong> Kariobangi North</strong> in Nairobi County, Kenya. Surrounded by extreme economic hardships, crime, 
-                  and drug prevalence, the local youth faced immense challenges. It was then that <strong>Mr. Erick Otieno Atanga</strong>, a respected 
-                  local leader, stepped forward alongside collaborative community elders and football enthusiasts.
-                </p>
-
-                <p>
-                  Their dream was simple but powerful: <em>transform the slums into a breeding ground for national heroes.</em> 
-                  Instead of allowing young talents to waste away on the streets, Mr. Erick Otieno Atanga began organizing informal matches on dusty, 
-                  unmarked fields. Over time, the talent was undeniable. The club quickly advanced through the regional grassroots leagues, 
-                  gaining promotion year after year, until they secured their rightful spot in the <strong>Kenyan Division One league</strong>.
-                </p>
-
-                <h3 className="text-lg font-extrabold text-slate-950 pt-2">Our Kit Colors & Their Deep Meaning</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-2xl bg-slate-950 text-white border-l-4 border-yellow-500">
-                    <p className="font-bold text-sm text-yellow-400">HOME: Resilience Black</p>
-                    <p className="text-xs mt-1 text-slate-300">
-                      Our home kit is entirely black. It represents the solid resilience, unyielding strength, and survival of our boys 
-                      in the tough environments of Kariobangi. We play with heavy, solid conviction on our home ground.
-                    </p>
-                  </div>
-                  <div className="p-4 rounded-2xl bg-emerald-50 text-slate-900 border-l-4 border-emerald-600">
-                    <p className="font-bold text-sm text-emerald-700">AWAY: Hope Green & Clean White</p>
-                    <p className="text-xs mt-1 text-slate-600">
-                      Our away options are vibrant green or pure white. Green represents growth, Nairobi's environmental revival, and the hope we carry. 
-                      White represents the clean Slate, peace, and transparent fair play we exhibit across Kenyan stadiums.
-                    </p>
-                  </div>
-                </div>
-
-                <h3 className="text-lg font-extrabold text-slate-950 pt-2">Collaborative Community Development</h3>
-                <p>
-                  What makes Kariobangi Legends FC unique is our absolute fusion with the local community. Market women provide 
-                  discounted meals for our players, local youths volunteer as crowd-control staff on matchdays, and primary school coaches 
-                  help monitor players' school attendance. Under Mr. Erick Otieno Atanga's leadership, any player who shows indiscipline, misses class, 
-                  or engages in anti-social behavior is suspended. This holistic mentoring has made us a highly respected institution.
-                </p>
-
-                <p className="bg-slate-50 p-4 rounded-2xl italic border-l-4 border-yellow-500 text-xs">
-                  "Our mission is to prove that Kariobangi is not just a place of slums; it is a fountain of resilience and excellence. 
-                  Every drop of sweat on our black jerseys is a statement of our dignity."
-                  <span className="block mt-1 font-bold text-slate-900">— Mr. Erick Otieno Atanga, Patron</span>
-                </p>
-              </div>
-
-              {/* Side facts */}
-              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-6">
-                <h3 className="font-extrabold text-base text-slate-900">Key Milestones</h3>
-                
-                <div className="space-y-4">
-                  {[
-                    { year: "2018", title: "Club Founding", desc: "Formed by Mr. Erick Otieno Atanga with 15 boots and one ball." },
-                    { year: "2020", title: "Sub-County Champions", desc: "Invincible season in Nairobi Sub-County League." },
-                    { year: "2022", title: "Nairobi County League Gold", desc: "Earned official promotion to FKF Regional ranks." },
-                    { year: "2024", title: "Division One Entry", desc: "Officially entered the Kenyan Division One league, beating Kibera 2-0." },
-                    { year: "2026", title: "Youth Academy Launch", desc: "Formed formal U-15 cohort to support neighborhood secondary schools." },
-                  ].map((m, i) => (
-                    <div key={i} className="flex gap-3">
-                      <div className="font-black text-xs text-emerald-600 bg-emerald-100 px-2 py-1 rounded h-fit">
-                        {m.year}
-                      </div>
-                      <div>
-                        <p className="font-extrabold text-xs text-slate-900">{m.title}</p>
-                        <p className="text-[11px] text-slate-500 mt-0.5">{m.desc}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <hr className="border-slate-200" />
-
-                <div className="space-y-3">
-                  <h4 className="font-bold text-xs text-slate-900 uppercase">Support Our Mission</h4>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    By sponsoring our boys, you are directly investing in slum development, reduction of crime, and the nurturing of future Harambee Stars (Kenya National Team) icons.
-                  </p>
-                  <button
-                    onClick={() => setActiveTab("donors")}
-                    className="w-full bg-slate-950 text-yellow-400 text-xs font-bold py-3 rounded-xl hover:bg-slate-900 transition uppercase tracking-wider cursor-pointer"
-                  >
-                    Go To Donation Options
-                  </button>
-                </div>
-              </div>
+            <div className="p-4 rounded-2xl bg-yellow-50 border border-yellow-100">
+              <p className="font-extrabold text-yellow-700 text-sm">
+                Masomo Kwanza
+              </p>
+              <p className="text-xs text-slate-600 mt-2">
+                Group contributions are used to support less privileged
+                students by helping pay for their educational needs.
+              </p>
             </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+              <p className="font-extrabold text-slate-900 text-sm">
+                Anti-Drugs Campaign
+              </p>
+              <p className="text-xs text-slate-600 mt-2">
+                Creating awareness and sensitising the Kariobangi community
+                about the dangers of drug abuse.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
+              <p className="font-extrabold text-emerald-700 text-sm">
+                Environmental Clean-Ups
+              </p>
+              <p className="text-xs text-slate-600 mt-2">
+                Working together with the local community to improve the
+                environment through clean-up activities.
+              </p>
+            </div>
+
           </div>
-        )}
+        </div>
+
+        {/* Talent Discovery */}
+        <div>
+          <h3 className="text-xl font-black text-slate-950 mb-3">
+            The Talent Was Already Here
+          </h3>
+
+          <p>
+            Through their interactions with the community, the Legends
+            discovered that many talented young boys were not attached to
+            any football team. Some had even quit football while still at
+            their prime because of different challenges and circumstances.
+          </p>
+
+          <p className="mt-3">
+            The talent was plentiful, but there was often nobody taking
+            responsibility for nurturing and supporting it.
+          </p>
+
+          <p className="mt-3 font-bold text-slate-950">
+            This became the driving force behind the next chapter:
+            gathering the talent and starting a youth team that could help
+            reshape the community.
+          </p>
+        </div>
+
+        {/* Youth Team */}
+        <div className="bg-slate-950 text-white rounded-2xl p-6">
+          <p className="text-yellow-400 text-xs font-black uppercase tracking-widest mb-2">
+            20 September 2023
+          </p>
+
+          <h3 className="text-xl font-black mb-3">
+            Kariobangi Legends Youth FC Was Born
+          </h3>
+
+          <p className="text-slate-300 text-sm leading-relaxed">
+            After discussions and a naming process, the youth team was
+            established as{" "}
+            <strong className="text-white">
+              Kariobangi Legends Youth FC
+            </strong>{" "}
+            on 20 September 2023.
+          </p>
+
+          <p className="text-slate-300 text-sm leading-relaxed mt-3">
+            The mission and vision were established and the work commenced
+            immediately.
+          </p>
+        </div>
+
+        {/* Building the Team */}
+        <div>
+          <h3 className="text-xl font-black text-slate-950 mb-3">
+            Building the Team
+          </h3>
+
+          <p>
+            Through collections from the group, players were appreciated
+            with a flat motivation of{" "}
+            <strong>KSh 5,000</strong>, while officials received{" "}
+            <strong>KSh 10,000</strong> motivation.
+          </p>
+
+          <p className="mt-3">
+            A structure was established, technical staff were appointed,
+            and the work of building the football team began.
+          </p>
+        </div>
+
+        {/* Football Progress */}
+        <div>
+          <h3 className="text-xl font-black text-slate-950 mb-3">
+            From Community Football to Competitive Football
+          </h3>
+
+          <p>
+            Football became another powerful way of bringing communal change,
+            activating dreams and giving young people an opportunity to
+            pursue their football ambitions.
+          </p>
+
+          <p className="mt-3">
+            The journey moved from community football into competitive
+            federation football, with the team progressing through the
+            ranks through hard work, determination and collective effort.
+          </p>
+        </div>
+
+        {/* Closing */}
+        <div className="bg-emerald-50 rounded-2xl p-6 border border-emerald-100">
+          <h3 className="text-xl font-black text-slate-950 mb-3">
+            The Dream Continues
+          </h3>
+
+          <p>
+            Kariobangi Legends enters every season with the desire to improve,
+            develop talent and leave a universal mark through football and
+            community development.
+          </p>
+
+          <p className="mt-3">
+            The objective for the{" "}
+            <strong>2026–27 season</strong> is promotion to the{" "}
+            <strong>National Super League (NSL)</strong>.
+          </p>
+
+          <p className="mt-3 font-bold text-emerald-700">
+            The journey continues with hard work, determination and prayers.
+          </p>
+        </div>
+
+      </div>
+
+      {/* ================= TIMELINE ================= */}
+      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-6">
+
+        <h3 className="font-extrabold text-base text-slate-900">
+          Our Journey
+        </h3>
+
+        <div className="relative space-y-6">
+
+          {/* Timeline line */}
+          <div className="absolute left-[13px] top-2 bottom-2 w-px bg-slate-200" />
+
+          {[
+            {
+              date: "11 AUG 2023",
+              title: "Kariobangi Legends CBO",
+              desc: "The Football & Bonding friendship was transformed into a registered Community Based Organisation."
+            },
+            {
+              date: "20 SEP 2023",
+              title: "Youth Team Established",
+              desc: "Kariobangi Legends Youth FC was formed to gather and nurture talented young players."
+            },
+            {
+              date: "14 JAN 2024",
+              title: "Regional Competition",
+              desc: "The football journey at regional level officially began."
+            },
+            {
+              date: "2023–24",
+              title: "Regional Champions",
+              desc: "Kariobangi Legends won the regional championship crown and earned promotion to Division 2."
+            },
+            {
+              date: "2024–25",
+              title: "Division 1 Promotion",
+              desc: "The team led its group, progressed to the playoffs and secured automatic promotion to Division 1."
+            },
+            {
+              date: "2025–26",
+              title: "Division 1 Debut",
+              desc: "As debutants in Division 1, Kariobangi Legends finished in position 5."
+            },
+            {
+              date: "2026–27",
+              title: "The NSL Dream",
+              desc: "The objective is promotion to the National Super League through hard work, determination and prayers."
+            }
+          ].map((milestone, index) => (
+            <div key={index} className="relative flex gap-4">
+
+              <div className="relative z-10 w-7 h-7 rounded-full bg-yellow-400 border-4 border-slate-50 flex-shrink-0" />
+
+              <div className="pb-1">
+                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider">
+                  {milestone.date}
+                </p>
+
+                <p className="font-extrabold text-xs text-slate-900 mt-1">
+                  {milestone.title}
+                </p>
+
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  {milestone.desc}
+                </p>
+              </div>
+
+            </div>
+          ))}
+
+        </div>
+
+        <hr className="border-slate-200" />
+
+        {/* Support */}
+        <div className="space-y-3">
+          <h4 className="font-bold text-xs text-slate-900 uppercase">
+            Support Our Mission
+          </h4>
+
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Supporting Kariobangi Legends means supporting football talent,
+            community development and the dreams of young people.
+          </p>
+
+          <button
+            onClick={() => setActiveTab("donors")}
+            className="w-full bg-slate-950 text-yellow-400 text-xs font-bold py-3 rounded-xl hover:bg-slate-900 transition uppercase tracking-wider cursor-pointer"
+          >
+            Go To Donation Options
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+
+    {/* Closing Statement */}
+    <div className="border-t border-slate-100 pt-8 text-center">
+      <p className="text-xl sm:text-2xl font-black text-slate-950">
+        Our Football. Our Community. Our Legacy.
+      </p>
+
+      <p className="text-xs text-slate-500 mt-2">
+        Built through friendship, community and a shared belief in the power
+        of football.
+      </p>
+    </div>
+
+  </div>
+)}
 
        {/* ================= TAB: MANAGEMENT ================= */}
 {activeTab === "management" && (
@@ -2088,25 +3264,36 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     </p>
                   </div>
 
-                  {/* Player footer card — admin actions visible */}
-                  <div className="bg-slate-950 text-white px-6 py-3 flex justify-between items-center text-xs border-t border-slate-900">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => openReplaceImage(player.id, "player", player.imageUrl)}
-                        className="text-blue-400 hover:text-blue-300 font-bold uppercase tracking-wider text-[10px] flex items-center gap-0.5 cursor-pointer"
-                        title="Replace this player's photo"
-                      >
-                        <Camera className="w-3.5 h-3.5" /> Swap Photo
-                      </button>
-                      <button
-                        onClick={() => handleDeletePlayer(player.id, player.name)}
-                        className="text-rose-400 hover:text-rose-300 font-bold uppercase tracking-wider text-[10px] flex items-center gap-0.5 cursor-pointer"
-                        title="Remove player from squad"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Remove
-                      </button>
-                    </div>
-                    <button
+                  {/* Player footer card — admin actions visible only to admins */}
+<div className="bg-slate-950 text-white px-6 py-3 flex justify-between items-center text-xs border-t border-slate-900">
+  <div className="flex items-center gap-2">
+    
+    {isAdminAuthenticated && (
+      <>
+        <button
+          onClick={() =>
+            openReplaceImage(player.id, "player", player.imageUrl)
+          }
+          className="text-blue-400 hover:text-blue-300 font-bold uppercase tracking-wider text-[10px] flex items-center gap-0.5 cursor-pointer"
+          title="Replace this player's photo"
+        >
+          <Camera className="w-3.5 h-3.5" /> Swap Photo
+        </button>
+
+        <button
+          onClick={() =>
+            handleDeletePlayer(player.id, player.name)
+          }
+          className="text-rose-400 hover:text-rose-300 font-bold uppercase tracking-wider text-[10px] flex items-center gap-0.5 cursor-pointer"
+          title="Remove player from squad"
+        >
+          <Trash2 className="w-3.5 h-3.5" /> Remove
+        </button>
+      </>
+    )}
+  </div>
+
+  <button
                       onClick={() => {
                         setActiveTab("shop");
                         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2141,9 +3328,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 </h3>
 
                 <div className="space-y-3">
-                  {initialData.fixtures
-                    .filter((f) => f.status === "upcoming")
-                    .map((fixture) => (
+                  {upcomingFixtures.map((fixture) => (
                       <div
                         key={fixture.id}
                         className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3"
@@ -2190,6 +3375,14 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-slate-700">{fixture.date}</span>
                             <button
+  type="button"
+  onClick={() => handleEditFixture(fixture)}
+  className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+  title="Edit this fixture"
+>
+  Edit
+</button>
+                            <button
                               onClick={() => handleDeleteFixture(fixture.id, fixture.opponent)}
                               className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
                               title="Remove this fixture"
@@ -2210,9 +3403,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 </h3>
 
                 <div className="space-y-3">
-                  {initialData.fixtures
-                    .filter((f) => f.status === "completed")
-                    .map((fixture) => (
+                  {recentFixtures.map((fixture) => (
                       <div
                         key={fixture.id}
                         className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3"
@@ -2271,6 +3462,14 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                                 ? "Legends Win ✓"
                                 : "Draw Match"}
                             </span>
+                            <button
+  type="button"
+  onClick={() => handleEditFixture(fixture)}
+  className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+  title="Edit this result"
+>
+  Edit
+</button>
                             <button
                               onClick={() => handleDeleteFixture(fixture.id, fixture.opponent)}
                               className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
@@ -2910,7 +4109,14 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     <p className="text-[11px] text-slate-500">
                       Instantly updates the **Upcoming Next Match Banner** on the Home Page and the Match Center.
                     </p>
-                    <form onSubmit={handleAdminAddFixture} className="space-y-3 text-xs">
+                    <form
+  onSubmit={
+    editingFixtureId
+      ? handleAdminUpdateFixture
+      : handleAdminAddFixture
+  }
+  className="space-y-3 text-xs"
+>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <label className="font-bold text-slate-500">Opponent Team</label>
@@ -2998,7 +4204,13 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                         disabled={isPending}
                         className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer"
                       >
-                        {isPending ? "Adding Fixture..." : "Save Match Fixture"}
+                       {isPending
+  ? editingFixtureId
+    ? "Updating Match..."
+    : "Adding Fixture..."
+  : editingFixtureId
+    ? "Update Match Result"
+    : "Save Match Fixture"}
                       </button>
                     </form>
                   </div>
@@ -3525,77 +4737,189 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
                     <hr className="border-slate-100" />
 
-                    {/* Simulation Checkout Form */}
-                    <form onSubmit={handleCheckoutSubmit} className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                      <p className="font-bold text-xs text-slate-900">Delivery & Simulated Payment</p>
-                      
-                      <div className="space-y-1">
-                        <label className="text-[9px] text-slate-400 font-bold uppercase block">Recipient Name</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Mr Erick Otieno Atanga"
-                          value={checkoutName}
-                          onChange={(e) => setCheckoutName(e.target.value)}
-                          className="w-full text-xs p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900"
-                          required
-                        />
-                      </div>
+                  {/* ================= M-PESA CHECKOUT ================= */}
+<form
+  onSubmit={handleCheckoutSubmit}
+  className="space-y-4 bg-slate-50 p-4 rounded-2xl border border-slate-200"
+>
+  <div>
+    <p className="font-black text-sm text-slate-950">
+      Delivery & Payment
+    </p>
 
-                      <div className="space-y-1">
-                        <label className="text-[9px] text-slate-400 font-bold uppercase block">Payment Method</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setCheckoutMethod("mpesa")}
-                            className={`p-2 rounded-lg font-bold text-[11px] text-center transition cursor-pointer ${
-                              checkoutMethod === "mpesa"
-                                ? "bg-emerald-600 text-white"
-                                : "bg-white text-slate-600 border border-slate-200"
-                            }`}
-                          >
-                            M-PESA Express
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setCheckoutMethod("card")}
-                            className={`p-2 rounded-lg font-bold text-[11px] text-center transition cursor-pointer ${
-                              checkoutMethod === "card"
-                                ? "bg-slate-950 text-yellow-400"
-                                : "bg-white text-slate-600 border border-slate-200"
-                            }`}
-                          >
-                            Debit/Credit Card
-                          </button>
-                        </div>
-                      </div>
+    <p className="text-[10px] text-slate-500 mt-1">
+      Complete your details below to place your merchandise order.
+    </p>
+  </div>
 
-                      {checkoutMethod === "mpesa" && (
-                        <div className="space-y-1">
-                          <label className="text-[9px] text-slate-400 font-bold uppercase block">M-Pesa Mobile Number</label>
-                          <div className="relative">
-                            <Phone className="absolute left-3 top-3.5 w-3.5 h-3.5 text-slate-400" />
-                            <input
-                              type="tel"
-                              placeholder="e.g. 0712345678"
-                              value={checkoutPhone}
-                              onChange={(e) => setCheckoutPhone(e.target.value)}
-                              className="w-full text-xs pl-8 pr-3 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900"
-                              required
-                            />
-                          </div>
-                          <span className="text-[8px] text-slate-400 block">
-                            Enter Kenyan format: 07xx xxx xxx or 254xx xxx xxx.
-                          </span>
-                        </div>
-                      )}
+  {/* Recipient Name */}
+  <div className="space-y-1">
+    <label className="text-[9px] text-slate-400 font-bold uppercase block">
+      Recipient Name
+    </label>
 
-                      <button
-                        type="submit"
-                        className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase py-3 rounded-xl transition cursor-pointer"
-                      >
-                        Confirm Simulated Purchase
-                      </button>
-                    </form>
+    <input
+      type="text"
+      placeholder="e.g. John Kamau"
+      value={checkoutName}
+      onChange={(e) => setCheckoutName(e.target.value)}
+      className="w-full text-xs p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
+      required
+    />
+  </div>
+
+  {/* Payment Method */}
+  <div className="space-y-2">
+
+    <label className="text-[9px] text-slate-400 font-bold uppercase block">
+      Payment Method
+    </label>
+
+    <button
+      type="button"
+      onClick={() => setCheckoutMethod("mpesa")}
+      className="w-full p-3 rounded-xl bg-emerald-600 text-white border-2 border-emerald-600 font-black text-xs flex items-center justify-between shadow-sm"
+    >
+      <span className="flex items-center gap-2">
+        <Phone className="w-4 h-4" />
+        M-PESA
+      </span>
+
+      <span className="text-[9px] bg-white/15 px-2 py-1 rounded-md">
+        Recommended
+      </span>
+    </button>
+
+  </div>
+
+  {/* M-Pesa Payment Details */}
+  {checkoutMethod === "mpesa" && (
+    <div className="space-y-3">
+
+      {/* PayBill information */}
+      <div className="rounded-2xl bg-slate-950 text-white p-4 border border-slate-800">
+
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-yellow-400">
+            M-Pesa Payment
+          </p>
+
+          <span className="text-[9px] font-bold bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-full">
+            SECURE
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+
+          <div className="bg-white/5 rounded-xl p-3">
+            <p className="text-[8px] text-slate-400 uppercase font-bold">
+              PayBill Number
+            </p>
+
+            <p className="text-xl font-black text-yellow-400 mt-1">
+              4004975
+            </p>
+          </div>
+
+          <div className="bg-white/5 rounded-xl p-3">
+            <p className="text-[8px] text-slate-400 uppercase font-bold">
+              Account
+            </p>
+
+            <p className="text-xs font-black text-white mt-2">
+              KARIOBANGI
+              <br />
+              LEGENDS
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* Phone Number */}
+      <div className="space-y-1">
+
+        <label className="text-[9px] text-slate-400 font-bold uppercase block">
+          M-Pesa Mobile Number
+        </label>
+
+        <div className="relative">
+
+          <Phone className="absolute left-3 top-3.5 w-3.5 h-3.5 text-slate-400" />
+
+          <input
+            type="tel"
+            placeholder="0712345678"
+            value={checkoutPhone}
+            onChange={(e) => setCheckoutPhone(e.target.value)}
+            className="w-full text-xs pl-8 pr-3 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
+            required
+          />
+
+        </div>
+
+        <span className="text-[8px] text-slate-400 block">
+          Enter your Kenyan M-Pesa number.
+        </span>
+
+      </div>
+
+      {/* Payment instructions */}
+      <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-3">
+
+        <p className="text-[9px] font-black uppercase tracking-wider text-slate-900 mb-2">
+          How to Pay
+        </p>
+
+        <ol className="space-y-1 text-[9px] text-slate-600 leading-relaxed">
+          <li>1. Open M-Pesa on your phone.</li>
+          <li>2. Select <strong>Lipa na M-Pesa</strong>.</li>
+          <li>3. Select <strong>PayBill</strong>.</li>
+          <li>
+            4. Enter PayBill <strong>4004975</strong>.
+          </li>
+          <li>
+            5. Enter Account <strong>KARIOBANGI LEGENDS</strong>.
+          </li>
+          <li>
+            6. Enter the order amount and confirm.
+          </li>
+        </ol>
+
+      </div>
+
+    </div>
+  )}
+
+  {/* Order Amount */}
+  <div className="flex items-center justify-between px-1 pt-1">
+
+    <span className="text-xs font-bold text-slate-600">
+      Amount to Pay
+    </span>
+
+    <span className="text-lg font-black text-emerald-600">
+      Ksh {cartTotal.toLocaleString()}
+    </span>
+
+  </div>
+
+  {/* Confirm Payment */}
+  <button
+    type="submit"
+    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all duration-300 cursor-pointer shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+  >
+    <Check className="w-4 h-4" />
+    Confirm M-Pesa Payment
+  </button>
+
+  <p className="text-[8px] text-center text-slate-400 leading-relaxed">
+    Your order will be recorded after checkout. Keep your M-Pesa confirmation
+    message for reference.
+  </p>
+
+</form>
                   </div>
                 )}
               </div>
@@ -3706,71 +5030,205 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
       )}
 
       {/* Footer Branding */}
-      <footer className="bg-slate-950 text-white mt-20 border-t-2 border-yellow-500/30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 md:grid-cols-4 gap-8">
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center border border-yellow-500">
-                <Shield className="w-5 h-5 text-yellow-500 fill-yellow-500" />
-              </div>
-              <span className="font-extrabold text-sm tracking-widest text-white">KARIOBANGI LEGENDS</span>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Empowering slum youths of Kariobangi North in Nairobi County through high-discipline sports and active educational collaboration. 
-              Molding the future legends of Kenya.
-            </p>
-          </div>
+<footer className="bg-slate-950 text-white mt-20 border-t-2 border-yellow-500/30">
 
-          <div className="space-y-3 text-xs">
-            <h4 className="font-bold uppercase tracking-wider text-yellow-400">Our Identity & Kits</h4>
-            <p className="text-slate-400 leading-relaxed">
-              <strong>Home Kit:</strong> Sleek Resilience Black (Survival in the Slums).
-            </p>
-            <p className="text-slate-400 leading-relaxed">
-              <strong>Away Kits:</strong> Emerald Hope Green & Pure White.
-            </p>
-          </div>
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 md:grid-cols-4 gap-8">
 
-          <div className="space-y-3 text-xs">
-            <h4 className="font-bold uppercase tracking-wider text-emerald-400">Quick Navigation</h4>
-            <ul className="space-y-2">
-              {[
-                { label: "Our Story", tab: "history" },
-                { label: "Matches & Fixtures", tab: "fixtures" },
-                { label: "Team Photo Gallery", tab: "gallery" },
-                { label: "Merchandise Shop", tab: "shop" },
-                { label: "Donors & Supporters", tab: "donors" },
-              ].map((item, idx) => (
-                <li key={idx}>
-                  <button
-                    onClick={() => {
-                      setActiveTab(item.tab);
-                      window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}
-                    className="text-slate-400 hover:text-white transition cursor-pointer text-left"
-                  >
-                    {item.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+    {/* ================= FOOTER BRANDING ================= */}
+    <div className="space-y-5">
 
-          <div className="space-y-3 text-xs">
-            <h4 className="font-bold uppercase tracking-wider text-yellow-400">Slum-to-Stardom Contact</h4>
-            <p className="text-slate-400 leading-relaxed">
-              Kariobangi North Ground,<br />
-              Nairobi County, Kenya
-            </p>
-            <p className="text-slate-400 leading-relaxed">
-              Founded under Mr. Erick Otieno Atanga's leadership.
-            </p>
-            <p className="text-[10px] text-slate-500 pt-2 border-t border-slate-900">
-              © {new Date().getFullYear()} Kariobangi Legends FC. Made with love for Nairobi youth.
-            </p>
-          </div>
+      {/* Club Logo + Name */}
+      <div className="flex items-center gap-3">
+
+        <div className="relative w-12 h-12 rounded-xl bg-slate-900 flex items-center justify-center border border-yellow-500 overflow-hidden">
+
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/assets/logo.jpeg"
+            alt="Kariobangi Legends FC badge"
+            className="w-full h-full object-contain p-1"
+          />
+
         </div>
-      </footer>
+
+        <div>
+          <span className="font-black italic text-sm tracking-wide text-white">
+            KARIOBANGI
+            <span className="text-emerald-400 ml-1">
+              LEGENDS
+            </span>
+          </span>
+
+          <p className="text-[9px] text-yellow-400 font-bold uppercase tracking-widest mt-0.5">
+            Football Club
+          </p>
+        </div>
+
+      </div>
+
+      {/* Club Description */}
+      <p className="text-xs text-slate-400 leading-relaxed">
+        Empowering slum youths of Kariobangi North in Nairobi County through
+        high-discipline sports and active educational collaboration.
+        Molding the future legends of Kenya.
+      </p>
+
+      {/* ================= SOCIAL MEDIA ================= */}
+      <div className="pt-2">
+
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3">
+          Follow the Legends
+        </p>
+
+        <div className="flex items-center gap-3">
+
+          {/* X / Twitter */}
+          <a
+            href="https://x.com/Kariobangi40852"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Kariobangi Legends on X"
+            title="Follow Kariobangi Legends on X"
+            className="group w-10 h-10 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-white hover:bg-black hover:border-yellow-400 hover:text-yellow-400 hover:-translate-y-1 transition-all duration-300 shadow-md"
+          >
+            <span className="text-lg font-black group-hover:scale-110 transition-transform">
+              𝕏
+            </span>
+          </a>
+
+          {/* Facebook */}
+          <a
+            href="https://www.facebook.com/profile.php?id=100092849342811"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Kariobangi Legends on Facebook"
+            title="Follow Kariobangi Legends on Facebook"
+            className="group w-10 h-10 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-white hover:bg-[#1877F2] hover:border-[#1877F2] hover:-translate-y-1 transition-all duration-300 shadow-md"
+          >
+            <span className="text-xl font-black group-hover:scale-110 transition-transform">
+              f
+            </span>
+          </a>
+
+          {/* Instagram */}
+          <a
+            href="https://www.instagram.com/kariobangi_legends_fc"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Kariobangi Legends on Instagram"
+            title="Follow Kariobangi Legends on Instagram"
+            className="group w-10 h-10 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-white hover:bg-pink-600 hover:border-pink-500 hover:-translate-y-1 transition-all duration-300 shadow-md"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="w-5 h-5 group-hover:scale-110 transition-transform"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="5" />
+              <circle cx="12" cy="12" r="4" />
+              <circle
+                cx="17.5"
+                cy="6.5"
+                r="1"
+                fill="currentColor"
+                stroke="none"
+              />
+            </svg>
+          </a>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+    {/* ================= IDENTITY & KITS ================= */}
+    <div className="space-y-3 text-xs">
+
+      <h4 className="font-bold uppercase tracking-wider text-yellow-400">
+        Our Identity & Kits
+      </h4>
+
+      <p className="text-slate-400 leading-relaxed">
+        <strong>Home Kit:</strong> Sleek Resilience Black (Survival in the Slums).
+      </p>
+
+      <p className="text-slate-400 leading-relaxed">
+        <strong>Away Kits:</strong> Emerald Hope Green & Pure White.
+      </p>
+
+    </div>
+
+
+    {/* ================= QUICK NAVIGATION ================= */}
+    <div className="space-y-3 text-xs">
+
+      <h4 className="font-bold uppercase tracking-wider text-emerald-400">
+        Quick Navigation
+      </h4>
+
+      <ul className="space-y-2">
+
+        {[
+          { label: "Our Story", tab: "history" },
+          { label: "Matches & Fixtures", tab: "fixtures" },
+          { label: "Team Photo Gallery", tab: "gallery" },
+          { label: "Merchandise Shop", tab: "shop" },
+          { label: "Donors & Supporters", tab: "donors" },
+        ].map((item, idx) => (
+
+          <li key={idx}>
+
+            <button
+              onClick={() => {
+                setActiveTab(item.tab);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="text-slate-400 hover:text-white transition cursor-pointer text-left"
+            >
+              {item.label}
+            </button>
+
+          </li>
+
+        ))}
+
+      </ul>
+
+    </div>
+
+
+    {/* ================= CONTACT ================= */}
+    <div className="space-y-3 text-xs">
+
+      <h4 className="font-bold uppercase tracking-wider text-yellow-400">
+        Slum-to-Stardom Contact
+      </h4>
+
+      <p className="text-slate-400 leading-relaxed">
+        Kariobangi North Ground,
+        <br />
+        Nairobi County, Kenya
+      </p>
+
+      <p className="text-slate-400 leading-relaxed">
+        Founded under Mr. Erick Otieno Atanga's leadership.
+      </p>
+
+      <p className="text-[10px] text-slate-500 pt-2 border-t border-slate-900">
+        © {new Date().getFullYear()} Kariobangi Legends FC. Made with love for Nairobi youth.
+      </p>
+
+    </div>
+
+  </div>
+
+</footer>
     </div>
   );
 }
