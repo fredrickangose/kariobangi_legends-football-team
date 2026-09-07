@@ -17,6 +17,7 @@ Trophy,
   X,
   Plus,
   Check,
+  ChevronLeft,
   MapPin,
   TrendingUp,
   Coins,
@@ -161,6 +162,22 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
+  const [galleryCarouselIndex, setGalleryCarouselIndex] = useState(0);
+
+  // Automatically rotate homepage gallery every 4 seconds
+useEffect(() => {
+  if (initialData.gallery.length <= 1) return;
+
+  const interval = setInterval(() => {
+    setGalleryCarouselIndex((current) =>
+      current === initialData.gallery.length - 1
+        ? 0
+        : current + 1
+    );
+  }, 4000);
+
+  return () => clearInterval(interval);
+}, [initialData.gallery.length]);
 
   // Gallery filter state
   const [selectedGalleryCategory, setSelectedGalleryCategory] = useState<string>("All");
@@ -360,31 +377,174 @@ const [editingManagementId, setEditingManagementId] = useState<number | null>(nu
     });
   };
 
-  // Simulated checkout handler
-  const handleCheckoutSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!checkoutName) {
-      showToast("Please enter your name for delivery.", "error");
-      return;
-    }
-    if (checkoutMethod === "mpesa" && !checkoutPhone) {
-      showToast("Please enter your M-Pesa phone number.", "error");
-      return;
-    }
+  // M-PESA checkout handler
+const handleCheckoutSubmit = (e: React.FormEvent) => {
+  e.preventDefault();
 
-    if (checkoutMethod === "mpesa") {
-      setCheckoutMessage(
-        `M-Pesa Express PIN prompt has been initiated. A request for Ksh ${cartTotal.toLocaleString()} was sent to ${checkoutPhone}. Once you enter your PIN on your phone, your order will be shipped to Kariobangi or Nairobi address provided!`
-      );
-    } else {
-      setCheckoutMessage(
-        `Card payment of Ksh ${cartTotal.toLocaleString()} processed successfully! A receipt has been sent to your email. Your official Kariobangi Legends merchandise will be shipped shortly.`
-      );
-    }
-    setCheckoutSuccess(true);
-    setCart([]);
-  };
+  if (!checkoutName) {
+    showToast("Please enter your name for delivery.", "error");
+    return;
+  }
 
+  if (cart.length === 0) {
+    showToast("Your cart is empty.", "error");
+    return;
+  }
+
+  if (checkoutMethod === "mpesa" && !checkoutPhone) {
+    showToast("Please enter your M-PESA phone number.", "error");
+    return;
+  }
+
+  if (checkoutMethod === "mpesa") {
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/mpesa/stkpush", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            phone: checkoutPhone,
+            amount: cartTotal,
+            name: checkoutName,
+            cart: cart,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          showToast(
+            data.error || "Unable to initiate M-PESA payment.",
+            "error"
+          );
+          return;
+        }
+
+        const orderId = data.orderId;
+
+        if (!orderId) {
+          showToast(
+            "Payment started, but the order ID was not returned.",
+            "error"
+          );
+          return;
+        }
+
+        setCheckoutMessage(
+          `M-PESA payment request sent to ${checkoutPhone}. Please check your phone and enter your M-PESA PIN to complete the payment of Ksh ${cartTotal.toLocaleString()}.`
+        );
+
+        setCheckoutSuccess(true);
+
+        // --------------------------------------------------
+        // CHECK PAYMENT STATUS
+        // --------------------------------------------------
+
+        let attempts = 0;
+        const maxAttempts = 30;
+
+        const checkPaymentStatus = async () => {
+          attempts++;
+
+          try {
+            const statusResponse = await fetch(
+              `/api/mpesa/status?orderId=${orderId}`,
+              {
+                method: "GET",
+                cache: "no-store",
+              }
+            );
+
+            const statusData =
+              await statusResponse.json();
+
+            if (
+              statusResponse.ok &&
+              statusData.success
+            ) {
+              if (
+                statusData.paymentStatus === "paid"
+              ) {
+                setCheckoutMessage(
+                  `Payment successful! Your M-PESA receipt number is ${statusData.mpesaReceiptNumber || "confirmed"}. Your Kariobangi Legends merchandise order has been received and will be processed shortly.`
+                );
+
+                setCart([]);
+
+                return;
+              }
+
+              if (
+                statusData.paymentStatus === "failed"
+              ) {
+                setCheckoutSuccess(false);
+
+                showToast(
+                  "M-PESA payment was cancelled or failed. Please try again.",
+                  "error"
+                );
+
+                return;
+              }
+            }
+
+            if (attempts < maxAttempts) {
+              setTimeout(
+                checkPaymentStatus,
+                3000
+              );
+            } else {
+              setCheckoutMessage(
+                `Your M-PESA payment request is still being processed. Please check your M-PESA messages. Your order reference is #${orderId}.`
+              );
+            }
+          } catch (statusError) {
+            console.error(
+              "M-PESA status check failed:",
+              statusError
+            );
+
+            if (attempts < maxAttempts) {
+              setTimeout(
+                checkPaymentStatus,
+                3000
+              );
+            }
+          }
+        };
+
+        setTimeout(
+          checkPaymentStatus,
+          3000
+        );
+      } catch (error) {
+        console.error(
+          "M-PESA checkout error:",
+          error
+        );
+
+        showToast(
+          error instanceof Error
+            ? error.message
+            : "Unable to connect to M-PESA.",
+          "error"
+        );
+      }
+    });
+
+    return;
+  }
+
+  // Card payment
+  setCheckoutMessage(
+    `Card payment of Ksh ${cartTotal.toLocaleString()} processed successfully! A receipt has been sent to your email. Your official Kariobangi Legends merchandise will be shipped shortly.`
+  );
+
+  setCheckoutSuccess(true);
+  setCart([]);
+};
   const handleAdminLogin = async (e: React.FormEvent) => {
   e.preventDefault();
 
@@ -1331,8 +1491,8 @@ const recentFixtures = initialData.fixtures
         {/* ================= TAB: HOME ================= */}
         {activeTab === "home" && (
           <div className="space-y-12">
-          {/* ================= HERO BANNER ================= */}
-<div className="relative min-h-[440px] sm:min-h-[500px] rounded-3xl overflow-hidden bg-slate-950 text-white border border-slate-800 shadow-2xl">
+         {/* ================= HERO BANNER ================= */}
+<div className="relative min-h-[500px] sm:min-h-[580px] rounded-3xl overflow-hidden bg-slate-950 text-white border border-slate-800 shadow-2xl">
 
   {/* Hero background image */}
   <div
@@ -1342,18 +1502,64 @@ const recentFixtures = initialData.fixtures
 
   {/* Dark cinematic overlays */}
   <div className="absolute inset-0 bg-slate-950/55" />
-  <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/75 to-slate-950/20" />
+  <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/70 to-slate-950/20" />
   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-slate-950/20" />
 
   {/* Decorative glow */}
-  <div className="absolute -top-24 -right-24 w-72 h-72 bg-emerald-500/20 rounded-full blur-3xl" />
-  <div className="absolute -bottom-24 -left-20 w-72 h-72 bg-yellow-400/10 rounded-full blur-3xl" />
+  <div className="absolute -top-24 -right-24 w-80 h-80 bg-emerald-500/20 rounded-full blur-3xl" />
+  <div className="absolute -bottom-24 -left-20 w-80 h-80 bg-yellow-400/10 rounded-full blur-3xl" />
 
   {/* Hero content */}
-  <div className="relative z-10 min-h-[440px] sm:min-h-[500px] flex items-center">
+  <div className="relative z-10 min-h-[500px] sm:min-h-[580px] flex items-center">
+
     <div className="w-full p-6 sm:p-10 md:p-14 lg:p-16">
 
-      <div className="max-w-3xl space-y-4 sm:space-y-5">
+      <div className="max-w-4xl space-y-4 sm:space-y-5">
+
+        {/* ================= CLUB LOGO ================= */}
+        <div className="flex items-center gap-5 sm:gap-6 mb-2">
+
+          {/* Logo container */}
+          <div className="relative shrink-0">
+
+            {/* Glow behind logo */}
+            <div className="absolute inset-0 bg-yellow-400/20 rounded-full blur-2xl scale-110" />
+
+            {/* Logo background */}
+            <div className="relative w-28 h-28 sm:w-36 sm:h-36 md:w-40 md:h-40 rounded-full bg-white/95 border-4 border-yellow-400/80 shadow-2xl flex items-center justify-center p-2 sm:p-2.5">
+
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/assets/logo.jpeg"
+                alt="Kariobangi Legends FC Logo"
+                className="w-full h-full object-contain rounded-full"
+              />
+
+            </div>
+
+          </div>
+
+          {/* Club identity beside logo */}
+          <div className="hidden sm:block">
+
+            <p className="text-yellow-400 text-[10px] md:text-xs font-black uppercase tracking-[0.3em]">
+              Official Club
+            </p>
+
+            <p className="text-white text-lg md:text-xl font-black uppercase tracking-tight mt-1">
+              Kariobangi Legends FC
+            </p>
+
+            <div className="flex items-center gap-2 mt-2">
+              <span className="w-8 h-1 rounded-full bg-emerald-500" />
+              <span className="w-5 h-1 rounded-full bg-yellow-400" />
+              <span className="w-8 h-1 rounded-full bg-emerald-500" />
+            </div>
+
+          </div>
+
+        </div>
+
 
         {/* Club status */}
         <div className="flex flex-wrap items-center gap-2">
@@ -1369,6 +1575,7 @@ const recentFixtures = initialData.fixtures
 
         </div>
 
+
         {/* Main heading */}
         <div className="space-y-1">
 
@@ -1377,23 +1584,32 @@ const recentFixtures = initialData.fixtures
           </p>
 
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tighter leading-[0.9]">
+
             KARIOBANGI
+
             <span className="block text-yellow-400">
               LEGENDS FC
             </span>
+
           </h1>
 
         </div>
 
+
         {/* Club statement */}
         <p className="max-w-2xl text-xs sm:text-sm md:text-base text-slate-200 leading-relaxed font-medium">
+
           Born in Kariobangi North, Nairobi, we are more than a football club.
           We are a community built on{" "}
+
           <span className="text-yellow-400 font-bold">
             talent, discipline, resilience and hope.
           </span>{" "}
+
           Our mission is to empower young people through football and education.
+
         </p>
+
 
         {/* CTA buttons */}
         <div className="flex flex-wrap gap-2.5 pt-1">
@@ -1404,8 +1620,10 @@ const recentFixtures = initialData.fixtures
           >
             <Calendar className="w-4 h-4" />
             Match Centre
+
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </button>
+
 
           <button
             onClick={() => setActiveTab("players")}
@@ -1413,8 +1631,10 @@ const recentFixtures = initialData.fixtures
           >
             <Users className="w-4 h-4" />
             Meet the Team
+
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </button>
+
 
           <button
             onClick={() => setActiveTab("history")}
@@ -1425,6 +1645,7 @@ const recentFixtures = initialData.fixtures
           </button>
 
         </div>
+
 
         {/* Club identity strip */}
         <div className="pt-2">
@@ -1441,7 +1662,9 @@ const recentFixtures = initialData.fixtures
               </p>
             </div>
 
+
             <div className="h-7 w-px bg-white/10 hidden sm:block" />
+
 
             <div>
               <p className="text-emerald-400 text-base sm:text-lg font-black">
@@ -1453,7 +1676,9 @@ const recentFixtures = initialData.fixtures
               </p>
             </div>
 
+
             <div className="h-7 w-px bg-white/10 hidden sm:block" />
+
 
             <div>
               <p className="text-white text-base sm:text-lg font-black">
@@ -1470,149 +1695,16 @@ const recentFixtures = initialData.fixtures
         </div>
 
       </div>
+
     </div>
+
   </div>
+
 
   {/* Bottom accent */}
   <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-yellow-400 to-emerald-500" />
 
 </div>
-
-{/* ================= CLUB STATS ================= */}
-<section className="space-y-5">
-
-  {/* Section heading */}
-  <div>
-    <div className="flex items-center gap-2 mb-2">
-      <span className="w-2 h-2 rounded-full bg-yellow-400" />
-
-      <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
-        The Club
-      </span>
-    </div>
-
-    <h2 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight">
-      Built on More Than Football
-    </h2>
-
-    <p className="text-sm text-slate-500 mt-2 max-w-2xl">
-      A community club driven by football, youth development, discipline and hope.
-    </p>
-  </div>
-
-  {/* Stats cards */}
-  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-
-    {/* Current League */}
-    <div className="group relative overflow-hidden rounded-2xl bg-slate-950 p-6 shadow-lg border border-slate-800 hover:-translate-y-1 transition-all duration-300">
-
-      <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-yellow-400/10 blur-2xl group-hover:bg-yellow-400/20 transition-colors" />
-
-      <div className="relative z-10">
-
-        <div className="w-12 h-12 rounded-xl bg-yellow-400/10 border border-yellow-400/20 flex items-center justify-center mb-5">
-          <Award className="w-6 h-6 text-yellow-400" />
-        </div>
-
-        <p className="text-[10px] uppercase tracking-widest font-black text-slate-500">
-          Current League
-        </p>
-
-        <h3 className="text-lg font-black text-white mt-2">
-          FKF Division One
-        </h3>
-
-        <p className="text-xs text-slate-400 mt-1">
-          Third Tier of Kenyan Football
-        </p>
-
-      </div>
-    </div>
-
-
-    {/* Home */}
-    <div className="group relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm border border-slate-100 hover:-translate-y-1 hover:shadow-xl transition-all duration-300">
-
-      <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-emerald-500/10 blur-2xl group-hover:bg-emerald-500/20 transition-colors" />
-
-      <div className="relative z-10">
-
-        <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mb-5">
-          <MapPin className="w-6 h-6 text-emerald-600" />
-        </div>
-
-        <p className="text-[10px] uppercase tracking-widest font-black text-slate-400">
-          Our Home
-        </p>
-
-        <h3 className="text-lg font-black text-slate-950 mt-2">
-          Kariobangi North
-        </h3>
-
-        <p className="text-xs text-slate-500 mt-1">
-          Nairobi County, Kenya
-        </p>
-
-      </div>
-    </div>
-
-
-    {/* Established */}
-    <div className="group relative overflow-hidden rounded-2xl bg-white p-6 shadow-sm border border-slate-100 hover:-translate-y-1 hover:shadow-xl transition-all duration-300">
-
-      <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-blue-500/10 blur-2xl group-hover:bg-blue-500/20 transition-colors" />
-
-      <div className="relative z-10">
-
-        <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center mb-5">
-          <History className="w-6 h-6 text-blue-600" />
-        </div>
-
-        <p className="text-[10px] uppercase tracking-widest font-black text-slate-400">
-          Established
-        </p>
-
-        <h3 className="text-lg font-black text-slate-950 mt-2">
-          2018
-        </h3>
-
-        <p className="text-xs text-slate-500 mt-1">
-          Founded by Erick Otieno Atanga & Community
-        </p>
-
-      </div>
-    </div>
-
-
-    {/* Mission */}
-    <div className="group relative overflow-hidden rounded-2xl bg-emerald-600 p-6 shadow-lg border border-emerald-500 hover:-translate-y-1 transition-all duration-300">
-
-      <div className="absolute -right-10 -top-10 w-32 h-32 rounded-full bg-white/10 blur-2xl" />
-
-      <div className="relative z-10">
-
-        <div className="w-12 h-12 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center mb-5">
-          <HeartHandshake className="w-6 h-6 text-yellow-300" />
-        </div>
-
-        <p className="text-[10px] uppercase tracking-widest font-black text-emerald-100">
-          Our Mission
-        </p>
-
-        <h3 className="text-lg font-black text-white mt-2">
-          Youth Empowerment
-        </h3>
-
-        <p className="text-xs text-emerald-100 mt-1">
-          Football, education, discipline & opportunity
-        </p>
-
-      </div>
-    </div>
-
-  </div>
-
-</section>
 
             {/* ================= NEXT MATCH ================= */}
 {upcomingFixtures.length > 0 && (
@@ -1821,7 +1913,7 @@ const recentFixtures = initialData.fixtures
 
   </section>
 )}
-           {/* ================= CLUB GALLERY ================= */}
+    {/* ================= CLUB GALLERY CAROUSEL ================= */}
 <div className="space-y-6">
 
   {/* Section heading */}
@@ -1857,65 +1949,120 @@ const recentFixtures = initialData.fixtures
   </div>
 
 
-  {/* Gallery */}
+  {/* ================= AUTO CAROUSEL ================= */}
   {initialData.gallery.length > 0 ? (
 
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+    <div className="relative group">
 
-      {initialData.gallery.slice(0, 4).map((item, index) => (
+      {/* Large image area */}
+      <div className="relative h-[320px] sm:h-[430px] md:h-[520px] lg:h-[560px] rounded-3xl overflow-hidden bg-slate-950 border border-slate-200 shadow-xl">
 
-        <div
-          key={item.id}
-          className={`group relative overflow-hidden rounded-3xl bg-slate-100 border border-slate-800 shadow-sm hover:shadow-xl transition-all duration-500 ${
-            index === 0
-              ? "sm:col-span-2 sm:row-span-2 aspect-square"
-              : "aspect-[4/3]"
-          }`}
+        {initialData.gallery.map((item, index) => (
+
+          <div
+            key={item.id}
+            className={`absolute inset-0 flex items-center justify-center transition-opacity duration-1000 ${
+              index === galleryCarouselIndex
+                ? "opacity-100 z-10"
+                : "opacity-0 z-0 pointer-events-none"
+            }`}
+          >
+
+            {/* Clear image */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={item.imageUrl}
+              alt={item.caption || "Kariobangi Legends FC"}
+              className="w-full h-full object-contain"
+            />
+
+            {/* Very light overlay only at bottom */}
+            <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+
+
+            {/* Caption */}
+            <div className="absolute bottom-0 left-0 right-0 p-5 sm:p-8 z-20">
+
+              {item.category && (
+                <span className="inline-flex items-center bg-emerald-600 text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full mb-2">
+                  {item.category}
+                </span>
+              )}
+
+              <p className="text-lg sm:text-2xl font-black text-white leading-snug max-w-2xl">
+                {item.caption || "Kariobangi Legends FC"}
+              </p>
+
+            </div>
+
+          </div>
+
+        ))}
+
+
+        {/* Previous */}
+        <button
+          onClick={() =>
+            setGalleryCarouselIndex((current) =>
+              current === 0
+                ? initialData.gallery.length - 1
+                : current - 1
+            )
+          }
+          className="absolute z-30 left-4 top-1/2 -translate-y-1/2 w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-black/60 hover:bg-yellow-400 hover:text-slate-950 text-white border border-white/20 backdrop-blur-md flex items-center justify-center transition-all duration-300 opacity-70 group-hover:opacity-100"
+          aria-label="Previous image"
         >
-
-          {/* Image */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={item.imageUrl}
-            alt={item.caption}
-           className="absolute inset-0 w-full h-full object-contain group-hover:scale-[1.02] transition-transform duration-500"
-          />
+          <ChevronLeft className="w-6 h-6" />
+        </button>
 
 
-          {/* Image overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/10 to-transparent opacity-80 group-hover:opacity-90 transition-opacity duration-300" />
+        {/* Next */}
+        <button
+          onClick={() =>
+            setGalleryCarouselIndex((current) =>
+              current === initialData.gallery.length - 1
+                ? 0
+                : current + 1
+            )
+          }
+          className="absolute z-30 right-4 top-1/2 -translate-y-1/2 w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-black/60 hover:bg-yellow-400 hover:text-slate-950 text-white border border-white/20 backdrop-blur-md flex items-center justify-center transition-all duration-300 opacity-70 group-hover:opacity-100"
+          aria-label="Next image"
+        >
+          <ChevronRight className="w-6 h-6" />
+        </button>
 
 
-          {/* Gallery number */}
-          <div className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 flex items-center justify-center">
-            <span className="text-[10px] font-black text-white">
-              0{index + 1}
-            </span>
-          </div>
+        {/* Counter */}
+        <div className="absolute z-30 top-4 right-4">
 
-
-          {/* Camera icon */}
-          <div className="absolute top-4 left-4 w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-            <Camera className="w-4 h-4 text-white" />
-          </div>
-
-
-          {/* Caption */}
-          <div className="absolute bottom-0 left-0 right-0 p-5">
-
-            <span className="inline-flex items-center bg-emerald-600 text-white text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full mb-2">
-              {item.category}
-            </span>
-
-            <p className="text-sm font-black text-white leading-snug line-clamp-2">
-              {item.caption}
-            </p>
-
+          <div className="px-3 py-1.5 rounded-full bg-black/60 border border-white/20 backdrop-blur-md text-white text-[9px] font-black">
+            {galleryCarouselIndex + 1} / {initialData.gallery.length}
           </div>
 
         </div>
 
-      ))}
+      </div>
+
+
+      {/* ================= DOTS ================= */}
+      <div className="flex justify-center items-center gap-2 mt-5">
+
+        {initialData.gallery.map((_, index) => (
+
+          <button
+            key={index}
+            onClick={() => setGalleryCarouselIndex(index)}
+            className={`h-2 rounded-full transition-all duration-500 ${
+              index === galleryCarouselIndex
+                ? "w-8 bg-yellow-400"
+                : "w-2 bg-slate-300 hover:bg-emerald-500"
+            }`}
+            aria-label={`Show image ${index + 1}`}
+          />
+
+        ))}
+
+      </div>
 
     </div>
 
@@ -2967,95 +3114,101 @@ const recentFixtures = initialData.fixtures
 
        {/* ================= TAB: MANAGEMENT ================= */}
 {activeTab === "management" && (
-  <div className="space-y-10">
+  <div className="space-y-12">
 
-    {/* Header */}
-    <div className="max-w-3xl space-y-3">
-      <p className="text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
-        Club Leadership & Football Operations
-      </p>
+    {/* ================= HEADER ================= */}
+    <div className="max-w-3xl space-y-4">
 
-      <h2 className="text-3xl md:text-4xl font-black text-slate-950 tracking-tight">
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-yellow-400" />
+
+        <span className="text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+          Club Leadership & Football Operations
+        </span>
+      </div>
+
+      <h2 className="text-3xl md:text-5xl font-black text-slate-950 tracking-tight">
         Kariobangi Legends Management
       </h2>
 
-      <p className="text-sm md:text-base text-slate-600 leading-relaxed">
+      <p className="text-sm md:text-base text-slate-600 leading-relaxed max-w-2xl">
         Meet the people responsible for leading, managing and developing
         Kariobangi Legends Football Club both on and off the pitch.
       </p>
+
     </div>
 
-    {/* Management Hierarchy */}
+
+    {/* ================= TWO MANAGEMENT SECTIONS ================= */}
     {[
-      "Club Leadership",
-      "Football & Technical",
-      "Team Operations",
-      "Medical & Welfare",
-      "Academy",
-    ].map((category) => {
-      const members = initialData.management.filter(
-        (member) => member.category === category
-      );
+      {
+        name: "Club Leadership",
+        title: "Club Leadership / Board",
+        description:
+          "Strategic leadership, governance and overall direction of Kariobangi Legends.",
+      },
+      {
+        name: "Technical Team",
+        title: "Technical Team",
+        description:
+          "Football, coaching, matchday and technical development of the team.",
+      },
+    ].map((section) => {
+
+      const members = initialData.management
+        .filter(
+          (member) =>
+            member.category === section.name
+        )
+        .sort(
+          (a, b) =>
+            a.displayOrder - b.displayOrder
+        );
 
       if (members.length === 0) return null;
 
       return (
-        <section key={category} className="space-y-5">
+        <section
+          key={section.name}
+          className="space-y-6"
+        >
 
-          {/* Category Heading */}
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-1.5 bg-yellow-400 rounded-full" />
+          {/* ================= SECTION HEADING ================= */}
+          <div className="flex items-start gap-4">
+
+            <div className="w-1.5 min-h-16 bg-yellow-400 rounded-full" />
 
             <div>
-              <h3 className="text-xl md:text-2xl font-black text-slate-950">
-                {category}
+              <h3 className="text-2xl md:text-3xl font-black text-slate-950">
+                {section.title}
               </h3>
 
-              <p className="text-xs text-slate-500 mt-1">
-                {category === "Club Leadership" &&
-                  "Strategic leadership and overall direction of the club."}
-
-                {category === "Football & Technical" &&
-                  "Football, coaching and technical development."}
-
-                {category === "Team Operations" &&
-                  "Daily team administration, welfare and operations."}
-
-                {category === "Medical & Welfare" &&
-                  "Player health, fitness, recovery and welfare."}
-
-                {category === "Academy" &&
-                  "Youth development and the future of Kariobangi Legends."}
+              <p className="text-sm text-slate-500 mt-1 max-w-2xl">
+                {section.description}
               </p>
             </div>
+
           </div>
 
-          {/* Officials */}
+
+          {/* ================= OFFICIALS ================= */}
           <div
             className={
-              category === "Club Leadership"
-                ? "grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto"
-                : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+              section.name === "Club Leadership"
+                ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+                : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
             }
           >
+
             {members.map((member) => (
               <div
                 key={member.id}
-                className={`bg-white rounded-3xl overflow-hidden border shadow-sm hover:shadow-xl transition-all duration-300 ${
-                  category === "Club Leadership"
-                    ? "border-yellow-400/40"
-                    : "border-slate-100"
-                }`}
+                className="group bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300"
               >
 
-                {/* Photo */}
-                <div
-                  className={`relative bg-slate-100 overflow-hidden ${
-                    category === "Club Leadership"
-                      ? "h-80"
-                      : "h-64"
-                  }`}
-                >
+                {/* ================= PHOTO ================= */}
+                <div className="relative h-72 bg-slate-100 overflow-hidden">
+
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={
@@ -3063,110 +3216,143 @@ const recentFixtures = initialData.fixtures
                       "/images/management-placeholder.jpg"
                     }
                     alt={`${member.name} - ${member.position}`}
-                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                     onError={(e) => {
                       e.currentTarget.src =
                         "/images/management-placeholder.jpg";
                     }}
                   />
 
-                  {/* Position Badge */}
+                  {/* Dark gradient */}
+                  <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950/90 to-transparent" />
+
+                  {/* Position */}
                   <div className="absolute bottom-4 left-4 right-4">
-                    <span className="inline-block bg-slate-950/95 text-yellow-400 text-xs font-black uppercase tracking-wide px-4 py-2.5 rounded-xl shadow-lg">
+
+                    <span className="inline-flex bg-slate-950/95 text-yellow-400 text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-xl shadow-lg">
                       {member.position}
                     </span>
+
                   </div>
+
                 </div>
 
-                {/* Information */}
-                <div
-                  className={
-                    category === "Club Leadership"
-                      ? "p-7 space-y-5"
-                      : "p-5 space-y-4"
-                  }
-                >
+
+                {/* ================= INFORMATION ================= */}
+                <div className="p-5 space-y-4">
 
                   <div>
-                    <h4
-                      className={`font-black text-slate-950 ${
-                        category === "Club Leadership"
-                          ? "text-2xl"
-                          : "text-lg"
-                      }`}
-                    >
+
+                    <h4 className="text-xl font-black text-slate-950 leading-tight">
                       {member.name}
                     </h4>
 
-                    <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide mt-1">
+                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1">
                       {member.position}
                     </p>
+
                   </div>
+
 
                   {/* Responsibilities */}
                   {member.responsibilities && (
                     <div className="space-y-1.5">
-                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
                         Responsibilities
                       </p>
 
                       <p className="text-xs text-slate-600 leading-relaxed">
                         {member.responsibilities}
                       </p>
+
                     </div>
                   )}
+
 
                   {/* Biography */}
                   {member.bio && (
                     <div className="space-y-1.5">
-                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
                         Biography
                       </p>
 
                       <p className="text-xs text-slate-600 leading-relaxed">
                         {member.bio}
                       </p>
+
                     </div>
                   )}
-                  {/* Edit Management Official */}
-{isAdminAuthenticated && (
-  <div className="flex gap-2 mt-4">
 
-    {/* Edit */}
-    <button
-      type="button"
-      onClick={() => handleAdminEditManagement(member)}
-      className="flex-1 bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider hover:bg-slate-900 transition flex items-center justify-center gap-2 cursor-pointer"
-    >
-      <Camera className="w-4 h-4" />
-      Edit
-    </button>
 
-    {/* Delete */}
-    <button
-      type="button"
-      onClick={() => handleAdminDeleteManagement(member.id)}
-      disabled={isPending}
-      className="flex-1 bg-red-600 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider hover:bg-red-700 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-    >
-      Delete
-    </button>
+                  {/* ================= ADMIN CONTROLS ================= */}
+                  {isAdminAuthenticated && (
+                    <div className="flex gap-2 pt-2">
 
-  </div>
-)}
+                      {/* Edit */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleAdminEditManagement(member)
+                        }
+                        className="flex-1 bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider hover:bg-slate-900 transition flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Camera className="w-4 h-4" />
+                        Edit
+                      </button>
+
+
+                      {/* Delete */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleAdminDeleteManagement(
+                            member.id
+                          )
+                        }
+                        disabled={isPending}
+                        className="flex-1 bg-red-600 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider hover:bg-red-700 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+
+                    </div>
+                  )}
 
                 </div>
+
               </div>
             ))}
+
           </div>
 
         </section>
       );
     })}
 
+
+    {/* ================= EMPTY STATE ================= */}
+    {initialData.management.length === 0 && (
+      <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
+
+        <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4">
+          <Users className="w-8 h-8 text-slate-300" />
+        </div>
+
+        <h4 className="font-black text-slate-800 text-lg">
+          Management Information Coming Soon
+        </h4>
+
+        <p className="text-sm text-slate-500 mt-2">
+          Club leadership and technical team information will appear here.
+        </p>
+
+      </div>
+    )}
+
   </div>
 )}
-
 
         {/* ================= TAB: SQUAD ================= */}
         {activeTab === "squad" && (
@@ -4230,169 +4416,282 @@ const recentFixtures = initialData.fixtures
     Photos can be uploaded directly from your computer.
   </p>
 
-  <form
-    onSubmit={
-      editingManagementId
-        ? handleAdminUpdateManagement
-        : handleAdminAddManagement
-    }
-    className="space-y-3 text-xs"
-  >
+ <form
+  onSubmit={
+    editingManagementId
+      ? handleAdminUpdateManagement
+      : handleAdminAddManagement
+  }
+  className="space-y-3 text-xs"
+>
+  {/* ================= FULL NAME ================= */}
+  <div className="space-y-1">
+    <label className="font-bold text-slate-500">
+      Full Name
+    </label>
 
-    {/* Name */}
-    <div className="space-y-1">
-      <label className="font-bold text-slate-500">Full Name</label>
-      <input
-        type="text"
-        placeholder="e.g. John Kamau"
-        value={adminManagementName}
-        onChange={(e) => setAdminManagementName(e.target.value)}
-        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
-        required
-      />
-    </div>
+    <input
+      type="text"
+      placeholder="e.g. John Kamau"
+      value={adminManagementName}
+      onChange={(e) =>
+        setAdminManagementName(e.target.value)
+      }
+      className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+      required
+    />
+  </div>
 
-    {/* Position */}
-    <div className="space-y-1">
-      <label className="font-bold text-slate-500">Position</label>
-      <select
-        value={adminManagementPosition}
-        onChange={(e) => setAdminManagementPosition(e.target.value)}
-        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
-      >
-        <option>Chairman</option>
-        <option>Chief Executive Officer (CEO)</option>
-        <option>Club Secretary</option>
-        <option>Treasurer</option>
-        <option>Team Manager</option>
-        <option>Head Coach</option>
-        <option>Assistant Coach</option>
-        <option>Goalkeeping Coach</option>
-        <option>Fitness & Conditioning Coach</option>
-        <option>Team Doctor / Medical Officer</option>
-        <option>Physiotherapist</option>
-        <option>Team Administrator</option>
-        <option>Kit Manager</option>
-        <option>Team Liaison / Welfare Officer</option>
-        <option>Academy Director</option>
-        <option>Academy Head Coach</option>
-        <option>Youth Development Coach</option>
-        <option>Other</option>
-      </select>
-    </div>
 
-    {/* Category */}
-    <div className="space-y-1">
-      <label className="font-bold text-slate-500">Management Category</label>
-      <select
-        value={adminManagementCategory}
-        onChange={(e) => setAdminManagementCategory(e.target.value)}
-        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
-      >
-        <option>Club Leadership</option>
-        <option>Football & Technical</option>
-        <option>Team Operations</option>
-        <option>Medical & Welfare</option>
-        <option>Academy</option>
-      </select>
-    </div>
+  {/* ================= MANAGEMENT SECTION ================= */}
+  <div className="space-y-1">
+    <label className="font-bold text-slate-500">
+      Management Section
+    </label>
 
-    {/* Responsibilities */}
-    <div className="space-y-1">
-      <label className="font-bold text-slate-500">Responsibilities</label>
-      <textarea
-        placeholder="Describe the official's responsibilities..."
-        value={adminManagementResponsibilities}
-        onChange={(e) =>
-          setAdminManagementResponsibilities(e.target.value)
+    <select
+      value={adminManagementCategory}
+      onChange={(e) => {
+        const category = e.target.value;
+
+        setAdminManagementCategory(category);
+
+        // Set a valid default position whenever section changes
+        if (category === "Club Leadership") {
+          setAdminManagementPosition("Chairman");
+        } else {
+          setAdminManagementPosition("Head Coach");
         }
-        rows={3}
-        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
-      />
-    </div>
-
-    {/* Bio */}
-    <div className="space-y-1">
-      <label className="font-bold text-slate-500">Short Biography</label>
-      <textarea
-        placeholder="Enter a short biography..."
-        value={adminManagementBio}
-        onChange={(e) => setAdminManagementBio(e.target.value)}
-        rows={3}
-        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
-      />
-    </div>
-
-    {/* Display Order */}
-    <div className="space-y-1">
-      <label className="font-bold text-slate-500">Display Order</label>
-      <input
-        type="number"
-        min="0"
-        value={adminManagementOrder}
-        onChange={(e) => setAdminManagementOrder(e.target.value)}
-        className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
-      />
-      <p className="text-[10px] text-slate-400">
-        Lower numbers appear first.
-      </p>
-    </div>
-
-    {/* Management Photo */}
-    <div className="space-y-1">
-      <label className="font-bold text-slate-500">
-        Official's Photo
-      </label>
-
-      <input
-        type="file"
-        accept="image/*"
-        onChange={(e) => {
-          const file = e.target.files?.[0] || null;
-          setAdminManagementFile(file);
-        }}
-        className="block w-full text-sm text-slate-600
-          file:mr-4 file:py-2.5 file:px-4
-          file:rounded-xl file:border-0
-          file:text-xs file:font-bold
-          file:bg-emerald-50 file:text-emerald-700
-          hover:file:bg-emerald-100"
-      />
-
-      {adminManagementFile && (
-        <p className="text-[10px] text-emerald-600 font-semibold">
-          Selected: {adminManagementFile.name}
-        </p>
-      )}
-    </div>
-
-    {/* Submit */}
-    <button
-      type="submit"
-      disabled={isPending}
-      className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
+      }}
+      className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
     >
-      {isPending
-        ? editingManagementId
-          ? "Updating Official..."
-          : "Adding Official..."
-        : editingManagementId
-          ? "Update Management Official"
-          : "Add Management Official"}
-    </button>
+      <option value="Club Leadership">
+        Club Leadership / Board
+      </option>
 
-    {/* Cancel Edit */}
-    {editingManagementId && (
-      <button
-        type="button"
-        onClick={handleCancelManagementEdit}
-        className="w-full border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-50 transition cursor-pointer"
-      >
-        Cancel Edit
-      </button>
+      <option value="Technical Team">
+        Technical Team
+      </option>
+    </select>
+  </div>
+
+
+  {/* ================= POSITION ================= */}
+  <div className="space-y-1">
+    <label className="font-bold text-slate-500">
+      Position
+    </label>
+
+    <select
+      value={adminManagementPosition}
+      onChange={(e) =>
+        setAdminManagementPosition(e.target.value)
+      }
+      className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+    >
+
+      {/* CLUB LEADERSHIP */}
+      {adminManagementCategory === "Club Leadership" && (
+        <>
+          <option value="Chairman">
+            Chairman
+          </option>
+
+          <option value="Vice Chairman">
+            Vice Chairman
+          </option>
+
+          <option value="CEO / President">
+            CEO / President
+          </option>
+
+          <option value="Senior Team Manager">
+            Senior Team Manager
+          </option>
+
+          <option value="Club Secretary">
+            Club Secretary
+          </option>
+
+          <option value="Club Treasurer">
+            Club Treasurer
+          </option>
+
+          <option value="Community Representative">
+            Community Representative
+          </option>
+
+          <option value="Board Member">
+            Board Member
+          </option>
+        </>
+      )}
+
+
+      {/* TECHNICAL TEAM */}
+      {adminManagementCategory === "Technical Team" && (
+        <>
+          <option value="Head Coach">
+            Head Coach
+          </option>
+
+          <option value="Assistant Coach">
+            Assistant Coach
+          </option>
+
+          <option value="Goalkeeping Coach">
+            Goalkeeping Coach
+          </option>
+
+          <option value="Fitness Coach">
+            Fitness Coach
+          </option>
+
+          <option value="Team Doctor / Physiotherapist">
+            Team Doctor / Physiotherapist
+          </option>
+
+          <option value="Team Analyst">
+            Team Analyst
+          </option>
+
+          <option value="Kit Manager">
+            Kit Manager
+          </option>
+
+          <option value="Disciplinarian">
+            Disciplinarian
+          </option>
+
+          <option value="Photographer">
+            Photographer
+          </option>
+
+          <option value="Equipment & Matchday Assistant">
+            Equipment & Matchday Assistant
+          </option>
+        </>
+      )}
+
+    </select>
+  </div>
+
+
+  {/* ================= RESPONSIBILITIES ================= */}
+  <div className="space-y-1">
+    <label className="font-bold text-slate-500">
+      Responsibilities
+    </label>
+
+    <textarea
+      placeholder="Describe the official's responsibilities..."
+      value={adminManagementResponsibilities}
+      onChange={(e) =>
+        setAdminManagementResponsibilities(e.target.value)
+      }
+      rows={3}
+      className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+    />
+  </div>
+
+
+  {/* ================= BIOGRAPHY ================= */}
+  <div className="space-y-1">
+    <label className="font-bold text-slate-500">
+      Short Biography
+    </label>
+
+    <textarea
+      placeholder="Enter a short biography..."
+      value={adminManagementBio}
+      onChange={(e) =>
+        setAdminManagementBio(e.target.value)
+      }
+      rows={3}
+      className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+    />
+  </div>
+
+
+  {/* ================= DISPLAY ORDER ================= */}
+  <div className="space-y-1">
+    <label className="font-bold text-slate-500">
+      Display Order
+    </label>
+
+    <input
+      type="number"
+      min="0"
+      value={adminManagementOrder}
+      onChange={(e) =>
+        setAdminManagementOrder(e.target.value)
+      }
+      className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+    />
+
+    <p className="text-[10px] text-slate-400">
+      Lower numbers appear first.
+    </p>
+  </div>
+
+
+  {/* ================= MANAGEMENT PHOTO ================= */}
+  <div className="space-y-1">
+    <label className="font-bold text-slate-500">
+      Official's Photo
+    </label>
+
+    <input
+      type="file"
+      accept="image/*"
+      onChange={(e) => {
+        const file = e.target.files?.[0] || null;
+        setAdminManagementFile(file);
+      }}
+      className="block w-full text-sm text-slate-600
+        file:mr-4 file:py-2.5 file:px-4
+        file:rounded-xl file:border-0
+        file:text-xs file:font-bold
+        file:bg-emerald-50 file:text-emerald-700
+        hover:file:bg-emerald-100"
+    />
+
+    {adminManagementFile && (
+      <p className="text-[10px] text-emerald-600 font-semibold">
+        Selected: {adminManagementFile.name}
+      </p>
     )}
+  </div>
 
-  </form>
+
+  {/* ================= SUBMIT ================= */}
+  <button
+    type="submit"
+    disabled={isPending}
+    className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
+  >
+    {isPending
+      ? editingManagementId
+        ? "Updating Official..."
+        : "Adding Official..."
+      : editingManagementId
+        ? "Update Management Official"
+        : "Add Management Official"}
+  </button>
+
+
+  {/* ================= CANCEL EDIT ================= */}
+  {editingManagementId && (
+    <button
+      type="button"
+      onClick={handleCancelManagementEdit}
+      className="w-full border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-50 transition cursor-pointer"
+    >
+      Cancel Edit
+    </button>
+  )}
+
+</form>
 </div>
 
 {/* Action 4: Add Gallery Image (For Showcasing More Images!) */}
