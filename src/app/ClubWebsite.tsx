@@ -208,6 +208,11 @@ useEffect(() => {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
   const [adminOrders, setAdminOrders] = useState<any[]>([]);
 const [isLoadingOrders, setIsLoadingOrders] = useState<boolean>(false);
+const [orderFilter, setOrderFilter] = useState<
+  "all" | "paid" | "pending" | "failed"
+>("all");
+
+const [orderSearch, setOrderSearch] = useState<string>("");
   
   const [adminPlayerName, setAdminPlayerName] = useState<string>("");
   const [adminPlayerPos, setAdminPlayerPos] = useState<string>("Midfielder");
@@ -4957,6 +4962,111 @@ const recentFixtures = initialData.fixtures
                 </div>
 
                 {/* ================= ADMIN ORDERS ================= */}
+                {/* ORDER STATISTICS */}
+{(() => {
+  const totalOrders = adminOrders.length;
+
+  const paidOrders = adminOrders.filter(
+    (order) =>
+      String(order.paymentStatus || "").toLowerCase() === "paid"
+  );
+
+  const pendingOrders = adminOrders.filter(
+    (order) =>
+      String(order.paymentStatus || "").toLowerCase() === "pending"
+  );
+
+  const failedOrders = adminOrders.filter(
+    (order) =>
+      String(order.paymentStatus || "").toLowerCase() === "failed"
+  );
+
+  const totalSales = paidOrders.reduce(
+    (total, order) => total + Number(order.totalAmount || 0),
+    0
+  );
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+
+      {/* TOTAL ORDERS */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+          Total Orders
+        </p>
+
+        <p className="text-3xl font-black text-slate-950 mt-2">
+          {totalOrders}
+        </p>
+
+        <p className="text-xs text-slate-500 mt-1">
+          All merchandise orders
+        </p>
+      </div>
+
+      {/* PAID ORDERS */}
+      <div className="bg-emerald-50 rounded-2xl border border-emerald-100 shadow-sm p-5">
+        <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600">
+          Paid Orders
+        </p>
+
+        <p className="text-3xl font-black text-emerald-700 mt-2">
+          {paidOrders.length}
+        </p>
+
+        <p className="text-xs text-emerald-600 mt-1">
+          Successfully paid
+        </p>
+      </div>
+
+      {/* PENDING ORDERS */}
+      <div className="bg-yellow-50 rounded-2xl border border-yellow-100 shadow-sm p-5">
+        <p className="text-[10px] font-black uppercase tracking-wider text-yellow-600">
+          Pending
+        </p>
+
+        <p className="text-3xl font-black text-yellow-700 mt-2">
+          {pendingOrders.length}
+        </p>
+
+        <p className="text-xs text-yellow-600 mt-1">
+          Awaiting payment
+        </p>
+      </div>
+
+      {/* FAILED ORDERS */}
+      <div className="bg-rose-50 rounded-2xl border border-rose-100 shadow-sm p-5">
+        <p className="text-[10px] font-black uppercase tracking-wider text-rose-600">
+          Failed
+        </p>
+
+        <p className="text-3xl font-black text-rose-700 mt-2">
+          {failedOrders.length}
+        </p>
+
+        <p className="text-xs text-rose-600 mt-1">
+          Unsuccessful payments
+        </p>
+      </div>
+
+      {/* TOTAL SALES */}
+      <div className="bg-slate-950 rounded-2xl shadow-sm p-5">
+        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+          Total Sales
+        </p>
+
+        <p className="text-2xl font-black text-yellow-400 mt-2">
+          Ksh {totalSales.toLocaleString()}
+        </p>
+
+        <p className="text-xs text-slate-400 mt-1">
+          Paid orders only
+        </p>
+      </div>
+
+    </div>
+  );
+})()}
 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
   <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
     <div>
@@ -4968,6 +5078,30 @@ const recentFixtures = initialData.fixtures
       <p className="text-[11px] text-slate-500 mt-1">
         View merchandise purchases and M-PESA payment confirmations.
       </p>
+      <div className="mt-4 flex flex-col sm:flex-row gap-3">
+  <input
+    type="text"
+    value={orderSearch}
+    onChange={(e) => setOrderSearch(e.target.value)}
+    placeholder="Search customer, phone or order #..."
+    className="w-full sm:w-72 px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+  />
+
+  <select
+    value={orderFilter}
+    onChange={(e) =>
+      setOrderFilter(
+        e.target.value as "all" | "paid" | "pending" | "failed"
+      )
+    }
+    className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-white outline-none focus:ring-2 focus:ring-emerald-500"
+  >
+    <option value="all">All Orders</option>
+    <option value="paid">Paid</option>
+    <option value="pending">Pending</option>
+    <option value="failed">Failed</option>
+  </select>
+</div>
     </div>
 
     <button
@@ -5002,7 +5136,30 @@ const recentFixtures = initialData.fixtures
     </div>
   ) : (
     <div className="divide-y divide-slate-100">
-      {adminOrders.map((order) => {
+      {adminOrders
+  .filter((order) => {
+    const status = String(
+      order.paymentStatus || "pending"
+    ).toLowerCase();
+
+    const matchesFilter =
+      orderFilter === "all" || status === orderFilter;
+
+    const search = orderSearch.trim().toLowerCase();
+
+    const matchesSearch =
+      !search ||
+      String(order.id).includes(search) ||
+      String(order.customerName || "")
+        .toLowerCase()
+        .includes(search) ||
+      String(order.phoneNumber || "")
+        .toLowerCase()
+        .includes(search);
+
+    return matchesFilter && matchesSearch;
+  })
+  .map((order) => {
         const status =
           String(order.paymentStatus || "pending").toLowerCase();
 
