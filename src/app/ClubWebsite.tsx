@@ -51,11 +51,12 @@ import {
   deleteMerchandise,
   addManagement,
   updateManagement,
-   deleteManagement,addFixture,
-updateFixture,
-deleteFixture,
+  deleteManagement,
+  addFixture,
+  updateFixture,
+  deleteFixture,
+  getOrders,
 } from "./actions";
-
 interface Player {
   id: number;
   name: string;
@@ -205,6 +206,8 @@ useEffect(() => {
   // Admin states
   const [adminPassword, setAdminPassword] = useState<string>("");
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const [adminOrders, setAdminOrders] = useState<any[]>([]);
+const [isLoadingOrders, setIsLoadingOrders] = useState<boolean>(false);
   
   const [adminPlayerName, setAdminPlayerName] = useState<string>("");
   const [adminPlayerPos, setAdminPlayerPos] = useState<string>("Midfielder");
@@ -545,6 +548,26 @@ const handleCheckoutSubmit = (e: React.FormEvent) => {
   setCheckoutSuccess(true);
   setCart([]);
 };
+
+const loadAdminOrders = async () => {
+  setIsLoadingOrders(true);
+
+  try {
+    const result = await getOrders();
+
+    if (result.success) {
+      setAdminOrders(result.orders || []);
+    } else {
+      console.error("Unable to load admin orders:", result.error);
+      showToast(result.error || "Unable to load orders.", "error");
+    }
+  } catch (error) {
+    console.error("Load admin orders failed:", error);
+    showToast("Unable to retrieve customer orders.", "error");
+  } finally {
+    setIsLoadingOrders(false);
+  }
+};
   const handleAdminLogin = async (e: React.FormEvent) => {
   e.preventDefault();
 
@@ -561,11 +584,15 @@ const handleCheckoutSubmit = (e: React.FormEvent) => {
 
     const result = await response.json();
 
-    if (response.ok && result.success) {
-      setIsAdminAuthenticated(true);
-      setAdminPassword("");
-      showToast("Successfully authenticated as Admin Manager.");
-    } else {
+   if (response.ok && result.success) {
+  setIsAdminAuthenticated(true);
+  setAdminPassword("");
+
+  await loadAdminOrders();
+
+  showToast("Successfully authenticated as Admin Manager.");
+}
+    else {
       showToast(result.error || "Incorrect password.", "error");
     }
   } catch (error) {
@@ -4929,10 +4956,243 @@ const recentFixtures = initialData.fixtures
                   </div>
                 </div>
 
-                
+                {/* ================= ADMIN ORDERS ================= */}
+<div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+  <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div>
+      <h3 className="font-black text-lg text-slate-950 flex items-center gap-2">
+        <ShoppingBag className="w-5 h-5 text-emerald-600" />
+        Customer Merchandise Orders
+      </h3>
+
+      <p className="text-[11px] text-slate-500 mt-1">
+        View merchandise purchases and M-PESA payment confirmations.
+      </p>
+    </div>
+
+    <button
+      type="button"
+      onClick={loadAdminOrders}
+      disabled={isLoadingOrders}
+      className="bg-slate-950 text-yellow-400 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
+    >
+      {isLoadingOrders ? "Refreshing..." : "Refresh Orders"}
+    </button>
+  </div>
+
+  {isLoadingOrders ? (
+    <div className="p-10 text-center">
+      <div className="w-10 h-10 border-4 border-slate-200 border-t-emerald-600 rounded-full animate-spin mx-auto mb-4" />
+
+      <p className="text-sm font-semibold text-slate-500">
+        Loading customer orders...
+      </p>
+    </div>
+  ) : adminOrders.length === 0 ? (
+    <div className="p-10 text-center">
+      <ShoppingBag className="w-12 h-12 text-slate-200 mx-auto mb-3" />
+
+      <h4 className="font-bold text-slate-600">
+        No customer orders yet
+      </h4>
+
+      <p className="text-xs text-slate-400 mt-1">
+        Completed or pending merchandise orders will appear here.
+      </p>
+    </div>
+  ) : (
+    <div className="divide-y divide-slate-100">
+      {adminOrders.map((order) => {
+        const status =
+          String(order.paymentStatus || "pending").toLowerCase();
+
+        const statusClasses =
+          status === "paid"
+            ? "bg-emerald-100 text-emerald-700"
+            : status === "failed"
+              ? "bg-rose-100 text-rose-700"
+              : "bg-yellow-100 text-yellow-700";
+
+        return (
+          <div
+            key={order.id}
+            className="p-6 hover:bg-slate-50/70 transition"
+          >
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
+
+              {/* ORDER INFORMATION */}
+              <div className="space-y-3 flex-1">
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-black text-slate-950">
+                    Order #{order.id}
+                  </span>
+
+                  <span
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${statusClasses}`}
+                  >
+                    {status}
+                  </span>
+                </div>
+
+                {/* CUSTOMER DETAILS */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+
+                  <div>
+                    <span className="text-slate-400 block">
+                      Customer
+                    </span>
+
+                    <span className="font-bold text-slate-800">
+                      {order.customerName}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 block">
+                      M-PESA Phone
+                    </span>
+
+                    <span className="font-bold text-slate-800">
+                      {order.phoneNumber}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 block">
+                      Payment Method
+                    </span>
+
+                    <span className="font-bold text-slate-800 uppercase">
+                      {order.paymentMethod || "M-PESA"}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 block">
+                      Order Date
+                    </span>
+
+                    <span className="font-bold text-slate-800">
+                      {order.createdAt
+                        ? new Date(order.createdAt).toLocaleString()
+                        : "—"}
+                    </span>
+                  </div>
+
+                </div>
+
+                {/* ITEMS ORDERED */}
+                <div className="bg-slate-50 rounded-2xl p-4 space-y-2">
+
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Items Ordered
+                  </p>
+
+                  {Array.isArray(order.items) &&
+                  order.items.length > 0 ? (
+                    <div className="space-y-2">
+
+                      {order.items.map((item: any) => (
+                        <div
+                          key={item.id}
+                          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs"
+                        >
+                          <div>
+                            <span className="font-bold text-slate-800">
+                              {item.productName}
+                            </span>
+
+                            <span className="text-slate-500">
+                              {" "}
+                              • Size: {item.size} • Qty: {item.quantity}
+                            </span>
+                          </div>
+
+                          <span className="font-bold text-slate-900">
+                            Ksh{" "}
+                            {(
+                              Number(item.unitPrice || 0) *
+                              Number(item.quantity || 0)
+                            ).toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400">
+                      No item details available.
+                    </p>
+                  )}
+
+                </div>
               </div>
+
+              {/* PAYMENT SUMMARY */}
+              <div className="lg:w-64 bg-slate-950 rounded-2xl p-5 text-white space-y-4">
+
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                    Order Total
+                  </p>
+
+                  <p className="text-2xl font-black text-yellow-400 mt-1">
+                    Ksh{" "}
+                    {Number(order.totalAmount || 0).toLocaleString()}
+                  </p>
+                </div>
+
+                <div className="space-y-2 text-xs">
+
+                  <div>
+                    <p className="text-slate-400">
+                      M-PESA Receipt
+                    </p>
+
+                    <p className="font-bold text-white break-all">
+                      {order.mpesaReceiptNumber ||
+                        "Not yet available"}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-400">
+                      Transaction Date
+                    </p>
+
+                    <p className="font-bold text-white">
+                      {order.transactionDate ||
+                        "Not yet available"}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-400">
+                      Checkout Request ID
+                    </p>
+
+                    <p className="font-mono text-[9px] text-slate-300 break-all">
+                      {order.checkoutRequestId ||
+                        "Not available"}
+                    </p>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  )}
+</div>
+              </div>
+              
             )}
           </div>
+          
         )}
       </main>
 

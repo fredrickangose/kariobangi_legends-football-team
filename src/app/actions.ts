@@ -10,6 +10,8 @@ import {
   fanMessages,
   gallery,
   management,
+  orders,
+  orderItems,
 } from "@/db/schema";
 import { seedDatabaseIfNeeded } from "@/db/seed";
 import { desc, asc, eq } from "drizzle-orm";
@@ -845,6 +847,58 @@ if (!verifyAdminToken(adminCookie?.value)) {
     return {
       success: false,
       error: String(error),
+    };
+  }
+}
+
+// ========== ORDERS ==========
+
+export async function getOrders() {
+  try {
+    const cookieStore = await cookies();
+    const adminCookie = cookieStore.get("kariobangi_admin");
+
+    if (!verifyAdminToken(adminCookie?.value)) {
+      return {
+        success: false,
+        error: "Unauthorized. Admin authentication required.",
+        orders: [],
+      };
+    }
+
+    const orderList = await db
+      .select()
+      .from(orders)
+      .orderBy(desc(orders.createdAt));
+
+    const ordersWithItems = await Promise.all(
+      orderList.map(async (order) => {
+        const items = await db
+          .select()
+          .from(orderItems)
+          .where(eq(orderItems.orderId, order.id));
+
+        return {
+          ...order,
+          items,
+        };
+      })
+    );
+
+    return {
+      success: true,
+      orders: ordersWithItems,
+    };
+  } catch (error) {
+    console.error("Get orders failed:", error);
+
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to retrieve orders.",
+      orders: [],
     };
   }
 }
