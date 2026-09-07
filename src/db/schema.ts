@@ -88,24 +88,32 @@ export const management = pgTable("management", {
 
 export const orders = pgTable("orders", {
   id: serial("id").primaryKey(),
-
   customerName: text("customer_name").notNull(),
   phoneNumber: text("phone_number").notNull(),
-
   totalAmount: integer("total_amount").notNull(),
 
-  paymentMethod: text("payment_method").default("mpesa").notNull(),
-  paymentStatus: text("payment_status").default("pending").notNull(),
+  paymentMethod: text("payment_method")
+    .default("mpesa")
+    .notNull(),
+
+  paymentStatus: text("payment_status")
+    .default("pending")
+    .notNull(),
+
+  orderStatus: text("order_status")
+    .default("processing")
+    .notNull(),
 
   merchantRequestId: text("merchant_request_id"),
   checkoutRequestId: text("checkout_request_id"),
   mpesaReceiptNumber: text("mpesa_receipt_number"),
-
   transactionDate: text("transaction_date"),
 
   deliveryAddress: text("delivery_address"),
 
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at")
+    .defaultNow()
+    .notNull(),
 });
 
 export const orderItems = pgTable("order_items", {

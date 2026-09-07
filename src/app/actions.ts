@@ -865,6 +865,9 @@ export async function getOrders() {
         orders: [],
       };
     }
+    
+
+    
 
     const orderList = await db
       .select()
@@ -899,6 +902,73 @@ export async function getOrders() {
           ? error.message
           : "Unable to retrieve orders.",
       orders: [],
+    };
+  }
+}
+export async function updateOrderStatus(
+  orderId: number,
+  orderStatus: "processing" | "shipped" | "delivered" | "cancelled"
+) {
+  try {
+    const cookieStore = await cookies();
+    const adminCookie = cookieStore.get("kariobangi_admin");
+
+    if (!verifyAdminToken(adminCookie?.value)) {
+      return {
+        success: false,
+        error: "Unauthorized. Admin authentication required.",
+      };
+    }
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return {
+        success: false,
+        error: "Invalid order ID.",
+      };
+    }
+
+    const allowedStatuses = [
+      "processing",
+      "shipped",
+      "delivered",
+      "cancelled",
+    ] as const;
+
+    if (!allowedStatuses.includes(orderStatus)) {
+      return {
+        success: false,
+        error: "Invalid order status.",
+      };
+    }
+
+    const updatedOrder = await db
+      .update(orders)
+      .set({
+        orderStatus,
+      })
+      .where(eq(orders.id, orderId))
+      .returning();
+
+    if (updatedOrder.length === 0) {
+      return {
+        success: false,
+        error: "Order not found.",
+      };
+    }
+
+    return {
+      success: true,
+      order: updatedOrder[0],
+    };
+  } catch (error) {
+    console.error("Update order status failed:", error);
+
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to update order status.",
     };
   }
 }

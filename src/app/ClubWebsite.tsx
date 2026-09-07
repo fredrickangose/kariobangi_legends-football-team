@@ -56,6 +56,7 @@ import {
   updateFixture,
   deleteFixture,
   getOrders,
+  updateOrderStatus,
 } from "./actions";
 interface Player {
   id: number;
@@ -5285,6 +5286,82 @@ const recentFixtures = initialData.fixtures
 
                 </div>
               </div>
+              {/* ORDER DELIVERY STATUS */}
+<div className="mt-4 bg-slate-50 rounded-2xl p-4 border border-slate-100">
+  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+      <p className="text-[10px] text-slate-400 uppercase tracking-wider font-black">
+        Order Status
+      </p>
+
+      <p className="text-[11px] text-slate-500 mt-1">
+        Manage merchandise delivery progress.
+      </p>
+    </div>
+
+    <select
+      value={order.orderStatus || "processing"}
+      disabled={
+        String(order.paymentStatus || "").toLowerCase() !== "paid"
+      }
+      onChange={async (e) => {
+        const newStatus = e.target.value as
+          | "processing"
+          | "shipped"
+          | "delivered"
+          | "cancelled";
+
+        try {
+          const result = await updateOrderStatus(
+            Number(order.id),
+            newStatus
+          );
+
+          if (result.success) {
+            setAdminOrders((currentOrders) =>
+              currentOrders.map((currentOrder) =>
+                currentOrder.id === order.id
+                  ? {
+                      ...currentOrder,
+                      orderStatus: newStatus,
+                    }
+                  : currentOrder
+              )
+            );
+
+            showToast(
+              `Order #${order.id} updated to ${newStatus}.`
+            );
+          } else {
+            showToast(
+              result.error || "Unable to update order status.",
+              "error"
+            );
+          }
+        } catch (error) {
+          console.error("Order status update failed:", error);
+
+          showToast(
+            "Unable to update order status.",
+            "error"
+          );
+        }
+      }}
+      className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      <option value="processing">Processing</option>
+      <option value="shipped">Shipped</option>
+      <option value="delivered">Delivered</option>
+      <option value="cancelled">Cancelled</option>
+    </select>
+  </div>
+
+  {String(order.paymentStatus || "").toLowerCase() !== "paid" && (
+    <p className="text-[10px] text-rose-500 font-semibold mt-2">
+      Order status can only be changed after M-PESA payment is confirmed.
+    </p>
+  )}
+</div>
 
               {/* PAYMENT SUMMARY */}
               <div className="lg:w-64 bg-slate-950 rounded-2xl p-5 text-white space-y-4">
