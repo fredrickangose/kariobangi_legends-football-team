@@ -3747,51 +3747,6 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
       <div className="max-w-4xl space-y-4 sm:space-y-5">
 
-        {/* ================= CLUB LOGO ================= */}
-        <div className="flex items-center gap-5 sm:gap-6 mb-2">
-
-          {/* Logo container */}
-          <div className="relative shrink-0">
-
-            {/* Glow behind logo */}
-            <div className="absolute inset-0 bg-yellow-400/20 rounded-full blur-2xl scale-110" />
-
-            {/* Logo background */}
-            <div className="relative w-28 h-28 sm:w-36 sm:h-36 md:w-40 md:h-40 flex items-center justify-center">
-
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/assets/logo.png"
-                alt="Kariobangi Legends FC Logo"
-                className="w-full h-full object-contain drop-shadow-2xl"
-              />
-
-            </div>
-
-          </div>
-
-          {/* Club identity beside logo */}
-          <div className="hidden sm:block">
-
-            <p className="text-yellow-400 text-[10px] md:text-xs font-black uppercase tracking-[0.3em]">
-              Official Club
-            </p>
-
-            <p className="text-white text-lg md:text-xl font-black uppercase tracking-tight mt-1">
-              Kariobangi Legends FC
-            </p>
-
-            <div className="flex items-center gap-2 mt-2">
-              <span className="w-8 h-1 rounded-full bg-emerald-500" />
-              <span className="w-5 h-1 rounded-full bg-yellow-400" />
-              <span className="w-8 h-1 rounded-full bg-emerald-500" />
-            </div>
-
-          </div>
-
-        </div>
-
-
         {/* Club status */}
         <div className="flex flex-wrap items-center gap-2">
 
