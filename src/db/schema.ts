@@ -47,7 +47,8 @@ export const merchandise = pgTable("merchandise", {
 export const donations = pgTable("donations", {
   id: serial("id").primaryKey(),
   donorName: text("donor_name").notNull(),
-  amount: integer("amount").notNull(), // amount in Ksh
+  amount: integer("amount").notNull(), // whole units in the selected currency
+  currency: text("currency").default("KES").notNull(), // 'KES', 'USD', 'GBP', 'EUR'
   message: text("message"),
   purpose: text("purpose").notNull(), // 'Boots & Equipment', 'Academy Support', 'Transport & Meals', 'General Club Fund'
   createdAt: timestamp("created_at").defaultNow().notNull(),

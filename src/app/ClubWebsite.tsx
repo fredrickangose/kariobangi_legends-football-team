@@ -126,6 +126,15 @@ import {
 import {
   getOrderStatusLabel,
 } from "@/lib/order-tracking";
+import {
+  DONATION_CURRENCIES,
+  DONATION_CURRENCY_CODES,
+  type DonationCurrencyCode,
+  formatDonationAmount,
+  getDefaultDonationAmount,
+  getDonationCurrency,
+  isDonationCurrencyCode,
+} from "@/lib/donation-currencies";
 interface Player {
   id: number;
   name: string;
@@ -174,6 +183,7 @@ interface Donation {
   id: number;
   donorName: string;
   amount: number;
+  currency?: string | null;
   message: string | null;
   purpose: string;
   createdAt: Date;
@@ -264,7 +274,9 @@ function MpesaDonationPrompt({
   showPhone?: boolean;
 }) {
   const displayAmount =
-    amount && amount > 0 ? `Ksh ${amount.toLocaleString()}` : "your chosen amount";
+    amount && amount > 0
+      ? formatDonationAmount(amount, "KES")
+      : "your chosen amount";
 
   return (
     <div className="space-y-3">
@@ -340,6 +352,106 @@ function MpesaDonationPrompt({
         </ol>
       </div>
     </div>
+  );
+}
+
+function InternationalDonationPrompt({
+  currency,
+  amount,
+  email,
+}: {
+  currency: DonationCurrencyCode;
+  amount?: number | null;
+  email: string;
+}) {
+  const config = getDonationCurrency(currency);
+  const displayAmount =
+    amount && amount > 0
+      ? formatDonationAmount(amount, currency)
+      : `your chosen amount in ${config.code}`;
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-slate-950 text-white p-4 sm:p-5 border border-slate-800">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-yellow-400">
+            International Donation
+          </p>
+          <span className="text-[9px] font-bold bg-blue-500/20 text-blue-200 px-2 py-1 rounded-full">
+            {config.code}
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-300 leading-relaxed">
+          We welcome support from donors outside Kenya in {config.label}. Our team
+          will share secure international payment details after you submit your pledge.
+        </p>
+
+        {amount && amount > 0 && (
+          <div className="mt-3 flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Pledge amount
+            </span>
+            <span className="text-lg font-black text-emerald-400">{displayAmount}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 sm:p-4">
+        <p className="text-[10px] font-black uppercase tracking-wider text-slate-900 mb-2">
+          How to give from abroad
+        </p>
+        <ol className="space-y-1 text-xs text-slate-600 leading-relaxed list-decimal list-inside">
+          <li>Submit your donation details below with amount in {config.code}.</li>
+          <li>
+            Email{" "}
+            <a
+              href={`mailto:${email}?subject=International%20Donation%20(${config.code})`}
+              className="font-bold text-emerald-700 underline underline-offset-2 break-all"
+            >
+              {email}
+            </a>{" "}
+            to receive bank transfer or international payment instructions.
+          </li>
+          <li>Complete your transfer and we will acknowledge your gift on the honor board.</li>
+        </ol>
+      </div>
+    </div>
+  );
+}
+
+function DonationPaymentPrompt({
+  currency,
+  amount,
+  phone,
+  onPhoneChange,
+  showPhone = false,
+  email,
+}: {
+  currency: DonationCurrencyCode;
+  amount?: number | null;
+  phone?: string;
+  onPhoneChange?: (value: string) => void;
+  showPhone?: boolean;
+  email: string;
+}) {
+  if (currency === "KES") {
+    return (
+      <MpesaDonationPrompt
+        amount={amount}
+        phone={phone}
+        onPhoneChange={onPhoneChange}
+        showPhone={showPhone}
+      />
+    );
+  }
+
+  return (
+    <InternationalDonationPrompt
+      currency={currency}
+      amount={amount}
+      email={email}
+    />
   );
 }
 
@@ -1225,14 +1337,15 @@ useEffect(() => {
   // Form states
   const [donationAmount, setDonationAmount] = useState<number>(1500);
   const [customDonation, setCustomDonation] = useState<string>("");
+  const [donationCurrency, setDonationCurrency] = useState<DonationCurrencyCode>("KES");
   const [donorName, setDonorName] = useState<string>("");
   const [donationMessage, setDonationMessage] = useState<string>("");
   const [donationPurpose, setDonationPurpose] = useState<string>("Boots & Equipment");
   const [donationPhone, setDonationPhone] = useState<string>("");
 
   const selectedDonationAmount = useMemo(() => {
-    const custom = customDonation ? parseInt(customDonation, 10) : NaN;
-    if (!isNaN(custom) && custom > 0) return custom;
+    const custom = customDonation ? parseFloat(customDonation) : NaN;
+    if (Number.isFinite(custom) && custom > 0) return custom;
     return donationAmount > 0 ? donationAmount : null;
   }, [customDonation, donationAmount]);
 
@@ -1511,12 +1624,13 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
   // Submit donation handler
   const handleDonationSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalAmount = customDonation ? parseInt(customDonation) : donationAmount;
+    const parsedCustom = customDonation ? parseFloat(customDonation) : NaN;
+    const finalAmount = customDonation ? parsedCustom : donationAmount;
     if (!donorName) {
       showToast("Please enter your name", "error");
       return;
     }
-    if (isNaN(finalAmount) || finalAmount <= 0) {
+    if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
       showToast("Please enter a valid amount", "error");
       return;
     }
@@ -1525,19 +1639,24 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
       const res = await submitDonation({
         donorName,
         amount: finalAmount,
+        currency: donationCurrency,
         message: donationMessage,
         purpose: donationPurpose,
       });
 
       if (res.success) {
+        const formattedAmount = formatDonationAmount(finalAmount, donationCurrency);
         showToast(
           res.message ||
-            `Thank you! Complete your M-Pesa payment of Ksh ${finalAmount.toLocaleString()} to PayBill ${MPESA_PAYBILL.paybill} (${MPESA_PAYBILL.account}).`
+            (donationCurrency === "KES"
+              ? `Thank you! Complete your M-Pesa payment of ${formattedAmount} to PayBill ${MPESA_PAYBILL.paybill} (${MPESA_PAYBILL.account}).`
+              : `Thank you! Your ${formattedAmount} pledge is recorded. Email ${CONTACT_CENTER.email} for international payment details.`)
         );
         setDonorName("");
         setDonationMessage("");
         setCustomDonation("");
         setDonationPhone("");
+        setDonationAmount(getDefaultDonationAmount(donationCurrency));
       } else {
         showToast(res.error || "Something went wrong", "error");
       }
@@ -4625,7 +4744,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
       <p className="text-sm text-slate-500 mt-2 max-w-2xl">
         Partner with us to provide boots, academy meals, match travel, and training
-        equipment for young footballers in Kariobangi North.
+        equipment for young footballers in Kariobangi North. Donate in KES, USD, GBP, or EUR.
       </p>
     </div>
 
@@ -4703,7 +4822,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     {donation.donorName}
                   </p>
                   <p className="text-emerald-400 font-black text-xs shrink-0">
-                    Ksh {Number(donation.amount).toLocaleString()}
+                    {formatDonationAmount(Number(donation.amount), donation.currency)}
                   </p>
                 </div>
                 <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">
@@ -6191,7 +6310,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                   <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
                     Division One football demands more than passion. Your donation helps us provide
                     boots, academy programmes, match travel, and daily training for young players
-                    from Kariobangi North.
+                    from Kariobangi North. Give in KES via M-Pesa or in USD, GBP, and EUR from abroad.
                   </p>
                 </div>
               </div>
@@ -6202,23 +6321,41 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 <div>
                   <h3 className="text-xl font-black text-slate-950">Make a donation</h3>
                   <p className="text-sm text-slate-500 mt-1">
-                    Pay via M-Pesa using the details below, then submit your information so we can
+                    Choose your currency, complete payment, then submit your details so we can
                     acknowledge your gift.
                   </p>
                 </div>
 
                 <form onSubmit={handleDonationSubmit} className="space-y-5">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-slate-400 font-bold uppercase block">
+                      Currency
+                    </label>
+                    <select
+                      value={donationCurrency}
+                      onChange={(e) => {
+                        const nextCurrency = e.target.value;
+                        if (!isDonationCurrencyCode(nextCurrency)) return;
+                        setDonationCurrency(nextCurrency);
+                        setDonationAmount(getDefaultDonationAmount(nextCurrency));
+                        setCustomDonation("");
+                      }}
+                      className="w-full text-sm p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                    >
+                      {DONATION_CURRENCY_CODES.map((code) => (
+                        <option key={code} value={code}>
+                          {DONATION_CURRENCIES[code].label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div className="space-y-2">
                     <label className="text-[10px] text-slate-400 font-bold uppercase block">
-                      Select amount (Ksh)
+                      Select amount ({getDonationCurrency(donationCurrency).code})
                     </label>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {[
-                        { val: 500, label: "Academy lunch" },
-                        { val: 1500, label: "Training support" },
-                        { val: 3000, label: "Boots & kit" },
-                        { val: 8000, label: "Away travel" },
-                      ].map((preset) => (
+                      {DONATION_CURRENCIES[donationCurrency].presets.map((preset) => (
                         <button
                           key={preset.val}
                           type="button"
@@ -6232,7 +6369,9 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                               : "bg-slate-50 text-slate-700 border-slate-100 hover:bg-slate-100"
                           }`}
                         >
-                          <span className="text-sm block">Ksh {preset.val.toLocaleString()}</span>
+                          <span className="text-sm block">
+                            {formatDonationAmount(preset.val, donationCurrency)}
+                          </span>
                           <span className="text-[9px] font-medium text-slate-400 mt-1 block">
                             {preset.label}
                           </span>
@@ -6243,28 +6382,36 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
                   <div className="space-y-1">
                     <label className="text-[10px] text-slate-400 font-bold uppercase block">
-                      Custom amount (Ksh)
+                      Custom amount ({getDonationCurrency(donationCurrency).code})
                     </label>
                     <div className="relative">
-                      <span className="absolute left-4 top-3 text-slate-400 font-bold text-sm">Ksh</span>
+                      <span className="absolute left-4 top-3 text-slate-400 font-bold text-sm">
+                        {getDonationCurrency(donationCurrency).symbol}
+                      </span>
                       <input
                         type="number"
+                        min="1"
+                        step="1"
                         placeholder="e.g. 5000"
                         value={customDonation}
                         onChange={(e) => {
                           setCustomDonation(e.target.value);
                           setDonationAmount(0);
                         }}
-                        className="w-full text-sm pl-12 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        className={`w-full text-sm pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                          donationCurrency === "KES" ? "pl-12" : "pl-8"
+                        }`}
                       />
                     </div>
                   </div>
 
-                  <MpesaDonationPrompt
+                  <DonationPaymentPrompt
+                    currency={donationCurrency}
                     amount={selectedDonationAmount}
-                    showPhone
+                    showPhone={donationCurrency === "KES"}
                     phone={donationPhone}
                     onPhoneChange={setDonationPhone}
+                    email={CONTACT_CENTER.email}
                   />
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -6358,7 +6505,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                           <div className="flex justify-between items-start gap-3 text-xs">
                             <span className="font-bold text-slate-100">{d.donorName}</span>
                             <span className="text-emerald-400 font-black whitespace-nowrap">
-                              Ksh {d.amount.toLocaleString()}
+                              {formatDonationAmount(d.amount, d.currency)}
                             </span>
                           </div>
                           <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">

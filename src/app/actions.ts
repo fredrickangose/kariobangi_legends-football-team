@@ -111,6 +111,7 @@ export async function getClubData() {
 export async function submitDonation(data: {
   donorName: string;
   amount: number;
+  currency?: string;
   message: string;
   purpose: string;
 }) {
@@ -119,9 +120,16 @@ export async function submitDonation(data: {
       throw new Error("Missing required fields for donation.");
     }
 
+    const currency = data.currency?.trim().toUpperCase() || "KES";
+    const allowedCurrencies = new Set(["KES", "USD", "GBP", "EUR"]);
+    if (!allowedCurrencies.has(currency)) {
+      throw new Error("Unsupported donation currency.");
+    }
+
     await db.insert(donations).values({
       donorName: data.donorName,
-      amount: Number(data.amount),
+      amount: Math.round(Number(data.amount)),
+      currency,
       message: data.message || "",
       purpose: data.purpose,
       createdAt: new Date(),

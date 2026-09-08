@@ -56,6 +56,22 @@ export async function ensureDatabaseSchema() {
         ALTER COLUMN match_type SET DEFAULT 'league';
       `);
 
+      await pool.query(`
+        ALTER TABLE donations
+        ADD COLUMN IF NOT EXISTS currency text DEFAULT 'KES';
+      `);
+
+      await pool.query(`
+        UPDATE donations
+        SET currency = 'KES'
+        WHERE currency IS NULL OR currency = '';
+      `);
+
+      await pool.query(`
+        ALTER TABLE donations
+        ALTER COLUMN currency SET DEFAULT 'KES';
+      `);
+
       schemaEnsured = true;
     })().catch((error) => {
       schemaEnsurePromise = null;
