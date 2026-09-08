@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Settings,
   Home,
@@ -39,6 +39,7 @@ import {
   Package,
   User,
   LogOut,
+  Navigation,
 } from "lucide-react";
 import {
   OrderProgressTimeline,
@@ -50,6 +51,48 @@ import {
   useIdleSessionLock,
 } from "@/hooks/useIdleSessionLock";
 import {
+  isUploadedMediaUrl,
+  MEDIA_UPLOAD_RULES,
+} from "@/lib/uploaded-media";
+import {
+  groupPlayersBySquadPosition,
+  getSquadPositionBadge,
+  SQUAD_POSITION_GROUPS,
+  SQUAD_POSITION_OPTIONS,
+} from "@/lib/squad-positions";
+import {
+  getDefaultManagementPosition,
+  getManagementPositionOptions,
+  getManagementRoleBadge,
+  groupManagementByCategoryAndRole,
+  isFeaturedManagementRole,
+  MANAGEMENT_CATEGORIES,
+} from "@/lib/management-roles";
+import {
+  COMPETITION_NAME,
+  formatKickoff,
+  getHomeAwayTeams,
+  getMatchResult,
+  getMatchStatusMeta,
+  getMatchTypeMeta,
+  getRecentForm,
+  getResultLabel,
+  getResultTone,
+  getSeasonStats,
+  isFixtureFinished,
+  isLeagueMatch,
+  MATCH_STATUSES,
+  MATCH_TYPES,
+  partitionFixtures,
+  type TeamDisplay,
+} from "@/lib/match-fixtures";
+import {
+  getGoogleDirectionsUrl,
+  getGoogleMapsViewUrl,
+  HOME_GROUND,
+  isClubHomeVenue,
+} from "@/lib/venue-directions";
+import {
   submitDonation,
   submitFanMessage,
   addPlayer,
@@ -58,6 +101,7 @@ import {
   deletePlayer,
   deleteNews,
   deleteGalleryImage,
+  updatePlayerPosition,
   updatePlayerImage,
   updateNewsImage,
   updateGalleryImage,
@@ -66,6 +110,7 @@ import {
   deleteMerchandise,
   addManagement,
   updateManagement,
+  updateManagementRole,
   deleteManagement,
   addFixture,
   updateFixture,
@@ -100,6 +145,7 @@ interface Fixture {
   awayScore: number | null;
   status: string;
   venue: string;
+  matchType?: string | null;
 }
 
 interface NewsItem {
@@ -182,8 +228,10 @@ interface CartItem {
 const CONTACT_CENTER = {
   email: "Kariobangilegendsyouth@gmail.com",
   location: {
-    venue: "Kariobangi North Ground",
-    region: "Nairobi County, Kenya",
+    venue: HOME_GROUND.name,
+    landmark: HOME_GROUND.landmark,
+    region: `${HOME_GROUND.constituency}, ${HOME_GROUND.city}, ${HOME_GROUND.country}`,
+    fullAddress: HOME_GROUND.fullAddress,
   },
   phones: [
     { label: "Club Line 1", number: "0723523254" },
@@ -216,41 +264,840 @@ function formatStoredPhoneForInput(number: string): string {
   return number;
 }
 
+function GetDirectionsLink({
+  venue,
+  label = "Get Directions",
+  variant = "emerald",
+  className = "",
+}: {
+  venue?: string | null;
+  label?: string;
+  variant?: "emerald" | "yellow" | "outline-dark" | "text";
+  className?: string;
+}) {
+  const href = getGoogleDirectionsUrl(venue);
+
+  const variantClass =
+    variant === "yellow"
+      ? "bg-yellow-400 hover:bg-yellow-300 text-slate-950"
+      : variant === "outline-dark"
+      ? "bg-white/5 hover:bg-white/10 text-white border border-white/15"
+      : variant === "text"
+      ? "text-emerald-600 hover:text-emerald-700 bg-transparent px-0 py-0"
+      : "bg-emerald-600 hover:bg-emerald-700 text-white";
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`inline-flex items-center justify-center gap-2 font-black uppercase tracking-wider text-[10px] sm:text-xs rounded-xl transition cursor-pointer ${variantClass} ${
+        variant === "text" ? "" : "px-4 py-3"
+      } ${className}`}
+    >
+      <Navigation className="w-4 h-4 shrink-0" />
+      {label}
+    </a>
+  );
+}
+
+function SocialIconLink({
+  href,
+  label,
+  title,
+  hoverClassName,
+  children,
+}: {
+  href: string;
+  label: string;
+  title: string;
+  hoverClassName: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={label}
+      title={title}
+      className={`group relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-slate-900/80 text-white shadow-md backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${hoverClassName}`}
+    >
+      <span className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-gradient-to-br from-white/10 to-transparent" />
+      <span className="relative z-10 transition-transform duration-300 group-hover:scale-110">
+        {children}
+      </span>
+    </a>
+  );
+}
+
+function SocialMediaLinks() {
+  return (
+    <div className="pt-2">
+      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3">
+        Follow the Legends
+      </p>
+
+      <div className="flex items-center gap-3">
+        <SocialIconLink
+          href="https://x.com/Kariobangi40852"
+          label="Kariobangi Legends on X"
+          title="Follow Kariobangi Legends on X"
+          hoverClassName="hover:border-white hover:bg-black hover:shadow-[0_12px_30px_rgba(255,255,255,0.12)]"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden="true">
+            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+          </svg>
+        </SocialIconLink>
+
+        <SocialIconLink
+          href="https://www.facebook.com/profile.php?id=100092849342811"
+          label="Kariobangi Legends on Facebook"
+          title="Follow Kariobangi Legends on Facebook"
+          hoverClassName="hover:border-[#1877F2] hover:bg-[#1877F2] hover:shadow-[0_12px_30px_rgba(24,119,242,0.35)]"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden="true">
+            <path d="M13.5 3.5H16.5V0H13.125C9.75 0 7.875 1.912 7.875 5.025V7.5H5.25V11.25H7.875V24H11.625V11.25H14.85L15.375 7.5H11.625V5.475C11.625 4.387 11.925 3.5 13.5 3.5Z" />
+          </svg>
+        </SocialIconLink>
+
+        <SocialIconLink
+          href="https://www.instagram.com/kariobangi_legends_fc"
+          label="Kariobangi Legends on Instagram"
+          title="Follow Kariobangi Legends on Instagram"
+          hoverClassName="hover:border-transparent hover:shadow-[0_12px_30px_rgba(221,42,123,0.35)] hover:bg-gradient-to-br hover:from-[#f58529] hover:via-[#dd2a7b] hover:to-[#8134af]"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current stroke-[1.75]" aria-hidden="true">
+            <rect x="3.5" y="3.5" width="17" height="17" rx="5" />
+            <circle cx="12" cy="12" r="4.2" />
+            <circle cx="17.2" cy="6.8" r="1.1" fill="currentColor" stroke="none" />
+          </svg>
+        </SocialIconLink>
+      </div>
+    </div>
+  );
+}
+
+function PersonPhoto({
+  imageUrl,
+  alt,
+  maxHeightClass = "max-h-[136px] sm:max-h-[152px]",
+}: {
+  imageUrl: string | null | undefined;
+  alt: string;
+  maxHeightClass?: string;
+}) {
+  if (isUploadedMediaUrl(imageUrl)) {
+    return (
+      /* eslint-disable-next-line @next/next/no-img-element */
+      <img
+        src={imageUrl as string}
+        alt={alt}
+        className={`max-w-full ${maxHeightClass} w-auto h-auto object-contain drop-shadow-md`}
+      />
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center text-slate-400 py-4 px-3 text-center">
+      <User className="w-9 h-9" />
+      <p className="text-[9px] font-bold uppercase tracking-wider mt-2">
+        Photo pending upload
+      </p>
+    </div>
+  );
+}
+
+function SquadPlayerCard({
+  player,
+  isAdminAuthenticated,
+  isUpdatingPosition,
+  onReplaceImage,
+  onDelete,
+  onPositionChange,
+  onShopClick,
+}: {
+  player: Player;
+  isAdminAuthenticated: boolean;
+  isUpdatingPosition: boolean;
+  onReplaceImage: (id: number, imageUrl: string) => void;
+  onDelete: (id: number, name: string) => void;
+  onPositionChange: (id: number, position: string) => void;
+  onShopClick: () => void;
+}) {
+  const positionInOptions = SQUAD_POSITION_OPTIONS.some(
+    (option) => option.value === player.position
+  );
+
+  return (
+    <div className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-md transition flex flex-col justify-between">
+      <div className="p-3.5 sm:p-4 space-y-3">
+        <div className="flex justify-between items-start gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 shrink-0 rounded-full bg-slate-100 text-slate-950 font-black text-[11px] flex items-center justify-center border border-slate-200">
+              #{player.jerseyNumber}
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-extrabold text-sm text-slate-900 leading-tight">
+                {player.name}
+              </h3>
+              <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mt-0.5 line-clamp-1">
+                {getSquadPositionBadge(player.position)}
+              </p>
+            </div>
+          </div>
+          <span className="shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[8px] font-bold text-slate-500 uppercase">
+            Senior
+          </span>
+        </div>
+
+        <div className="w-full h-40 sm:h-44 rounded-xl overflow-hidden bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 border border-slate-100 flex items-center justify-center p-2">
+          <PersonPhoto
+            imageUrl={player.imageUrl}
+            alt={`${player.name} - Kariobangi Legends`}
+          />
+        </div>
+
+        <div className="grid grid-cols-3 gap-1.5 bg-slate-50 p-2.5 rounded-xl text-center">
+          <div>
+            <p className="text-[9px] text-slate-400 font-bold uppercase">Apps</p>
+            <p className="text-xs font-black text-slate-900">{player.appearances}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-slate-400 font-bold uppercase">Goals</p>
+            <p className="text-xs font-black text-slate-900">{player.goals}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-slate-400 font-bold uppercase">Assists</p>
+            <p className="text-xs font-black text-slate-900">{player.assists}</p>
+          </div>
+        </div>
+
+        <p className="text-[11px] text-slate-600 leading-relaxed bg-amber-50/50 p-2.5 rounded-xl border border-amber-100/30">
+          <strong>Scout Notes:</strong> {player.bio}
+        </p>
+
+        {isAdminAuthenticated && (
+          <div className="space-y-1">
+            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+              Squad section
+            </label>
+            <select
+              value={player.position}
+              onChange={(e) => onPositionChange(player.id, e.target.value)}
+              disabled={isUpdatingPosition}
+              className="w-full p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+            >
+              {!positionInOptions && (
+                <option value={player.position}>
+                  {player.position} (assign to a section)
+                </option>
+              )}
+              {SQUAD_POSITION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.groupHeading}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-slate-950 text-white px-3.5 py-2.5 flex justify-between items-center text-xs border-t border-slate-900 gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {isAdminAuthenticated && (
+            <>
+              <button
+                onClick={() => onReplaceImage(player.id, player.imageUrl)}
+                className="text-blue-400 hover:text-blue-300 font-bold uppercase tracking-wider text-[9px] flex items-center gap-0.5 cursor-pointer shrink-0"
+                title="Replace this player's photo"
+              >
+                <Camera className="w-3 h-3" /> Swap
+              </button>
+              <button
+                onClick={() => onDelete(player.id, player.name)}
+                className="text-rose-400 hover:text-rose-300 font-bold uppercase tracking-wider text-[9px] flex items-center gap-0.5 cursor-pointer shrink-0"
+                title="Remove player from squad"
+              >
+                <Trash2 className="w-3 h-3" /> Remove
+              </button>
+            </>
+          )}
+        </div>
+        <button
+          onClick={onShopClick}
+          className="text-yellow-400 hover:text-yellow-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-0.5 cursor-pointer shrink-0"
+        >
+          Jersey <ChevronRight className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ManagementMemberCard({
+  member,
+  featured = false,
+  isAdminAuthenticated,
+  isUpdatingRole,
+  onEdit,
+  onDelete,
+  onRoleChange,
+}: {
+  member: ManagementMember;
+  featured?: boolean;
+  isAdminAuthenticated: boolean;
+  isUpdatingRole: boolean;
+  onEdit: (member: ManagementMember) => void;
+  onDelete: (id: number) => void;
+  onRoleChange: (id: number, category: string, position: string) => void;
+}) {
+  const positionOptions = getManagementPositionOptions(member.category);
+  const positionInOptions = positionOptions.some(
+    (option) => option.value === member.position
+  );
+  const roleBadge = getManagementRoleBadge(member.position, member.category);
+
+  return (
+    <div
+      className={`group bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 ${
+        featured ? "md:col-span-2" : ""
+      }`}
+    >
+      <div
+        className={`relative bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 flex items-center justify-center p-3 border-b border-slate-100 ${
+          featured ? "h-52 sm:h-56" : "h-44 sm:h-48"
+        }`}
+      >
+        <PersonPhoto
+          imageUrl={member.imageUrl}
+          alt={`${member.name} - ${member.position}`}
+          maxHeightClass={
+            featured
+              ? "max-h-[168px] sm:max-h-[184px]"
+              : "max-h-[132px] sm:max-h-[148px]"
+          }
+        />
+
+        <div className="absolute top-2 left-2 flex items-center gap-1.5">
+          <span className="inline-flex items-center justify-center min-w-8 h-7 px-2 rounded-lg bg-slate-950/90 text-yellow-400 text-[8px] font-black tracking-wider">
+            {roleBadge}
+          </span>
+          {featured && (
+            <span className="inline-flex items-center px-2 py-1 rounded-lg bg-emerald-600/95 text-white text-[8px] font-black uppercase tracking-wider">
+              Club Figurehead
+            </span>
+          )}
+        </div>
+
+        <div className="absolute bottom-2 left-2 right-2">
+          <span className="inline-flex max-w-full bg-slate-950/90 text-yellow-400 text-[8px] sm:text-[9px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg shadow-md truncate">
+            {member.position}
+          </span>
+        </div>
+      </div>
+
+      <div className={`space-y-2.5 ${featured ? "p-4 sm:p-5" : "p-3.5 sm:p-4"}`}>
+        <div>
+          <h4
+            className={`font-black text-slate-950 leading-tight ${
+              featured ? "text-base sm:text-lg" : "text-sm sm:text-base"
+            }`}
+          >
+            {member.name}
+          </h4>
+          <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mt-0.5 line-clamp-1">
+            {member.position}
+          </p>
+        </div>
+
+        {member.responsibilities && (
+          <div className="space-y-1">
+            <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+              Key Responsibilities
+            </p>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              {member.responsibilities}
+            </p>
+          </div>
+        )}
+
+        {member.bio && (
+          <div className="space-y-1">
+            <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+              Profile
+            </p>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              {member.bio}
+            </p>
+          </div>
+        )}
+
+        {isAdminAuthenticated && (
+          <>
+            <div className="grid grid-cols-1 gap-2 pt-1">
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                  Department
+                </label>
+                <select
+                  value={member.category}
+                  onChange={(e) =>
+                    onRoleChange(
+                      member.id,
+                      e.target.value,
+                      getDefaultManagementPosition(e.target.value)
+                    )
+                  }
+                  disabled={isUpdatingRole}
+                  className="w-full p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  {MANAGEMENT_CATEGORIES.map((category) => (
+                    <option key={category.id} value={category.dbValue}>
+                      {category.heading}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                  Role
+                </label>
+                <select
+                  value={member.position}
+                  onChange={(e) =>
+                    onRoleChange(member.id, member.category, e.target.value)
+                  }
+                  disabled={isUpdatingRole}
+                  className="w-full p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  {!positionInOptions && (
+                    <option value={member.position}>
+                      {member.position} (assign role)
+                    </option>
+                  )}
+                  {positionOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.groupHeading} · {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() => onEdit(member)}
+                className="flex-1 bg-slate-950 text-yellow-400 font-bold py-2 rounded-lg text-[10px] uppercase tracking-wider hover:bg-slate-900 transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(member.id)}
+                className="flex-1 bg-red-600 text-white font-bold py-2 rounded-lg text-[10px] uppercase tracking-wider hover:bg-red-700 transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                Delete
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TeamLogo({
+  team,
+  sizeClass = "w-9 h-9",
+  textClass = "text-[10px]",
+}: {
+  team: TeamDisplay;
+  sizeClass?: string;
+  textClass?: string;
+}) {
+  if (team.logo && (team.isLegends || isUploadedMediaUrl(team.logo))) {
+    return (
+      /* eslint-disable-next-line @next/next/no-img-element */
+      <img
+        src={team.logo}
+        alt={team.name}
+        className={`${sizeClass} object-contain shrink-0`}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`${sizeClass} rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-black text-slate-600 shrink-0 ${textClass}`}
+    >
+      {team.name.slice(0, 2).toUpperCase()}
+    </div>
+  );
+}
+
+function MatchStatusPill({
+  status,
+  pulseLive = false,
+}: {
+  status: string;
+  pulseLive?: boolean;
+}) {
+  const meta = getMatchStatusMeta(status);
+  const isLive = meta.value === "live";
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+        isLive
+          ? "bg-rose-600 text-white"
+          : meta.value === "completed"
+          ? "bg-slate-100 text-slate-700"
+          : meta.value === "postponed"
+          ? "bg-amber-50 text-amber-700"
+          : "bg-emerald-50 text-emerald-700"
+      }`}
+    >
+      {pulseLive && isLive && (
+        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+      )}
+      {meta.badge}
+    </span>
+  );
+}
+
+function MatchScoreboard({
+  fixture,
+  variant = "default",
+}: {
+  fixture: Fixture;
+  variant?: "default" | "hero" | "compact";
+}) {
+  const { home, away } = getHomeAwayTeams(fixture);
+  const finished = isFixtureFinished(fixture);
+  const isHero = variant === "hero";
+  const isCompact = variant === "compact";
+  const logoSize = isHero
+    ? "w-20 h-20 sm:w-24 sm:h-24"
+    : isCompact
+    ? "w-8 h-8"
+    : "w-10 h-10 sm:w-12 sm:h-12";
+  const nameClass = isHero
+    ? "text-lg sm:text-xl font-black text-white"
+    : isCompact
+    ? "text-xs font-extrabold text-slate-900 truncate"
+    : "text-sm font-extrabold text-slate-900 truncate";
+
+  return (
+    <div
+      className={`grid items-center gap-3 ${
+        isHero
+          ? "grid-cols-1 md:grid-cols-[1fr_auto_1fr]"
+          : "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+      }`}
+    >
+      <div
+        className={`flex items-center gap-2 min-w-0 ${
+          isHero ? "flex-col text-center" : ""
+        }`}
+      >
+        <TeamLogo
+          team={home}
+          sizeClass={logoSize}
+          textClass={isCompact ? "text-[8px]" : "text-[10px]"}
+        />
+        <div className={isHero ? "space-y-1" : "min-w-0"}>
+          {isHero && (
+            <p className="text-[9px] font-black uppercase tracking-[0.25em] text-emerald-400">
+              Home
+            </p>
+          )}
+          <p className={`${nameClass} ${home.isLegends && isHero ? "text-yellow-400" : ""}`}>
+            {home.name}
+          </p>
+        </div>
+      </div>
+
+      <div className={`flex flex-col items-center justify-center ${isHero ? "py-2" : ""}`}>
+        {finished && fixture.homeScore !== null && fixture.awayScore !== null ? (
+          <div className="flex items-center gap-2">
+            <span
+              className={`font-black ${
+                isHero ? "text-3xl sm:text-4xl text-white" : "text-lg text-slate-950"
+              }`}
+            >
+              {fixture.homeScore}
+            </span>
+            <span className={`font-bold ${isHero ? "text-white/40" : "text-slate-300"}`}>
+              -
+            </span>
+            <span
+              className={`font-black ${
+                isHero ? "text-3xl sm:text-4xl text-white" : "text-lg text-slate-950"
+              }`}
+            >
+              {fixture.awayScore}
+            </span>
+          </div>
+        ) : (
+          <div
+            className={`rounded-full flex items-center justify-center font-black uppercase ${
+              isHero
+                ? "w-16 h-16 sm:w-20 sm:h-20 bg-white/5 border border-white/10 text-white text-xl"
+                : "px-3 py-1.5 bg-slate-100 text-slate-500 text-[10px] tracking-wider"
+            }`}
+          >
+            {normalizeMatchStatus(fixture.status) === "live" ? "LIVE" : "VS"}
+          </div>
+        )}
+        {!isCompact && (
+          <p
+            className={`mt-1 text-[9px] font-bold uppercase tracking-wider ${
+              isHero ? "text-slate-400" : "text-slate-400"
+            }`}
+          >
+            {formatKickoff(fixture.date)}
+          </p>
+        )}
+      </div>
+
+      <div
+        className={`flex items-center gap-2 min-w-0 ${
+          isHero ? "flex-col text-center" : "justify-end text-right flex-row-reverse"
+        }`}
+      >
+        <TeamLogo
+          team={away}
+          sizeClass={logoSize}
+          textClass={isCompact ? "text-[8px]" : "text-[10px]"}
+        />
+        <div className={isHero ? "space-y-1" : "min-w-0"}>
+          {isHero && (
+            <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">
+              Away
+            </p>
+          )}
+          <p className={`${nameClass} ${away.isLegends && isHero ? "text-yellow-400" : ""}`}>
+            {away.name}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function normalizeMatchStatus(status: string) {
+  return getMatchStatusMeta(status).value;
+}
+
+function MatchFixtureCard({
+  fixture,
+  mode,
+  isAdminAuthenticated,
+  onEdit,
+  onDelete,
+}: {
+  fixture: Fixture;
+  mode: "upcoming" | "result" | "live";
+  isAdminAuthenticated: boolean;
+  onEdit: (fixture: Fixture) => void;
+  onDelete: (id: number, opponent: string) => void;
+}) {
+  const result = getMatchResult(fixture);
+  const tone = getResultTone(result);
+  const statusMeta = getMatchStatusMeta(fixture.status);
+
+  return (
+    <div
+      className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${
+        mode === "live" ? "border-rose-200 ring-1 ring-rose-100" : "border-slate-100"
+      }`}
+    >
+      <div className="px-4 py-3 flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 truncate">
+            {getMatchTypeMeta(fixture.matchType).heading}
+          </span>
+          <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 shrink-0">
+            {getMatchTypeMeta(fixture.matchType).badge}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <MatchStatusPill status={fixture.status} pulseLive={mode === "live"} />
+          {mode === "result" && result && (
+            <span
+              className={`text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-full ${tone.badge}`}
+            >
+              {getResultLabel(result)}
+            </span>
+          )}
+          {mode === "upcoming" && (
+            <span
+              className={`text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-full ${
+                fixture.isHome
+                  ? "bg-yellow-100 text-yellow-800"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              {fixture.isHome ? "Home" : "Away"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="p-4 sm:p-5">
+        <MatchScoreboard fixture={fixture} variant="compact" />
+      </div>
+
+      <div className="px-4 py-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-slate-500">
+        <span className="flex items-center gap-1 min-w-0">
+          <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+          <span className="truncate">{fixture.venue}</span>
+        </span>
+        <div className="flex items-center gap-3 shrink-0 flex-wrap">
+          {(mode === "upcoming" || mode === "live") && (
+            <GetDirectionsLink
+              venue={fixture.venue}
+              variant="text"
+              label="Directions"
+              className="text-[10px]"
+            />
+          )}
+          <span className="font-bold text-slate-700">{formatKickoff(fixture.date)}</span>
+          {isAdminAuthenticated && (
+            <>
+              <button
+                type="button"
+                onClick={() => onEdit(fixture)}
+                className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+                title="Edit match"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(fixture.id, fixture.opponent)}
+                className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                title="Remove match"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {mode === "live" && (
+        <div className="px-4 py-2 bg-rose-50 border-t border-rose-100 text-[10px] font-bold uppercase tracking-wider text-rose-700">
+          Match in progress · {statusMeta.label}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
   const [selectedSizes, setSelectedSizes] = useState<Record<number, string>>({});
-  const [activeTab, setActiveTab] = useState<string>("home");
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (typeof window === "undefined") return "home";
+    return new URLSearchParams(window.location.search).get("order")
+      ? "account"
+      : "home";
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [galleryCarouselIndex, setGalleryCarouselIndex] = useState(0);
 
+  const carouselGallery = useMemo(
+    () => initialData.gallery.filter((item) => isUploadedMediaUrl(item.imageUrl)),
+    [initialData.gallery]
+  );
+
+  const safeGalleryCarouselIndex =
+    carouselGallery.length === 0
+      ? 0
+      : Math.min(galleryCarouselIndex, carouselGallery.length - 1);
+
+  const squadByPosition = useMemo(
+    () => groupPlayersBySquadPosition(initialData.players),
+    [initialData.players]
+  );
+
+  const squadPlayersSorted = useMemo(
+    () =>
+      [...initialData.players].sort((a, b) => a.jerseyNumber - b.jerseyNumber),
+    [initialData.players]
+  );
+
+  const managementGrouped = useMemo(
+    () => groupManagementByCategoryAndRole(initialData.management),
+    [initialData.management]
+  );
+
+  const managementMembersSorted = useMemo(
+    () =>
+      [...initialData.management].sort(
+        (a, b) =>
+          a.displayOrder - b.displayOrder || a.name.localeCompare(b.name)
+      ),
+    [initialData.management]
+  );
+
+  const todayString = useMemo(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  const fixtureGroups = useMemo(
+    () => partitionFixtures(initialData.fixtures, todayString),
+    [initialData.fixtures, todayString]
+  );
+
+  const seasonStats = useMemo(
+    () => getSeasonStats(initialData.fixtures),
+    [initialData.fixtures]
+  );
+
+  const recentForm = useMemo(
+    () =>
+      getRecentForm(
+        fixtureGroups.recent.filter((fixture) => isLeagueMatch(fixture)),
+        5
+      ),
+    [fixtureGroups.recent]
+  );
+
+  const upcomingFixtures = fixtureGroups.upcoming;
+  const recentFixtures = fixtureGroups.recent;
+
+  useEffect(() => {
+    const closeMenuOnDesktop = () => {
+      if (window.innerWidth >= 1024) {
+        setMobileMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("resize", closeMenuOnDesktop);
+    return () => window.removeEventListener("resize", closeMenuOnDesktop);
+  }, []);
+
   // Automatically rotate homepage gallery every 4 seconds
 useEffect(() => {
-  if (initialData.gallery.length <= 1) return;
+  if (carouselGallery.length <= 1) return;
 
   const interval = setInterval(() => {
     setGalleryCarouselIndex((current) =>
-      current === initialData.gallery.length - 1
+      current === carouselGallery.length - 1
         ? 0
         : current + 1
     );
   }, 4000);
 
   return () => clearInterval(interval);
-}, [initialData.gallery.length]);
-
-useEffect(() => {
-  if (typeof window === "undefined") return;
-
-  const params = new URLSearchParams(window.location.search);
-  const orderFromUrl = params.get("order");
-
-  if (orderFromUrl) {
-    setActiveTab("account");
-    setTrackOrderId(orderFromUrl);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-}, []);
+}, [carouselGallery.length]);
 
   // Gallery filter state
   const [selectedGalleryCategory, setSelectedGalleryCategory] = useState<string>("All");
@@ -276,8 +1123,18 @@ useEffect(() => {
   const [checkoutMessage, setCheckoutMessage] = useState<string>("");
   const [lastOrderId, setLastOrderId] = useState<number | null>(null);
 
-  const [trackOrderId, setTrackOrderId] = useState<string>("");
+  const [trackOrderId, setTrackOrderId] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("order") || "";
+  });
   const [trackPhone, setTrackPhone] = useState<string>("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("order")) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, []);
   const [trackedOrder, setTrackedOrder] = useState<any | null>(null);
   const [trackError, setTrackError] = useState<string>("");
 
@@ -289,7 +1146,9 @@ useEffect(() => {
   } | null>(null);
   const [customerOrders, setCustomerOrders] = useState<any[]>([]);
   const [isLoadingCustomerOrders, setIsLoadingCustomerOrders] = useState(false);
-  const [accountView, setAccountView] = useState<"login" | "register">("login");
+  const [accountView, setAccountView] = useState<"login" | "register">("register");
+  const [signInPortal, setSignInPortal] = useState<"choose" | "fan" | "admin">("choose");
+  const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
   const [resetStep, setResetStep] = useState<"request" | "confirm">("request");
   const [showFanPasswordReset, setShowFanPasswordReset] = useState(false);
   const [isFanResetPending, setIsFanResetPending] = useState(false);
@@ -371,23 +1230,25 @@ const [notificationConfig, setNotificationConfig] = useState<{
 } | null>(null);
   
   const [adminPlayerName, setAdminPlayerName] = useState<string>("");
-  const [adminPlayerPos, setAdminPlayerPos] = useState<string>("Midfielder");
+  const [adminPlayerPos, setAdminPlayerPos] = useState<string>("Centre Back");
   const [adminPlayerJersey, setAdminPlayerJersey] = useState<string>("");
   const [adminPlayerBio, setAdminPlayerBio] = useState<string>("");
   const [adminPlayerApps, setAdminPlayerApps] = useState<string>("0");
   const [adminPlayerGoals, setAdminPlayerGoals] = useState<string>("0");
   const [adminPlayerAssists, setAdminPlayerAssists] = useState<string>("0");
   const [adminPlayerFile, setAdminPlayerFile] = useState<File | null>(null);
+  const [updatingPlayerPositionId, setUpdatingPlayerPositionId] = useState<number | null>(null);
 
   const [adminOpponent, setAdminOpponent] = useState<string>("");
   const [adminOpponentLogoFile, setAdminOpponentLogoFile] = useState<File | null>(null);
   const [adminOpponentLogoUrl, setAdminOpponentLogoUrl] = useState<string>("");
   const [adminDate, setAdminDate] = useState<string>("");
   const [adminIsHome, setAdminIsHome] = useState<boolean>(true);
-  const [adminVenue, setAdminVenue] = useState<string>("Kariobangi North Ground, Nairobi");
+  const [adminVenue, setAdminVenue] = useState<string>(HOME_GROUND.fullAddress);
   const [adminHomeScore, setAdminHomeScore] = useState<string>("");
   const [adminAwayScore, setAdminAwayScore] = useState<string>("");
   const [adminStatus, setAdminStatus] = useState<string>("upcoming");
+  const [adminMatchType, setAdminMatchType] = useState<string>("league");
   const [editingFixtureId, setEditingFixtureId] = useState<number | null>(null);
 
   const [adminNewsTitle, setAdminNewsTitle] = useState<string>("");
@@ -418,6 +1279,7 @@ const [adminManagementResponsibilities, setAdminManagementResponsibilities] = us
 const [adminManagementOrder, setAdminManagementOrder] = useState<string>("0");
 const [adminManagementFile, setAdminManagementFile] = useState<File | null>(null);
 const [editingManagementId, setEditingManagementId] = useState<number | null>(null);
+const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number | null>(null);
   // Merchandise admin state
   const [adminMerchName, setAdminMerchName] = useState<string>("");
   const [adminMerchDesc, setAdminMerchDesc] = useState<string>("");
@@ -446,8 +1308,8 @@ const [editingManagementId, setEditingManagementId] = useState<number | null>(nu
     if (!file.type.startsWith("image/")) {
       throw new Error("Please select an image file.");
     }
-    if (file.size > 10 * 1024 * 1024) {
-      throw new Error("Image is too large. Please choose an image under 10 MB.");
+    if (file.size > MEDIA_UPLOAD_RULES.maxFileSizeBytes) {
+      throw new Error(`Image is too large. Please choose an image under ${MEDIA_UPLOAD_RULES.maxFileSizeLabel}.`);
     }
 
     const formData = new FormData();
@@ -556,6 +1418,11 @@ const [editingManagementId, setEditingManagementId] = useState<number | null>(nu
 const handleCheckoutSubmit = (e: React.FormEvent) => {
   e.preventDefault();
 
+  if (!customerProfile) {
+    redirectToCheckoutAuth(true);
+    return;
+  }
+
   if (!checkoutName) {
     showToast("Please enter your name for delivery.", "error");
     return;
@@ -590,6 +1457,9 @@ const handleCheckoutSubmit = (e: React.FormEvent) => {
         const data = await response.json();
 
         if (!response.ok || !data.success) {
+          if (response.status === 401) {
+            redirectToCheckoutAuth(true);
+          }
           showToast(
             data.error || "Unable to initiate M-PESA payment.",
             "error"
@@ -1037,7 +1907,9 @@ const handleCustomerRegister = async (e: React.FormEvent) => {
       setCheckoutName(data.customer.fullName);
       setCheckoutPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
       setRegisterPassword("");
+      setSignInPortal("choose");
       showToast("Account created successfully.");
+      resumeCheckoutIfPending();
     } else {
       showToast(data.error || "Unable to create account.", "error");
     }
@@ -1073,7 +1945,9 @@ const handleCustomerLogin = async (e: React.FormEvent) => {
       setCheckoutName(data.customer.fullName);
       setCheckoutPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
       setLoginPassword("");
+      setSignInPortal("choose");
       showToast("Welcome back!");
+      resumeCheckoutIfPending();
     } else {
       showToast(data.error || "Unable to sign in.", "error");
     }
@@ -1088,6 +1962,8 @@ const handleCustomerLogout = async () => {
     await fetch("/api/customer/logout", { method: "POST", credentials: "include" });
   } finally {
     clearCustomerState();
+    setSignInPortal("choose");
+    setPendingCheckoutAfterAuth(false);
     showToast("Signed out successfully. You can now sign in to another account.");
   }
 };
@@ -1298,15 +2174,6 @@ useEffect(() => {
   }
 }, [activeTab, isAdminAuthenticated]);
 
-useEffect(() => {
-  if (!trackOrderId || customerOrders.length === 0) return;
-
-  const orderId = Number(trackOrderId);
-  if (customerOrders.some((order) => order.id === orderId)) {
-    setExpandedAccountOrderId(orderId);
-  }
-}, [customerOrders, trackOrderId]);
-
 const handleSessionIdleLock = useCallback(async () => {
   if (customerProfile) {
     try {
@@ -1381,9 +2248,12 @@ useIdleSessionLock({
   clearCustomerState();
   setIsAdminAuthenticated(true);
   setAdminPassword("");
+  setSignInPortal("choose");
 
   await loadAdminOrders();
 
+  setActiveTab("admin");
+  window.scrollTo({ top: 0, behavior: "smooth" });
   showToast("Successfully authenticated as Admin Manager.");
 }
     else {
@@ -1509,6 +2379,7 @@ const handleAdminAddFixture = (e: React.FormEvent) => {
         isHome: adminIsHome,
         status: adminStatus,
         venue: adminVenue,
+        matchType: adminMatchType,
         homeScore:
           adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
         awayScore:
@@ -1568,6 +2439,7 @@ const handleAdminUpdateFixture = (e: React.FormEvent) => {
         isHome: adminIsHome,
         status: adminStatus,
         venue: adminVenue,
+        matchType: adminMatchType,
         homeScore:
           adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
         awayScore:
@@ -1583,8 +2455,9 @@ const handleAdminUpdateFixture = (e: React.FormEvent) => {
         setAdminHomeScore("");
         setAdminAwayScore("");
         setAdminStatus("upcoming");
+        setAdminMatchType("league");
         setAdminIsHome(true);
-        setAdminVenue("Kariobangi North Ground, Nairobi");
+        setAdminVenue(HOME_GROUND.fullAddress);
         setAdminOpponentLogoFile(null);
         setAdminOpponentLogoUrl("");
       } else {
@@ -1616,6 +2489,7 @@ const handleEditFixture = (
   setAdminIsHome(fixture.isHome);
   setAdminVenue(fixture.venue);
   setAdminStatus(fixture.status);
+  setAdminMatchType(fixture.matchType || "league");
 
   setAdminHomeScore(
     fixture.homeScore !== null && fixture.homeScore !== undefined
@@ -1782,6 +2656,26 @@ const handleAdminDeleteManagement = (managementId: number) => {
   });
 };
 
+const handleUpdateManagementRole = (
+  managementId: number,
+  category: string,
+  position: string
+) => {
+  setUpdatingManagementRoleId(managementId);
+  startTransition(async () => {
+    try {
+      const res = await updateManagementRole(managementId, { category, position });
+      if (res.success) {
+        showToast(res.message || "Management role updated.");
+      } else {
+        showToast(res.error || "Failed to update role.", "error");
+      }
+    } finally {
+      setUpdatingManagementRoleId(null);
+    }
+  });
+};
+
 const handleAdminUpdateManagement = (e: React.FormEvent) => {
   e.preventDefault();
 
@@ -1817,7 +2711,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
           imageUrl:
             imageUrl ||
             currentMember?.imageUrl ||
-            "/images/management-placeholder.jpg",
+            "",
         }
       );
 
@@ -1863,6 +2757,27 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
       if (res.success) showToast(res.message || "Player deleted.");
       else showToast(res.error || "Failed to delete.", "error");
     });
+  };
+
+  const handleUpdatePlayerPosition = (playerId: number, position: string) => {
+    setUpdatingPlayerPositionId(playerId);
+    startTransition(async () => {
+      try {
+        const res = await updatePlayerPosition(playerId, position);
+        if (res.success) {
+          showToast(res.message || "Player position updated.");
+        } else {
+          showToast(res.error || "Failed to update position.", "error");
+        }
+      } finally {
+        setUpdatingPlayerPositionId(null);
+      }
+    });
+  };
+
+  const openSquadPlayerShop = () => {
+    setActiveTab("shop");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleDeleteFixture = (id: number, opponent: string) => {
@@ -2083,9 +2998,16 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
     }
   };
 
-  const filteredGallery = selectedGalleryCategory === "All"
-    ? initialData.gallery
-    : initialData.gallery.filter(item => item.category === selectedGalleryCategory);
+  const categoryGallery =
+    selectedGalleryCategory === "All"
+      ? initialData.gallery
+      : initialData.gallery.filter(
+          (item) => item.category === selectedGalleryCategory
+        );
+
+  const filteredGallery = categoryGallery.filter(
+    (item) => isAdminAuthenticated || isUploadedMediaUrl(item.imageUrl)
+  );
     useEffect(() => {
   if (!selectedGalleryImage) return;
 
@@ -2124,39 +3046,31 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   };
 }, [selectedGalleryImage, filteredGallery]);
 
-  // ================= AUTOMATIC MATCH DATE SORTING =================
-const today = new Date();
-
-const todayString = `${today.getFullYear()}-${String(
-  today.getMonth() + 1
-).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-
-// Upcoming = future matches only.
-// A match marked Completed (FT) is removed from Upcoming immediately,
-// even if it was played today.
-// Upcoming = today's and future matches that are not completed
-const upcomingFixtures = initialData.fixtures
-  .filter(
-    (fixture) =>
-      fixture.date >= todayString &&
-      fixture.status !== "completed"
-  )
-  .sort((a, b) => a.date.localeCompare(b.date));
-
-// Recent Results = completed matches, including matches completed today,
-// plus any older matches whose date has already passed.
-const recentFixtures = initialData.fixtures
-  .filter(
-    (fixture) =>
-      fixture.status === "completed" ||
-      fixture.date < todayString
-  )
-  .sort((a, b) => b.date.localeCompare(a.date));
-
   const goToTab = (tab: string) => {
     setActiveTab(tab);
     setMobileMenuOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const resumeCheckoutIfPending = () => {
+    if (pendingCheckoutAfterAuth && cart.length > 0) {
+      setPendingCheckoutAfterAuth(false);
+      setIsCartOpen(true);
+      showToast("Your account is ready. Complete payment in your cart.");
+    }
+  };
+
+  const redirectToCheckoutAuth = (preferRegister: boolean) => {
+    setPendingCheckoutAfterAuth(true);
+    setIsCartOpen(false);
+    setSignInPortal("fan");
+    setAccountView(preferRegister ? "register" : "login");
+    goToTab("account");
+    showToast(
+      preferRegister
+        ? "Create a free account to complete your purchase."
+        : "Sign in to complete your purchase."
+    );
   };
 
   const desktopNavLinkClass = (isActive: boolean) =>
@@ -2170,10 +3084,10 @@ const recentFixtures = initialData.fixtures
     `${desktopNavLinkClass(isActive)} flex items-center gap-1`;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-emerald-600 selection:text-white">
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-emerald-600 selection:text-white overflow-x-hidden">
       {/* Toast Alert */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl p-4 shadow-xl border animate-bounce flex items-start gap-3 bg-white text-slate-900 border-emerald-500">
+        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-sm z-50 rounded-xl p-4 shadow-xl border animate-bounce flex items-start gap-3 bg-white text-slate-900 border-emerald-500">
           <Sparkles className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div>
             <p className="font-semibold text-sm">Notification Info</p>
@@ -2189,9 +3103,9 @@ const recentFixtures = initialData.fixtures
         {/* Top club strip */}
         <div className="relative bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 text-white">
           <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-emerald-500/70 to-transparent" />
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between gap-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
 
-            <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+            <div className="flex items-center gap-1.5 sm:gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300 min-w-0 truncate">
               <span className="inline-flex items-center gap-1.5 text-yellow-400">
                 <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
                 Est. 2018
@@ -2201,7 +3115,7 @@ const recentFixtures = initialData.fixtures
             </div>
 
             <p className="hidden lg:block text-[10px] text-slate-400 tracking-wide">
-              From Kariobangi North slums to the world — molding football legends
+              From Kariobangi North slums to the world, molding football legends
             </p>
 
             <div className="hidden sm:flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
@@ -2214,7 +3128,7 @@ const recentFixtures = initialData.fixtures
 
         {/* Main navigation bar */}
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="min-h-[88px] flex items-center justify-between gap-4 lg:gap-6">
+          <div className="min-h-[76px] sm:min-h-[88px] flex items-center justify-between gap-2 sm:gap-4 lg:gap-6">
 
             {/* Club brand */}
             <button
@@ -2223,24 +3137,20 @@ const recentFixtures = initialData.fixtures
               className="flex items-center gap-3 sm:gap-4 min-w-0 cursor-pointer group shrink-0"
             >
               <div className="relative shrink-0">
-                <div className="absolute -inset-1 rounded-[1.35rem] bg-gradient-to-br from-yellow-400/80 via-emerald-500/50 to-yellow-400/80 opacity-80 blur-[2px] group-hover:opacity-100 transition-opacity duration-300" />
-                <div className="relative w-16 h-16 sm:w-[4.5rem] sm:h-[4.5rem] md:w-20 md:h-20 rounded-2xl bg-white border-[3px] border-yellow-400 shadow-xl shadow-slate-950/15 flex items-center justify-center overflow-hidden transition-all duration-300 group-hover:border-emerald-500 group-hover:shadow-emerald-500/25 group-hover:scale-[1.02]">
-                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 via-white to-yellow-50" />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src="/assets/logo.jpeg"
-                    alt="Kariobangi Legends FC badge"
-                    className="relative z-10 w-[88%] h-[88%] object-contain drop-shadow-md group-hover:scale-105 transition-transform duration-300"
-                  />
-                </div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/assets/logo.png"
+                  alt="Kariobangi Legends FC badge"
+                  className="w-14 h-14 sm:w-[4.5rem] sm:h-[4.5rem] md:w-20 md:h-20 object-contain drop-shadow-lg group-hover:scale-105 transition-transform duration-300"
+                />
               </div>
 
               <div className="min-w-0 text-left">
-                <div className="flex items-center gap-1">
-                  <h1 className="font-black italic text-[15px] sm:text-lg md:text-xl tracking-[-0.04em] text-slate-950 leading-none uppercase whitespace-nowrap">
+                <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+                  <h1 className="font-black italic text-sm sm:text-lg md:text-xl tracking-[-0.04em] text-slate-950 leading-none uppercase">
                     KARIOBANGI
                   </h1>
-                  <span className="font-black italic text-[15px] sm:text-lg md:text-xl tracking-[-0.04em] text-emerald-600 leading-none uppercase">
+                  <span className="font-black italic text-sm sm:text-lg md:text-xl tracking-[-0.04em] text-emerald-600 leading-none uppercase">
                     LEGENDS
                   </span>
                 </div>
@@ -2257,7 +3167,7 @@ const recentFixtures = initialData.fixtures
             </button>
 
             {/* Desktop navigation */}
-            <nav className="hidden xl:flex items-center gap-1 p-1 rounded-2xl bg-slate-50/80 border border-slate-200/70">
+            <nav className="hidden lg:flex items-center gap-1 p-1 rounded-2xl bg-slate-50/80 border border-slate-200/70">
 
               <button
                 type="button"
@@ -2435,7 +3345,7 @@ const recentFixtures = initialData.fixtures
               <button
                 type="button"
                 onClick={() => goToTab("account")}
-                className={`hidden lg:flex items-center gap-2 border font-bold text-[10px] uppercase tracking-wider px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer ${
+                className={`hidden md:flex items-center gap-2 border font-bold text-[10px] uppercase tracking-wider px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer ${
                   activeTab === "account"
                     ? "border-emerald-300 bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
                     : customerProfile
@@ -2445,13 +3355,13 @@ const recentFixtures = initialData.fixtures
                 title={customerProfile ? "View your orders" : "Sign in to your account"}
               >
                 <User className="w-4 h-4" />
-                {customerProfile ? "My Orders" : "Account"}
+                {customerProfile ? "My Orders" : "Sign In"}
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsCartOpen(true)}
-                className="relative w-10 h-10 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition-all duration-200 cursor-pointer shadow-sm"
+                className="relative w-11 h-11 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition-all duration-200 cursor-pointer shadow-sm"
                 title="Open Shopping Cart"
                 aria-label="Open Shopping Cart"
               >
@@ -2474,22 +3384,8 @@ const recentFixtures = initialData.fixtures
 
               <button
                 type="button"
-                onClick={() => goToTab("admin")}
-                className={`hidden xl:flex items-center gap-2 font-bold text-[10px] uppercase tracking-wider px-3.5 py-2.5 rounded-xl transition-all duration-200 shadow-lg cursor-pointer ${
-                  isAdminAuthenticated
-                    ? "bg-yellow-400 hover:bg-yellow-300 text-slate-950 shadow-yellow-400/20"
-                    : "bg-slate-950 hover:bg-slate-900 text-yellow-400 shadow-slate-950/10"
-                }`}
-                title={isAdminAuthenticated ? "Admin dashboard (signed in)" : "Open admin dashboard"}
-              >
-                <Settings className="w-4 h-4" />
-                {isAdminAuthenticated ? "Admin Live" : "Admin"}
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className={`xl:hidden w-10 h-10 flex items-center justify-center rounded-xl border transition-all duration-200 cursor-pointer ${
+                className={`lg:hidden w-11 h-11 flex items-center justify-center rounded-xl border transition-all duration-200 cursor-pointer ${
                   mobileMenuOpen
                     ? "border-slate-950 bg-slate-950 text-yellow-400"
                     : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950"
@@ -2504,7 +3400,7 @@ const recentFixtures = initialData.fixtures
 
           {/* Mobile navigation */}
           {mobileMenuOpen && (
-            <div className="xl:hidden border-t border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl shadow-slate-950/10">
+            <div className="lg:hidden border-t border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl shadow-slate-950/10 max-h-[calc(100dvh-7.5rem)] overflow-y-auto overscroll-contain">
               <div className="py-5 space-y-5">
 
                   <div className="space-y-2">
@@ -2579,7 +3475,7 @@ const recentFixtures = initialData.fixtures
                       {[
                         { id: "gallery", label: "Photo Gallery", icon: Images },
                         { id: "fanzone", label: "Fan Zone", icon: MessageCircle },
-                        { id: "account", label: "My Account", icon: User },
+                        { id: "account", label: customerProfile ? "My Orders" : "Sign In", icon: User },
                         { id: "donors", label: "Support & Donors", icon: HeartHandshake },
                       ].map((tab) => {
                         const Icon = tab.icon;
@@ -2607,22 +3503,10 @@ const recentFixtures = initialData.fixtures
                     <button
                       type="button"
                       onClick={() => goToTab("donors")}
-                      className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-4 py-3 rounded-xl transition cursor-pointer shadow-lg shadow-emerald-600/20"
+                      className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-4 py-3 rounded-xl transition cursor-pointer shadow-lg shadow-emerald-600/20"
                     >
                       <HeartHandshake className="w-4 h-4" />
                       Support the Club
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => goToTab("admin")}
-                      className={`flex-1 flex items-center justify-center gap-2 font-bold text-xs uppercase tracking-wider px-4 py-3 rounded-xl transition cursor-pointer ${
-                        isAdminAuthenticated
-                          ? "bg-yellow-400 hover:bg-yellow-300 text-slate-950"
-                          : "bg-slate-950 hover:bg-slate-900 text-yellow-400"
-                      }`}
-                    >
-                      <Settings className="w-4 h-4" />
-                      Admin Dashboard
                     </button>
                   </div>
 
@@ -2634,7 +3518,7 @@ const recentFixtures = initialData.fixtures
       </header>
 
 {/* Main body wrapper */}
-<main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+<main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 w-full min-w-0">
         
         {/* ================= TAB: HOME ================= */}
         {activeTab === "home" && (
@@ -2674,13 +3558,13 @@ const recentFixtures = initialData.fixtures
             <div className="absolute inset-0 bg-yellow-400/20 rounded-full blur-2xl scale-110" />
 
             {/* Logo background */}
-            <div className="relative w-28 h-28 sm:w-36 sm:h-36 md:w-40 md:h-40 rounded-full bg-white/95 border-4 border-yellow-400/80 shadow-2xl flex items-center justify-center p-2 sm:p-2.5">
+            <div className="relative w-28 h-28 sm:w-36 sm:h-36 md:w-40 md:h-40 flex items-center justify-center">
 
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/assets/logo.jpeg"
+                src="/assets/logo.png"
                 alt="Kariobangi Legends FC Logo"
-                className="w-full h-full object-contain rounded-full"
+                className="w-full h-full object-contain drop-shadow-2xl"
               />
 
             </div>
@@ -2926,12 +3810,12 @@ const recentFixtures = initialData.fixtures
           <div className="flex flex-col items-center text-center">
 
             {/* Logo */}
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white border-2 border-yellow-400/80 flex items-center justify-center shadow-xl mb-4 overflow-hidden p-2">
+            <div className="w-24 h-24 sm:w-28 sm:h-28 flex items-center justify-center mb-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/assets/logo.jpeg"
+                src="/assets/logo.png"
                 alt="Kariobangi Legends FC"
-                className="w-full h-full object-contain"
+                className="w-full h-full object-contain drop-shadow-2xl"
               />
             </div>
 
@@ -3007,7 +3891,7 @@ const recentFixtures = initialData.fixtures
                 Date
               </p>
               <p className="text-sm font-bold text-white">
-                {upcomingFixtures[0].date}
+                {formatKickoff(upcomingFixtures[0].date)}
               </p>
             </div>
           </div>
@@ -3025,6 +3909,11 @@ const recentFixtures = initialData.fixtures
               <p className="text-sm font-bold text-white truncate max-w-[180px]">
                 {upcomingFixtures[0].venue}
               </p>
+              {isClubHomeVenue(upcomingFixtures[0].venue) && (
+                <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                  {HOME_GROUND.landmark}, {HOME_GROUND.constituency}
+                </p>
+              )}
             </div>
           </div>
 
@@ -3039,7 +3928,7 @@ const recentFixtures = initialData.fixtures
                 Status
               </p>
               <p className="text-sm font-bold text-white capitalize">
-                {upcomingFixtures[0].status || "Upcoming"}
+                {getMatchStatusMeta(upcomingFixtures[0].status).label}
               </p>
             </div>
           </div>
@@ -3048,8 +3937,8 @@ const recentFixtures = initialData.fixtures
 
       </div>
 
-      {/* Match Centre button */}
-      <div className="relative z-10 p-5 sm:p-6 border-t border-white/10">
+      {/* Match Centre + Directions */}
+      <div className="relative z-10 p-5 sm:p-6 border-t border-white/10 space-y-3">
 
         <button
           onClick={() => setActiveTab("fixtures")}
@@ -3059,6 +3948,13 @@ const recentFixtures = initialData.fixtures
           Match Centre
           <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
         </button>
+
+        <GetDirectionsLink
+          venue={upcomingFixtures[0].venue}
+          variant="outline-dark"
+          label={upcomingFixtures[0].isHome ? "Directions to the Ground" : "Directions to Venue"}
+          className="w-full py-4 text-xs sm:text-sm"
+        />
 
       </div>
 
@@ -3112,165 +4008,74 @@ const recentFixtures = initialData.fixtures
 
 
   {/* ================= AUTO CAROUSEL ================= */}
-  {initialData.gallery.length > 0 ? (
+  {carouselGallery.length > 0 ? (
 
-    <div className="relative group">
+    <div className="relative rounded-3xl overflow-hidden border border-slate-200/80 shadow-xl shadow-slate-950/10 bg-white">
 
-      {/* Soft outer glow */}
-      <div className="absolute -inset-px rounded-[1.75rem] bg-gradient-to-r from-emerald-500/30 via-yellow-400/20 to-emerald-500/30 opacity-70 blur-[2px] group-hover:opacity-100 transition-opacity duration-500" />
+      {/* Image — container shrinks to photo, no crop or distortion */}
+      <div className="relative w-full flex justify-center bg-white">
 
-      <div className="relative rounded-3xl overflow-hidden border border-slate-200/80 shadow-2xl shadow-slate-950/10 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900">
+        {carouselGallery.map((item, index) => (
 
-        {/* Ambient background accents */}
-        <div className="absolute top-0 right-0 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-72 h-72 bg-yellow-400/5 rounded-full blur-3xl pointer-events-none" />
-
-        {/* Image stage */}
-        <div className="relative px-4 sm:px-8 pt-6 sm:pt-8 pb-2">
-
-          <div className="relative h-[300px] sm:h-[400px] md:h-[480px] lg:h-[520px] flex items-center justify-center">
-
-            {initialData.gallery.map((item, index) => (
-
-              <div
-                key={item.id}
-                className={`absolute inset-0 flex items-center justify-center transition-all duration-700 ease-out ${
-                  index === galleryCarouselIndex
-                    ? "opacity-100 z-10 scale-100"
-                    : "opacity-0 z-0 scale-[0.98] pointer-events-none"
-                }`}
-              >
-
-                {/* Photo frame — full image, no crop */}
-                <div className="relative max-w-full max-h-full rounded-2xl p-1 sm:p-1.5 bg-gradient-to-br from-white/20 via-white/5 to-white/10 shadow-2xl ring-1 ring-white/15">
-
-                  <div className="rounded-xl overflow-hidden bg-slate-900/80 backdrop-blur-sm flex items-center justify-center min-w-[240px] min-h-[220px] sm:min-h-[320px] max-h-[280px] sm:max-h-[380px] md:max-h-[460px] lg:max-h-[500px]">
-
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.imageUrl}
-                      alt={item.caption || "Kariobangi Legends FC"}
-                      className="max-w-full max-h-[280px] sm:max-h-[380px] md:max-h-[460px] lg:max-h-[500px] w-auto h-auto object-contain"
-                      draggable={false}
-                    />
-
-                  </div>
-
-                </div>
-
-              </div>
-
-            ))}
-
-
-            {/* Previous */}
-            <button
-              onClick={() =>
-                setGalleryCarouselIndex((current) =>
-                  current === 0
-                    ? initialData.gallery.length - 1
-                    : current - 1
-                )
-              }
-              className="absolute z-30 left-2 sm:left-4 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-slate-950/70 hover:bg-yellow-400 hover:text-slate-950 text-white border border-white/15 backdrop-blur-md flex items-center justify-center transition-all duration-300 opacity-80 group-hover:opacity-100 cursor-pointer shadow-lg"
-              aria-label="Previous image"
-            >
-              <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
-            </button>
-
-
-            {/* Next */}
-            <button
-              onClick={() =>
-                setGalleryCarouselIndex((current) =>
-                  current === initialData.gallery.length - 1
-                    ? 0
-                    : current + 1
-                )
-              }
-              className="absolute z-30 right-2 sm:right-4 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-slate-950/70 hover:bg-yellow-400 hover:text-slate-950 text-white border border-white/15 backdrop-blur-md flex items-center justify-center transition-all duration-300 opacity-80 group-hover:opacity-100 cursor-pointer shadow-lg"
-              aria-label="Next image"
-            >
-              <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
-            </button>
-
-
-            {/* Counter badge */}
-            <div className="absolute z-30 top-2 sm:top-4 right-2 sm:right-4">
-
-              <div className="px-3 py-1.5 rounded-full bg-slate-950/75 border border-emerald-500/30 backdrop-blur-md text-emerald-300 text-[9px] font-black tracking-wider">
-                {galleryCarouselIndex + 1} / {initialData.gallery.length}
-              </div>
-
-            </div>
-
+          <div
+            key={item.id}
+            className={`transition-opacity duration-700 ease-out ${
+              index === safeGalleryCarouselIndex
+                ? "opacity-100 relative z-10"
+                : "opacity-0 absolute inset-x-0 top-0 flex justify-center pointer-events-none z-0"
+            }`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={item.imageUrl}
+              alt={item.caption || "Kariobangi Legends FC"}
+              className="block max-w-full w-auto h-auto max-h-[min(70vh,560px)] object-contain"
+              draggable={false}
+            />
           </div>
 
-        </div>
-
-
-        {/* Caption bar */}
-        <div className="relative border-t border-white/10 bg-slate-950/90 backdrop-blur-sm px-5 sm:px-8 py-4 sm:py-5 min-h-[104px]">
-
-          <div className="absolute top-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent" />
-
-          {initialData.gallery.map((item, index) => (
-
-            <div
-              key={`caption-${item.id}`}
-              className={`transition-all duration-500 ${
-                index === galleryCarouselIndex
-                  ? "opacity-100 relative z-10 translate-y-0"
-                  : "opacity-0 absolute inset-0 px-5 sm:px-8 py-4 sm:py-5 pointer-events-none translate-y-1"
-              }`}
-            >
-
-              <div className="flex flex-wrap items-center gap-2 mb-2">
-
-                {item.category && (
-                  <span className="inline-flex items-center bg-emerald-600 text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full">
-                    {item.category}
-                  </span>
-                )}
-
-                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
-                  {new Date(item.createdAt).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })}
-                </span>
-
-              </div>
-
-              <p className="text-base sm:text-xl font-black text-white leading-snug max-w-3xl">
-                {item.caption || "Kariobangi Legends FC"}
-              </p>
-
-            </div>
-
-          ))}
-
-        </div>
+        ))}
 
       </div>
 
 
-      {/* Progress dots */}
-      <div className="flex justify-center items-center gap-2 mt-5">
+      {/* Caption bar */}
+      <div className="relative border-t border-slate-100 bg-slate-50 px-5 sm:px-8 py-4 sm:py-5">
 
-        {initialData.gallery.map((_, index) => (
+        {carouselGallery.map((item, index) => (
 
-          <button
-            key={index}
-            onClick={() => setGalleryCarouselIndex(index)}
-            className={`h-2 rounded-full transition-all duration-500 cursor-pointer ${
-              index === galleryCarouselIndex
-                ? "w-8 bg-yellow-400 shadow-sm shadow-yellow-400/40"
-                : "w-2 bg-slate-300 hover:bg-emerald-500"
+          <div
+            key={`caption-${item.id}`}
+            className={`transition-all duration-500 ${
+              index === safeGalleryCarouselIndex
+                ? "opacity-100 relative z-10 translate-y-0"
+                : "opacity-0 absolute inset-0 px-5 sm:px-8 py-4 sm:py-5 pointer-events-none translate-y-1"
             }`}
-            aria-label={`Show image ${index + 1}`}
-          />
+          >
+
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+
+              {item.category && (
+                <span className="inline-flex items-center bg-emerald-600 text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full">
+                  {item.category}
+                </span>
+              )}
+
+              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                {new Date(item.createdAt).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </span>
+
+            </div>
+
+            <p className="text-base sm:text-xl font-black text-slate-950 leading-snug max-w-3xl">
+              {item.caption || "Kariobangi Legends FC"}
+            </p>
+
+          </div>
 
         ))}
 
@@ -3600,7 +4405,7 @@ const recentFixtures = initialData.fixtures
                 </div>
 
                 <p className="text-xs text-slate-400 italic leading-relaxed">
-                  "{msg.message}"
+                  &ldquo;{msg.message}&rdquo;
                 </p>
 
               </div>
@@ -3660,23 +4465,23 @@ const recentFixtures = initialData.fixtures
     <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-emerald-500/10 blur-3xl" />
     <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-yellow-400/5 blur-3xl" />
 
-    <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[320px_1fr]">
+    <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[minmax(300px,420px)_1fr]">
 
       {/* Founder image */}
-      <div className="relative min-h-[360px] lg:min-h-full bg-slate-900">
+      <div className="relative min-h-[420px] lg:min-h-[560px] bg-slate-900 flex items-end justify-center p-4">
 
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/images/coach-portrait.jpg"
-          alt="Mr. Erick Otieno Atanga"
-          className="absolute inset-0 w-full h-full object-cover"
+          src="/images/founder-atanga.jpg"
+          alt="Mr. Erick Otieno Atanga - Founder and Patron of Kariobangi Legends FC"
+          className="relative z-0 max-w-full max-h-[560px] w-auto h-auto object-contain"
         />
 
         {/* Image overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent pointer-events-none" />
 
         {/* Founder label */}
-        <div className="absolute bottom-0 left-0 right-0 p-6">
+        <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
 
           <span className="inline-flex items-center bg-yellow-400 text-slate-950 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full mb-3">
             Founder & Patron
@@ -3703,7 +4508,7 @@ const recentFixtures = initialData.fixtures
         </h2>
 
         <p className="mt-5 text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl">
-          Kariobangi Legends is more than a football club — it is a community
+          Kariobangi Legends is more than a football club. It is a community
           built through <span className="text-yellow-400 font-bold">football,
           friendship and opportunity.</span>
         </p>
@@ -3783,7 +4588,7 @@ const recentFixtures = initialData.fixtures
               <div className="max-w-xl space-y-1">
                 <h2 className="text-3xl font-black text-slate-950 tracking-tight">Legends Photo Gallery</h2>
                 <p className="text-sm text-slate-600">
-                  Showcasing real team moments in Kariobangi North — matchday action, training, academy work, and community events.
+                  Showcasing real team moments in Kariobangi North: matchday action, training, academy work, and community events.
                 </p>
               </div>
               {isAdminAuthenticated && (
@@ -3830,16 +4635,27 @@ const recentFixtures = initialData.fixtures
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedGalleryImage(item);
+                        if (isUploadedMediaUrl(item.imageUrl)) {
+                          setSelectedGalleryImage(item);
+                        }
                       }}
                       className="relative z-10 w-full h-full flex items-center justify-center p-3 cursor-zoom-in"
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={item.imageUrl}
-                        alt={item.caption}
-                        className="max-w-full max-h-full w-auto h-auto object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out drop-shadow-lg"
-                      />
+                      {isUploadedMediaUrl(item.imageUrl) ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={item.imageUrl}
+                          alt={item.caption}
+                          className="max-w-full max-h-full w-auto h-auto object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out drop-shadow-lg"
+                        />
+                      ) : (
+                        <div className="text-center text-slate-400 px-4">
+                          <ImageIcon className="w-10 h-10 mx-auto mb-2" />
+                          <p className="text-[10px] font-bold uppercase tracking-wider">
+                            Legacy entry: upload a photo
+                          </p>
+                        </div>
+                      )}
                     </button>
 
                     <span className="absolute top-4 left-4 z-20 bg-slate-950/90 text-yellow-400 text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider border border-yellow-400/20">
@@ -4027,7 +4843,7 @@ const recentFixtures = initialData.fixtures
           </h3>
 
           <p>
-            These former players came together and formed Legends FC —
+            These former players came together and formed Legends FC,
             bringing together old players who still had football in their
             hearts. Every Sunday, they met to share football experience,
             score goals, have fun, debate football and reminisce about
@@ -4035,7 +4851,7 @@ const recentFixtures = initialData.fixtures
           </p>
 
           <p className="mt-3 font-bold text-emerald-700">
-            They called it FB — Football & Bonding.
+            They called it FB, Football & Bonding.
           </p>
         </div>
 
@@ -4338,13 +5154,9 @@ const recentFixtures = initialData.fixtures
        {/* ================= TAB: MANAGEMENT ================= */}
 {activeTab === "management" && (
   <div className="space-y-12">
-
-    {/* ================= HEADER ================= */}
     <div className="max-w-3xl space-y-4">
-
       <div className="flex items-center gap-2">
         <span className="w-2 h-2 rounded-full bg-yellow-400" />
-
         <span className="text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
           Club Leadership & Football Operations
         </span>
@@ -4358,207 +5170,90 @@ const recentFixtures = initialData.fixtures
         Meet the people responsible for leading, managing and developing
         Kariobangi Legends Football Club both on and off the pitch.
       </p>
-
     </div>
 
-
-    {/* ================= TWO MANAGEMENT SECTIONS ================= */}
-    {[
-      {
-        name: "Club Leadership",
-        title: "Club Leadership / Board",
-        description:
-          "Strategic leadership, governance and overall direction of Kariobangi Legends.",
-      },
-      {
-        name: "Technical Team",
-        title: "Technical Team",
-        description:
-          "Football, coaching, matchday and technical development of the team.",
-      },
-    ].map((section) => {
-
-      const members = initialData.management
-        .filter(
-          (member) =>
-            member.category === section.name
-        )
-        .sort(
-          (a, b) =>
-            a.displayOrder - b.displayOrder
-        );
-
-      if (members.length === 0) return null;
-
-      return (
-        <section
-          key={section.name}
-          className="space-y-6"
-        >
-
-          {/* ================= SECTION HEADING ================= */}
-          <div className="flex items-start gap-4">
-
-            <div className="w-1.5 min-h-16 bg-yellow-400 rounded-full" />
-
-            <div>
-              <h3 className="text-2xl md:text-3xl font-black text-slate-950">
-                {section.title}
-              </h3>
-
-              <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-                {section.description}
-              </p>
-            </div>
-
+    {managementGrouped.map((section) => (
+      <section key={section.id} className="space-y-8">
+        <div className="flex items-start gap-4 border-b border-slate-200 pb-4">
+          <span className="inline-flex items-center justify-center min-w-12 h-12 px-2 rounded-xl bg-slate-950 text-yellow-400 text-[10px] font-black tracking-wider shrink-0">
+            {section.badge}
+          </span>
+          <div>
+            <h3 className="text-2xl md:text-3xl font-black text-slate-950">
+              {section.heading}
+            </h3>
+            <p className="text-sm text-slate-500 mt-1 max-w-2xl">
+              {section.description}
+            </p>
+            <p className="text-[11px] text-slate-400 font-semibold mt-1">
+              {section.members.length} official
+              {section.members.length === 1 ? "" : "s"}
+            </p>
           </div>
+        </div>
 
+        {section.roleGroups.map((roleGroup) => {
+          if (roleGroup.members.length === 0) return null;
 
-          {/* ================= OFFICIALS ================= */}
-          <div
-            className={
-              section.name === "Club Leadership"
-                ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
-                : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-            }
-          >
-
-            {members.map((member) => (
-              <div
-                key={member.id}
-                className="group bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300"
-              >
-
-                {/* ================= PHOTO ================= */}
-                <div className="relative h-72 bg-slate-100 overflow-hidden">
-
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={
-                      member.imageUrl ||
-                      "/images/management-placeholder.jpg"
-                    }
-                    alt={`${member.name} - ${member.position}`}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                    onError={(e) => {
-                      e.currentTarget.src =
-                        "/images/management-placeholder.jpg";
-                    }}
-                  />
-
-                  {/* Dark gradient */}
-                  <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950/90 to-transparent" />
-
-                  {/* Position */}
-                  <div className="absolute bottom-4 left-4 right-4">
-
-                    <span className="inline-flex bg-slate-950/95 text-yellow-400 text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-xl shadow-lg">
-                      {member.position}
-                    </span>
-
-                  </div>
-
-                </div>
-
-
-                {/* ================= INFORMATION ================= */}
-                <div className="p-5 space-y-4">
-
-                  <div>
-
-                    <h4 className="text-xl font-black text-slate-950 leading-tight">
-                      {member.name}
-                    </h4>
-
-                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1">
-                      {member.position}
-                    </p>
-
-                  </div>
-
-
-                  {/* Responsibilities */}
-                  {member.responsibilities && (
-                    <div className="space-y-1.5">
-
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                        Responsibilities
-                      </p>
-
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        {member.responsibilities}
-                      </p>
-
-                    </div>
-                  )}
-
-
-                  {/* Biography */}
-                  {member.bio && (
-                    <div className="space-y-1.5">
-
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
-                        Biography
-                      </p>
-
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        {member.bio}
-                      </p>
-
-                    </div>
-                  )}
-
-
-                  {/* ================= ADMIN CONTROLS ================= */}
-                  {isAdminAuthenticated && (
-                    <div className="flex gap-2 pt-2">
-
-                      {/* Edit */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleAdminEditManagement(member)
-                        }
-                        className="flex-1 bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider hover:bg-slate-900 transition flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Camera className="w-4 h-4" />
-                        Edit
-                      </button>
-
-
-                      {/* Delete */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleAdminDeleteManagement(
-                            member.id
-                          )
-                        }
-                        disabled={isPending}
-                        className="flex-1 bg-red-600 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider hover:bg-red-700 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                      >
-                        Delete
-                      </button>
-
-                    </div>
-                  )}
-
-                </div>
-
+          return (
+            <div key={roleGroup.id} className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center justify-center min-w-9 h-8 px-2 rounded-lg bg-emerald-50 text-emerald-700 text-[9px] font-black tracking-wider border border-emerald-100">
+                  {roleGroup.badge}
+                </span>
+                <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">
+                  {roleGroup.heading}
+                </h4>
               </div>
-            ))}
 
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {roleGroup.members.map((member) => (
+                  <ManagementMemberCard
+                    key={member.id}
+                    member={member}
+                    featured={isFeaturedManagementRole(member.position)}
+                    isAdminAuthenticated={isAdminAuthenticated}
+                    isUpdatingRole={updatingManagementRoleId === member.id}
+                    onEdit={handleAdminEditManagement}
+                    onDelete={handleAdminDeleteManagement}
+                    onRoleChange={handleUpdateManagementRole}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
+        {section.otherMembers.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center justify-center min-w-9 h-8 px-2 rounded-lg bg-slate-100 text-slate-600 text-[9px] font-black">
+                ?
+              </span>
+              <h4 className="text-lg font-black text-slate-900 uppercase tracking-tight">
+                Other Roles
+              </h4>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              {section.otherMembers.map((member) => (
+                <ManagementMemberCard
+                  key={member.id}
+                  member={member}
+                  isAdminAuthenticated={isAdminAuthenticated}
+                  isUpdatingRole={updatingManagementRoleId === member.id}
+                  onEdit={handleAdminEditManagement}
+                  onDelete={handleAdminDeleteManagement}
+                  onRoleChange={handleUpdateManagementRole}
+                />
+              ))}
+            </div>
           </div>
+        )}
+      </section>
+    ))}
 
-        </section>
-      );
-    })}
-
-
-    {/* ================= EMPTY STATE ================= */}
     {initialData.management.length === 0 && (
       <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
-
         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4">
           <Users className="w-8 h-8 text-slate-300" />
         </div>
@@ -4570,10 +5265,8 @@ const recentFixtures = initialData.fixtures
         <p className="text-sm text-slate-500 mt-2">
           Club leadership and technical team information will appear here.
         </p>
-
       </div>
     )}
-
   </div>
 )}
 
@@ -4587,344 +5280,321 @@ const recentFixtures = initialData.fixtures
               </p>
             </div>
 
-            {/* Quick Stat Highlights */}
-            <div className="bg-slate-950 text-white p-6 rounded-2xl border border-yellow-500/10 flex flex-wrap gap-6 items-center justify-between">
-              <div>
-                <p className="text-xs text-slate-400 font-bold uppercase">Squad Average Age</p>
-                <p className="text-2xl font-black text-yellow-400">21.8 Years</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400 font-bold uppercase">Top Scorer (This Season)</p>
-                <p className="text-2xl font-black text-yellow-400">Erick 'Chicha' (16 Goals)</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-400 font-bold uppercase">Local Nairobi Born</p>
-                <p className="text-2xl font-black text-yellow-400">100% Proud</p>
-              </div>
-              <button
-                onClick={() => {
-                  setActiveTab("admin");
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                className="bg-slate-900 border border-slate-800 text-slate-300 text-xs px-4 py-2.5 rounded-xl hover:text-white transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <UserPlus className="w-4 h-4" /> Add Player Row
-              </button>
-            </div>
+            {initialData.players.length > 0 ? (
+            <div className="space-y-10">
+              {SQUAD_POSITION_GROUPS.map((group) => {
+                const groupPlayers = squadByPosition.get(group.id) ?? [];
+                if (groupPlayers.length === 0) return null;
 
-            {/* Squad Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {initialData.players.map((player) => (
-                <div
-                  key={player.id}
-                  className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-md transition flex flex-col justify-between"
-                >
-                  <div className="p-6 space-y-4">
-                    <div className="flex justify-between items-start">
+                return (
+                  <section key={group.id} className="space-y-4">
+                    <div className="flex items-end justify-between gap-4 border-b border-slate-200 pb-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-950 font-black text-sm flex items-center justify-center border border-slate-200">
-                          #{player.jerseyNumber}
-                        </div>
+                        <span className="inline-flex items-center justify-center min-w-10 h-10 px-2 rounded-xl bg-slate-950 text-yellow-400 text-[10px] font-black tracking-wider">
+                          {group.badge}
+                        </span>
                         <div>
-                          <h3 className="font-extrabold text-base text-slate-900 leading-tight">
-                            {player.name}
+                          <h3 className="text-xl sm:text-2xl font-black text-slate-950 uppercase tracking-tight">
+                            {group.heading}
                           </h3>
-                          <p className="text-xs text-emerald-600 font-bold uppercase tracking-wider mt-0.5">
-                            {player.position}
+                          <p className="text-[11px] text-slate-500 font-semibold mt-0.5">
+                            {groupPlayers.length} player{groupPlayers.length === 1 ? "" : "s"}
                           </p>
                         </div>
                       </div>
-                      <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-bold text-slate-500 uppercase">
-                        Senior Squad
-                      </span>
-                                       </div>
+                    </div>
 
-                    {/* Player Photo */}
-                    <div className="w-full h-64 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={player.imageUrl || "/images/squad-training.jpg"}
-                        alt={`${player.name} - Kariobangi Legends`}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.src = "/images/squad-training.jpg";
-                        }}
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                      {groupPlayers.map((player) => (
+                        <SquadPlayerCard
+                          key={player.id}
+                          player={player}
+                          isAdminAuthenticated={isAdminAuthenticated}
+                          isUpdatingPosition={updatingPlayerPositionId === player.id}
+                          onReplaceImage={(id, imageUrl) =>
+                            openReplaceImage(id, "player", imageUrl)
+                          }
+                          onDelete={handleDeletePlayer}
+                          onPositionChange={handleUpdatePlayerPosition}
+                          onShopClick={openSquadPlayerShop}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
+
+              {(squadByPosition.get("other") ?? []).length > 0 && (
+                <section className="space-y-4">
+                  <div className="flex items-center gap-3 border-b border-slate-200 pb-3">
+                    <span className="inline-flex items-center justify-center min-w-10 h-10 px-2 rounded-xl bg-slate-200 text-slate-700 text-[10px] font-black">
+                      ?
+                    </span>
+                    <h3 className="text-xl font-black text-slate-950 uppercase tracking-tight">
+                      Other Roles
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                    {(squadByPosition.get("other") ?? []).map((player) => (
+                      <SquadPlayerCard
+                        key={player.id}
+                        player={player}
+                        isAdminAuthenticated={isAdminAuthenticated}
+                        isUpdatingPosition={updatingPlayerPositionId === player.id}
+                        onReplaceImage={(id, imageUrl) =>
+                          openReplaceImage(id, "player", imageUrl)
+                        }
+                        onDelete={handleDeletePlayer}
+                        onPositionChange={handleUpdatePlayerPosition}
+                        onShopClick={openSquadPlayerShop}
                       />
-                    </div>
-
-                    {/* Quick Stats list */}
-                    <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-2xl text-center">
-                      <div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Apps</p>
-                        <p className="text-sm font-black text-slate-900">{player.appearances}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Goals</p>
-                        <p className="text-sm font-black text-slate-900">{player.goals}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Assists</p>
-                        <p className="text-sm font-black text-slate-900">{player.assists}</p>
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-slate-600 leading-relaxed bg-amber-50/50 p-3 rounded-xl border border-amber-100/30">
-                      <strong>Scout Notes:</strong> {player.bio}
-                    </p>
+                    ))}
                   </div>
-
-                  {/* Player footer card — admin actions visible only to admins */}
-<div className="bg-slate-950 text-white px-6 py-3 flex justify-between items-center text-xs border-t border-slate-900">
-  <div className="flex items-center gap-2">
-    
-    {isAdminAuthenticated && (
-      <>
-        <button
-          onClick={() =>
-            openReplaceImage(player.id, "player", player.imageUrl)
-          }
-          className="text-blue-400 hover:text-blue-300 font-bold uppercase tracking-wider text-[10px] flex items-center gap-0.5 cursor-pointer"
-          title="Replace this player's photo"
-        >
-          <Camera className="w-3.5 h-3.5" /> Swap Photo
-        </button>
-
-        <button
-          onClick={() =>
-            handleDeletePlayer(player.id, player.name)
-          }
-          className="text-rose-400 hover:text-rose-300 font-bold uppercase tracking-wider text-[10px] flex items-center gap-0.5 cursor-pointer"
-          title="Remove player from squad"
-        >
-          <Trash2 className="w-3.5 h-3.5" /> Remove
-        </button>
-      </>
-    )}
-  </div>
-
-  <button
-                      onClick={() => {
-                        setActiveTab("shop");
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                      }}
-                      className="text-yellow-400 hover:text-yellow-500 font-bold uppercase tracking-wider text-[11px] flex items-center gap-0.5 cursor-pointer"
-                    >
-                      Buy Jersey <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                </section>
+              )}
             </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4">
+                  <Users className="w-8 h-8 text-slate-300" />
+                </div>
+                <h4 className="font-black text-slate-800 text-lg">
+                  Squad Information Coming Soon
+                </h4>
+                <p className="text-sm text-slate-500 mt-2 max-w-md mx-auto">
+                  Player profiles will appear here once the club updates the squad list.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
         {/* ================= TAB: FIXTURES & MATCHES ================= */}
         {activeTab === "fixtures" && (
           <div className="space-y-8">
-            <div className="max-w-2xl space-y-2">
-              <h2 className="text-3xl font-black text-slate-950 tracking-tight">Match Center & Results</h2>
-              <p className="text-sm text-slate-600">
-                Track our journey through FKF Division One. All fixtures reflect our battle for promotion to the National Super League.
-              </p>
+            <div className="max-w-3xl space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+                  {COMPETITION_NAME}
+                </span>
+              </div>
+              <h2 className="text-3xl font-black text-slate-950 tracking-tight">
+                Match Centre
+              </h2>
             </div>
 
-            {/* Past Results & Upcoming Split */}
+            {(seasonStats.played > 0 || recentForm.length > 0) && (
+              <div className="space-y-2">
+                <p className="text-[11px] text-slate-500 font-semibold">
+                  League season stats. Friendly and charity matches are listed separately and do not affect this table.
+                </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                {[
+                  { label: "Played", value: seasonStats.played },
+                  { label: "Wins", value: seasonStats.wins },
+                  { label: "Draws", value: seasonStats.draws },
+                  { label: "Losses", value: seasonStats.losses },
+                  { label: "GF", value: seasonStats.goalsFor },
+                  { label: "GA", value: seasonStats.goalsAgainst },
+                  {
+                    label: "GD",
+                    value:
+                      seasonStats.goalDifference > 0
+                        ? `+${seasonStats.goalDifference}`
+                        : seasonStats.goalDifference,
+                  },
+                  { label: "Pts", value: seasonStats.points },
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="bg-white rounded-2xl border border-slate-100 p-3 text-center shadow-sm"
+                  >
+                    <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                      {stat.label}
+                    </p>
+                    <p className="text-lg font-black text-slate-950 mt-1">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+              </div>
+            )}
+
+            {recentForm.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3 bg-white rounded-2xl border border-slate-100 px-4 py-3 shadow-sm">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                  Last {recentForm.length} matches
+                </span>
+                <div className="flex items-center gap-1.5">
+                  {recentForm.map((result, index) => (
+                    <span
+                      key={`${result}-${index}`}
+                      className={`w-7 h-7 rounded-full text-[10px] font-black flex items-center justify-center ${
+                        result === "win"
+                          ? "bg-emerald-600 text-white"
+                          : result === "draw"
+                          ? "bg-slate-200 text-slate-700"
+                          : "bg-rose-600 text-white"
+                      }`}
+                    >
+                      {result === "win" ? "W" : result === "draw" ? "D" : "L"}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {fixtureGroups.nextMatch && (
+              <section className="relative overflow-hidden rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl">
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-950 via-slate-950 to-slate-950" />
+                <div className="absolute -top-24 right-0 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl" />
+                <div className="relative z-10 p-6 sm:p-8 space-y-6">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest">
+                        <Activity className="w-3.5 h-3.5" />
+                        Next Fixture
+                      </span>
+                      <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-yellow-400 text-slate-950 text-[9px] font-black uppercase tracking-wider">
+                        {getMatchTypeMeta(fixtureGroups.nextMatch.matchType).label}
+                      </span>
+                    </div>
+                    <MatchStatusPill status={fixtureGroups.nextMatch.status} />
+                  </div>
+                  <MatchScoreboard fixture={fixtureGroups.nextMatch} variant="hero" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-white/10">
+                    <div className="flex items-center gap-3 text-white">
+                      <Calendar className="w-5 h-5 text-yellow-400 shrink-0" />
+                      <div>
+                        <p className="text-[9px] uppercase tracking-widest font-black text-slate-500">
+                          Kick-off
+                        </p>
+                        <p className="text-sm font-bold">
+                          {formatKickoff(fixtureGroups.nextMatch.date)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 text-white min-w-0">
+                      <MapPin className="w-5 h-5 text-emerald-400 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[9px] uppercase tracking-widest font-black text-slate-500">
+                          Venue
+                        </p>
+                        <p className="text-sm font-bold">
+                          {fixtureGroups.nextMatch.venue}
+                        </p>
+                        {isClubHomeVenue(fixtureGroups.nextMatch.venue) && (
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {HOME_GROUND.landmark}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <GetDirectionsLink
+                    venue={fixtureGroups.nextMatch.venue}
+                    variant="yellow"
+                    label={
+                      fixtureGroups.nextMatch.isHome
+                        ? "Get Directions on Google Maps"
+                        : "Directions to Match Venue"
+                    }
+                    className="w-full py-3.5"
+                  />
+                </div>
+              </section>
+            )}
+
+            {fixtureGroups.live.length > 0 && (
+              <section className="space-y-4">
+                <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  Live Now
+                </h3>
+                <div className="space-y-3">
+                  {fixtureGroups.live.map((fixture) => (
+                    <MatchFixtureCard
+                      key={fixture.id}
+                      fixture={fixture}
+                      mode="live"
+                      isAdminAuthenticated={isAdminAuthenticated}
+                      onEdit={handleEditFixture}
+                      onDelete={handleDeleteFixture}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Upcoming fixtures */}
-              <div className="space-y-4">
-                <h3 className="text-xl font-bold text-slate-950 flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-emerald-600" /> Upcoming Matches
+              <section className="space-y-4">
+                <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-emerald-600" />
+                  Upcoming Fixtures
                 </h3>
-
-                <div className="space-y-3">
-                  {upcomingFixtures.map((fixture) => (
-                      <div
+                {fixtureGroups.upcomingRest.length > 0 ? (
+                  <div className="space-y-3">
+                    {fixtureGroups.upcomingRest.map((fixture) => (
+                      <MatchFixtureCard
                         key={fixture.id}
-                        className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3"
-                      >
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="text-slate-400 font-bold">FKF DIVISION ONE</span>
-                          <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-extrabold uppercase text-[10px]">
-                            {fixture.isHome ? "HOME MATCH" : "AWAY MATCH"}
-                          </span>
-                        </div>
-
-                        {/* Teams display */}
-                        <div className="flex items-center justify-between py-1">
-                          <div className="flex items-center gap-2 w-5/12">
-                            <div className="w-8 h-8 rounded-full bg-slate-950 flex items-center justify-center font-bold text-yellow-400 text-xs border-2 border-yellow-500 overflow-hidden p-0.5">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src="/assets/logo.jpeg"
-                                alt="Kariobangi Legends FC"
-                                className="w-full h-full object-contain"
-                              />
-                            </div>
-                            <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
-                              Legends FC
-                            </span>
-                          </div>
-
-                          <div className="text-center w-2/12 font-bold text-xs text-slate-400">
-                            VS
-                          </div>
-
-                          <div className="flex items-center gap-2 justify-end w-5/12 text-right">
-                            <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
-                              {fixture.opponent}
-                            </span>
-                            {fixture.opponentLogoUrl ? (
-                              <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center overflow-hidden p-0.5 shrink-0">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={fixture.opponentLogoUrl}
-                                  alt={`${fixture.opponent} logo`}
-                                  className="w-full h-full object-contain"
-                                />
-                              </div>
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs shrink-0">
-                                {fixture.opponent.slice(0, 2).toUpperCase()}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <hr className="border-slate-100" />
-
-                        {/* Venue & Date */}
-                        <div className="flex justify-between items-center text-xs text-slate-500">
-                          <span className="flex items-center gap-1 font-medium">
-                            <MapPin className="w-3.5 h-3.5 text-slate-400" /> {fixture.venue}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-700">{fixture.date}</span>
-                            <button
-  type="button"
-  onClick={() => handleEditFixture(fixture)}
-  className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
-  title="Edit this fixture"
->
-  Edit
-</button>
-                            <button
-                              onClick={() => handleDeleteFixture(fixture.id, fixture.opponent)}
-                              className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
-                              title="Remove this fixture"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                        fixture={fixture}
+                        mode="upcoming"
+                        isAdminAuthenticated={isAdminAuthenticated}
+                        onEdit={handleEditFixture}
+                        onDelete={handleDeleteFixture}
+                      />
                     ))}
-                </div>
-              </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center">
+                    <p className="text-sm font-bold text-slate-700">
+                      No further fixtures scheduled
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      New matches will appear here once added in the admin panel.
+                    </p>
+                  </div>
+                )}
+              </section>
 
-              {/* Completed matches */}
-              <div className="space-y-4">
-                <h3 className="text-xl font-bold text-slate-950 flex items-center gap-2">
-                  <Award className="w-5 h-5 text-yellow-500" /> Recent Results
+              <section className="space-y-4">
+                <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                  <Award className="w-5 h-5 text-yellow-500" />
+                  Results
                 </h3>
-
-                <div className="space-y-3">
-                  {recentFixtures.map((fixture) => (
-                      <div
+                {recentFixtures.length > 0 ? (
+                  <div className="space-y-3">
+                    {recentFixtures.map((fixture) => (
+                      <MatchFixtureCard
                         key={fixture.id}
-                        className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3"
-                      >
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="text-slate-400 font-bold">FKF DIVISION ONE</span>
-                          <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-extrabold uppercase text-[10px]">
-                            FT (Completed)
-                          </span>
-                        </div>
-
-                        {/* Score line */}
-                        <div className="flex items-center justify-between py-1">
-                          {/* Legends */}
-                          <div className="flex items-center gap-2 w-5/12">
-                            <div className="w-8 h-8 rounded-full bg-slate-950 flex items-center justify-center font-bold text-yellow-400 text-xs border-2 border-yellow-500 overflow-hidden p-0.5">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src="/assets/logo.jpeg"
-                                alt="Kariobangi Legends FC"
-                                className="w-full h-full object-contain"
-                              />
-                            </div>
-                            <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
-                              Legends FC
-                            </span>
-                          </div>
-
-                          {/* Scores */}
-                          <div className="w-2/12 flex items-center justify-center gap-1.5">
-                            <span className="text-base font-black text-slate-950">
-                              {fixture.isHome ? fixture.homeScore : fixture.awayScore}
-                            </span>
-                            <span className="text-slate-300 font-bold">:</span>
-                            <span className="text-base font-black text-slate-950">
-                              {fixture.isHome ? fixture.awayScore : fixture.homeScore}
-                            </span>
-                          </div>
-
-                          {/* Opponent */}
-                          <div className="flex items-center gap-2 justify-end w-5/12 text-right">
-                            <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
-                              {fixture.opponent}
-                            </span>
-                            {fixture.opponentLogoUrl ? (
-                              <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center overflow-hidden p-0.5 shrink-0">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={fixture.opponentLogoUrl}
-                                  alt={`${fixture.opponent} logo`}
-                                  className="w-full h-full object-contain"
-                                />
-                              </div>
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs shrink-0">
-                                {fixture.opponent.slice(0, 2).toUpperCase()}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <hr className="border-slate-100" />
-
-                        {/* Match Highlight notes */}
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="text-slate-500 flex items-center gap-1 truncate max-w-[200px]">
-                            <MapPin className="w-3.5 h-3.5" /> {fixture.venue}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[10px]">
-                              {fixture.isHome && (fixture.homeScore ?? 0) > (fixture.awayScore ?? 0)
-                                ? "Legends Win ✓"
-                                : "Draw Match"}
-                            </span>
-                            <button
-  type="button"
-  onClick={() => handleEditFixture(fixture)}
-  className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
-  title="Edit this result"
->
-  Edit
-</button>
-                            <button
-                              onClick={() => handleDeleteFixture(fixture.id, fixture.opponent)}
-                              className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
-                              title="Remove this result"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                        fixture={fixture}
+                        mode="result"
+                        isAdminAuthenticated={isAdminAuthenticated}
+                        onEdit={handleEditFixture}
+                        onDelete={handleDeleteFixture}
+                      />
                     ))}
-                </div>
-              </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center">
+                    <p className="text-sm font-bold text-slate-700">No results yet</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Completed matches and full-time scores will show here.
+                    </p>
+                  </div>
+                )}
+              </section>
             </div>
+
+            {initialData.fixtures.length === 0 && (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
+                <CalendarDays className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <h4 className="font-black text-slate-800 text-lg">Fixtures Coming Soon</h4>
+                <p className="text-sm text-slate-500 mt-2">
+                  Match schedules and results will be published here.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -5209,7 +5879,7 @@ const recentFixtures = initialData.fixtures
   onClick={() => addToCart(item, selectedSizes[item.id] || sizesArray[0])}
   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
 >
-  <ShoppingBag className="w-4 h-4" /> Add to Cart — M-Pesa Ready
+  <ShoppingBag className="w-4 h-4" /> Add to Cart · M-Pesa Ready
 </button>
                     </div>
                   </div>
@@ -5378,7 +6048,7 @@ const recentFixtures = initialData.fixtures
                           Target: {d.purpose}
                         </p>
                         {d.message && (
-                          <p className="text-xs text-slate-300 italic">"{d.message}"</p>
+                          <p className="text-xs text-slate-300 italic">&ldquo;{d.message}&rdquo;</p>
                         )}
                       </div>
                     ))}
@@ -5473,7 +6143,7 @@ const recentFixtures = initialData.fixtures
                         </span>
                       </div>
                       <p className="text-xs text-slate-600 italic leading-relaxed">
-                        "{msg.message}"
+                        &ldquo;{msg.message}&rdquo;
                       </p>
                       <p className="text-[9px] text-slate-400 text-right mt-1 font-semibold">
                         {new Date(msg.createdAt).toLocaleDateString()}
@@ -5493,8 +6163,22 @@ const recentFixtures = initialData.fixtures
               <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/20 via-transparent to-yellow-400/10" />
               <div className="relative z-10 p-6 sm:p-10 space-y-4">
                 <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-600/90 text-white text-[9px] font-black uppercase tracking-widest">
-                  <User className="w-3.5 h-3.5" />
-                  Fan Account
+                  {customerProfile || signInPortal === "fan" ? (
+                    <>
+                      <User className="w-3.5 h-3.5" />
+                      Fan Account
+                    </>
+                  ) : signInPortal === "admin" ? (
+                    <>
+                      <Settings className="w-3.5 h-3.5" />
+                      Club Admin
+                    </>
+                  ) : (
+                    <>
+                      <User className="w-3.5 h-3.5" />
+                      Sign In
+                    </>
+                  )}
                 </span>
                 <div className="space-y-2 max-w-3xl">
                   <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
@@ -5505,22 +6189,36 @@ const recentFixtures = initialData.fixtures
                           {customerProfile.fullName.split(" ")[0]}
                         </span>
                       </>
+                    ) : signInPortal === "admin" ? (
+                      <>
+                        Club <span className="text-yellow-400">Admin</span>
+                      </>
+                    ) : signInPortal === "fan" ? (
+                      <>
+                        Fan <span className="text-yellow-400">Account</span>
+                      </>
                     ) : (
                       <>
-                        Your <span className="text-yellow-400">Account</span>
+                        Choose Your <span className="text-yellow-400">Sign In</span>
                       </>
                     )}
                   </h2>
                   <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
                     {customerProfile
                       ? "Track your orders, message the club admin, and read replies here in your account."
-                      : "Create a free account to save your details at checkout and trace all your merchandise orders in one place."}
+                      : pendingCheckoutAfterAuth && signInPortal === "fan"
+                        ? "Create a free account or sign in to pay for the items in your cart and follow your order here."
+                        : signInPortal === "admin"
+                          ? "Club officials sign in here to manage squad, gallery, news, and fan orders."
+                          : signInPortal === "fan"
+                            ? "Fans register to shop official kits, pay with M-Pesa, and track every order."
+                            : "Are you a supporter or club admin? Choose below to sign in or create an account."}
                   </p>
                 </div>
               </div>
             </div>
 
-            {!isAdminAuthenticated && (
+            {!customerProfile && signInPortal === "fan" && (
               <div className="space-y-4">
                 <div className="flex justify-center">
                   <button
@@ -5530,10 +6228,6 @@ const recentFixtures = initialData.fixtures
                       setShowFanPasswordReset((open) => {
                         if (open) {
                           setResetStep("request");
-                        } else if (customerProfile) {
-                          setResetPhone(
-                            formatStoredPhoneForInput(customerProfile.phoneNumber)
-                          );
                         }
                         return !open;
                       });
@@ -5727,7 +6421,10 @@ const recentFixtures = initialData.fixtures
                   ) : (
                     <div className="space-y-3">
                       {customerOrders.map((order) => {
-                        const isExpanded = expandedAccountOrderId === order.id;
+                        const isExpanded =
+                          expandedAccountOrderId === order.id ||
+                          (trackOrderId !== "" &&
+                            Number(trackOrderId) === order.id);
                         const itemCount = order.items?.length || 0;
 
                         return (
@@ -5875,6 +6572,64 @@ const recentFixtures = initialData.fixtures
               </div>
             ) : (
               <div className="space-y-6">
+
+                {signInPortal === "choose" && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setSignInPortal("fan")}
+                      className="text-left bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-lg hover:border-emerald-200 p-6 sm:p-8 transition-all cursor-pointer group"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4 group-hover:bg-emerald-100 transition">
+                        <User className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-xl font-black text-slate-950">I&apos;m a Fan</h3>
+                      <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+                        Register to buy official kits, pay with M-Pesa, track orders, and message the club.
+                      </p>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 mt-4">
+                        Sign in or create account →
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSignInPortal("admin")}
+                      className="text-left bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-lg hover:border-yellow-200 p-6 sm:p-8 transition-all cursor-pointer group"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-slate-950 text-yellow-400 flex items-center justify-center mb-4 group-hover:bg-slate-900 transition">
+                        <Settings className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-xl font-black text-slate-950">I&apos;m Club Admin</h3>
+                      <p className="text-sm text-slate-600 mt-2 leading-relaxed">
+                        Officials sign in here to manage squad, gallery, news, merchandise, and fan orders.
+                      </p>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-yellow-600 mt-4">
+                        Admin sign in →
+                      </p>
+                    </button>
+                  </div>
+                )}
+
+                {signInPortal === "fan" && (
+                  <>
+                    {pendingCheckoutAfterAuth && (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        <strong>Checkout waiting:</strong> create an account or sign in to pay for the items in your cart.
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSignInPortal("choose");
+                        setShowFanPasswordReset(false);
+                      }}
+                      className="text-[10px] font-black uppercase tracking-wider text-slate-500 hover:text-emerald-700 cursor-pointer"
+                    >
+                      ← Back to sign-in options
+                    </button>
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
                   <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
@@ -6082,6 +6837,165 @@ const recentFixtures = initialData.fixtures
                   )}
                 </div>
               </div>
+                  </>
+                )}
+
+                {signInPortal === "admin" && (
+                  <div className="space-y-6 max-w-lg mx-auto w-full">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSignInPortal("choose");
+                        setShowAdminPasswordReset(false);
+                      }}
+                      className="text-[10px] font-black uppercase tracking-wider text-slate-500 hover:text-slate-800 cursor-pointer"
+                    >
+                      ← Back to sign-in options
+                    </button>
+
+                    <div className="flex justify-center">
+                      <button
+                        type="button"
+                        aria-expanded={showAdminPasswordReset}
+                        onClick={() => {
+                          setShowAdminPasswordReset((open) => {
+                            if (open) setAdminResetStep("request");
+                            return !open;
+                          });
+                        }}
+                        className={`inline-flex items-center gap-2 font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer shadow-md ${
+                          showAdminPasswordReset
+                            ? "bg-slate-800 text-yellow-400 ring-2 ring-yellow-300 ring-offset-2"
+                            : "bg-slate-950 hover:bg-slate-900 text-yellow-400"
+                        }`}
+                      >
+                        <Shield className="w-3.5 h-3.5" />
+                        {showAdminPasswordReset ? "Hide Password Reset" : "Reset Admin Password"}
+                      </button>
+                    </div>
+
+                    {showAdminPasswordReset && (
+                      <div className="bg-white rounded-3xl border border-yellow-200 shadow-sm p-6 sm:p-8 space-y-5">
+                        <div className="space-y-1">
+                          <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
+                            <Shield className="w-5 h-5 text-yellow-600" />
+                            Reset Manager Password
+                          </h3>
+                          <p className="text-sm text-slate-600">
+                            Use an authorized manager phone number to receive a reset code by SMS.
+                          </p>
+                        </div>
+
+                        {adminResetStep === "request" ? (
+                          <form onSubmit={handleAdminRequestReset} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                Authorized Manager Phone
+                              </label>
+                              <input
+                                type="tel"
+                                placeholder="e.g. 0712345678"
+                                value={adminResetPhone}
+                                onChange={(e) => setAdminResetPhone(e.target.value)}
+                                className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                                required
+                              />
+                            </div>
+                            <div className="flex items-end">
+                              <button
+                                type="submit"
+                                disabled={isAdminResetPending}
+                                className="w-full md:w-auto bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+                              >
+                                {isAdminResetPending ? "Sending..." : "Send Reset Code"}
+                              </button>
+                            </div>
+                          </form>
+                        ) : (
+                          <form onSubmit={handleAdminCompleteReset} className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                  Reset Code
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  placeholder="6-digit code"
+                                  value={adminResetCode}
+                                  onChange={(e) => setAdminResetCode(e.target.value)}
+                                  className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                                  required
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                  New Password
+                                </label>
+                                <PasswordInput
+                                  value={adminResetNewPassword}
+                                  onChange={setAdminResetNewPassword}
+                                  placeholder="New password"
+                                  required
+                                  minLength={6}
+                                  autoComplete="new-password"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                  Confirm Password
+                                </label>
+                                <PasswordInput
+                                  value={adminResetConfirmPassword}
+                                  onChange={setAdminResetConfirmPassword}
+                                  placeholder="Confirm password"
+                                  required
+                                  minLength={6}
+                                  autoComplete="new-password"
+                                />
+                              </div>
+                            </div>
+                            <button
+                              type="submit"
+                              disabled={isAdminResetPending}
+                              className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+                            >
+                              {isAdminResetPending ? "Updating..." : "Reset Password"}
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                      <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-950 mx-auto">
+                        <Settings className="w-6 h-6" />
+                      </div>
+                      <div className="text-center space-y-1">
+                        <h3 className="font-bold text-slate-950">Enter Manager Password</h3>
+                        <p className="text-xs text-slate-500">
+                          Sign in to manage players, orders, news, and gallery content.
+                        </p>
+                      </div>
+                      <form onSubmit={handleAdminLogin} className="space-y-3">
+                        <PasswordInput
+                          value={adminPassword}
+                          onChange={setAdminPassword}
+                          placeholder="Enter admin password"
+                          required
+                          className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center text-slate-900 pr-11"
+                          autoComplete="current-password"
+                        />
+                        <button
+                          type="submit"
+                          className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                        >
+                          Sign In as Admin
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -6195,11 +7109,22 @@ const recentFixtures = initialData.fixtures
                 <div className="space-y-2">
                   <h3 className="text-lg font-black text-yellow-400">Visit Us</h3>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    {CONTACT_CENTER.location.venue}
-                    <br />
-                    {CONTACT_CENTER.location.region}
+                    {CONTACT_CENTER.location.fullAddress}
                   </p>
                 </div>
+                <GetDirectionsLink
+                  variant="yellow"
+                  label="Get Directions on Google Maps"
+                  className="w-full py-3"
+                />
+                <a
+                  href={getGoogleMapsViewUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-center text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-yellow-400 transition"
+                >
+                  View on Google Maps
+                </a>
                 <div className="flex items-start gap-2 text-xs text-slate-300">
                   <Clock className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                   <span>{CONTACT_CENTER.hours}</span>
@@ -6314,166 +7239,26 @@ const recentFixtures = initialData.fixtures
             </div>
 
             {!isAdminAuthenticated ? (
-              <div className="space-y-6">
-                <div className="flex justify-center">
-                  <button
-                    type="button"
-                    aria-expanded={showAdminPasswordReset}
-                    onClick={() => {
-                      setShowAdminPasswordReset((open) => {
-                        if (open) {
-                          setAdminResetStep("request");
-                        }
-                        return !open;
-                      });
-                    }}
-                    className={`inline-flex items-center gap-2 font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer shadow-md active:scale-[0.98] ${
-                      showAdminPasswordReset
-                        ? "bg-slate-800 text-yellow-400 ring-2 ring-yellow-300 ring-offset-2"
-                        : "bg-slate-950 hover:bg-slate-900 text-yellow-400"
-                    }`}
-                  >
-                    <Shield className="w-3.5 h-3.5" />
-                    {showAdminPasswordReset ? "Hide Password Reset" : "Reset Password"}
-                  </button>
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center max-w-lg mx-auto">
+                <div className="w-16 h-16 rounded-2xl bg-slate-950 text-yellow-400 flex items-center justify-center mx-auto mb-4">
+                  <Settings className="w-8 h-8" />
                 </div>
-
-                {showAdminPasswordReset && (
-                  <div className="bg-white rounded-3xl border border-yellow-200 shadow-sm p-6 sm:p-8 space-y-5">
-                  <div className="space-y-1">
-                    <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
-                      <Shield className="w-5 h-5 text-yellow-600" />
-                      Reset Manager Password
-                    </h3>
-                    <p className="text-sm text-slate-600">
-                      Use an authorized manager phone number to receive a reset code by SMS.
-                    </p>
-                  </div>
-
-                  {adminResetStep === "request" ? (
-                    <form onSubmit={handleAdminRequestReset} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          Authorized Manager Phone
-                        </label>
-                        <input
-                          type="tel"
-                          placeholder="Authorized manager phone"
-                          value={adminResetPhone}
-                          onChange={(e) => setAdminResetPhone(e.target.value)}
-                          className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
-                          required
-                        />
-                      </div>
-                      <div className="flex items-end">
-                        <button
-                          type="submit"
-                          disabled={isAdminResetPending}
-                          className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isAdminResetPending ? "Sending..." : "Send Reset Code"}
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <form onSubmit={handleAdminCompleteReset} className="space-y-4">
-                      <p className="text-xs text-slate-500">
-                        Enter the SMS code and choose a new manager password.
-                      </p>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Reset Code
-                          </label>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="6-digit code"
-                            value={adminResetCode}
-                            onChange={(e) => setAdminResetCode(e.target.value)}
-                            className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
-                            required
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            New Password
-                          </label>
-                          <PasswordInput
-                            value={adminResetNewPassword}
-                            onChange={setAdminResetNewPassword}
-                            placeholder="New password"
-                            required
-                            minLength={6}
-                            className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
-                            autoComplete="new-password"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Confirm Password
-                          </label>
-                          <PasswordInput
-                            value={adminResetConfirmPassword}
-                            onChange={setAdminResetConfirmPassword}
-                            placeholder="Confirm new password"
-                            required
-                            minLength={6}
-                            className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
-                            autoComplete="new-password"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-3">
-                        <button
-                          type="submit"
-                          disabled={isAdminResetPending}
-                          className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isAdminResetPending ? "Updating..." : "Reset Password"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleAdminRequestReset()}
-                          disabled={isAdminResetPending}
-                          className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 hover:text-emerald-800 cursor-pointer px-2 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isAdminResetPending ? "Sending..." : "Resend Code"}
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                  </div>
-                )}
-
-              <div className="max-w-md mx-auto bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
-                <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-950 mx-auto">
-                  <Settings className="w-6 h-6" />
-                </div>
-                <div className="text-center space-y-1">
-                  <h3 className="font-bold text-slate-950">Enter Manager Password</h3>
-                  <p className="text-xs text-slate-500">
-                    Sign in to manage players, orders, news, and gallery content.
-                  </p>
-                </div>
-
-                <form onSubmit={handleAdminLogin} className="space-y-3">
-                  <PasswordInput
-                    value={adminPassword}
-                    onChange={setAdminPassword}
-                    placeholder="Enter password"
-                    required
-                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center text-slate-900 pr-11"
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="submit"
-                    className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                  >
-                    Authenticate
-                  </button>
-                </form>
-              </div>
+                <h4 className="font-black text-slate-800 text-lg">
+                  Admin Sign In Required
+                </h4>
+                <p className="text-sm text-slate-500 mt-2">
+                  Club officials sign in from the Sign In page and choose <strong>Club Admin</strong>.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSignInPortal("admin");
+                    goToTab("account");
+                  }}
+                  className="mt-6 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer"
+                >
+                  Go to Admin Sign In
+                </button>
               </div>
             ) : (
               <div className="space-y-8">
@@ -6489,6 +7274,7 @@ const recentFixtures = initialData.fixtures
       });
     } finally {
       clearAdminState();
+      setSignInPortal("choose");
       showToast("Admin signed out. You can now sign in to your fan account.");
     }
   }}
@@ -6684,6 +7470,9 @@ const recentFixtures = initialData.fixtures
                     <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
                       <UserPlus className="w-5 h-5 text-emerald-600" /> Add Player to Squad
                     </h3>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Add unlimited players. Upload from your device. Full photo shown with no cropping (max {MEDIA_UPLOAD_RULES.maxFileSizeLabel} each).
+                    </p>
                     <form onSubmit={handleAdminAddPlayer} className="space-y-3 text-xs">
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
@@ -6710,20 +7499,25 @@ const recentFixtures = initialData.fixtures
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-4 gap-2">
-                        <div className="col-span-2 space-y-1">
-                          <label className="font-bold text-slate-500">Position</label>
-                          <select
-                            value={adminPlayerPos}
-                            onChange={(e) => setAdminPlayerPos(e.target.value)}
-                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
-                          >
-                            <option value="Goalkeeper">Goalkeeper</option>
-                            <option value="Defender">Defender</option>
-                            <option value="Midfielder">Midfielder</option>
-                            <option value="Forward">Forward</option>
-                          </select>
-                        </div>
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-500">Playing Position</label>
+                        <select
+                          value={adminPlayerPos}
+                          onChange={(e) => setAdminPlayerPos(e.target.value)}
+                          className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
+                        >
+                          {SQUAD_POSITION_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-slate-500">
+                          Players appear under the same squad section as others in this role.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
                         <div className="space-y-1">
                           <label className="font-bold text-slate-500">Apps</label>
                           <input
@@ -6739,6 +7533,15 @@ const recentFixtures = initialData.fixtures
                             type="number"
                             value={adminPlayerGoals}
                             onChange={(e) => setAdminPlayerGoals(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Assists</label>
+                          <input
+                            type="number"
+                            value={adminPlayerAssists}
+                            onChange={(e) => setAdminPlayerAssists(e.target.value)}
                             className="w-full p-2.5 rounded-lg border border-slate-200"
                           />
                         </div>
@@ -6774,6 +7577,60 @@ const recentFixtures = initialData.fixtures
                         {isPending ? "Adding Player..." : "Insert Player into PostgreSQL"}
                       </button>
                     </form>
+
+                    {squadPlayersSorted.length > 0 && (
+                      <div className="pt-4 border-t border-slate-100 space-y-3">
+                        <h4 className="font-bold text-sm text-slate-950">
+                          Update Player Positions
+                        </h4>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Move players between squad sections. Changes appear on the public Squad page immediately.
+                        </p>
+                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                          {squadPlayersSorted.map((player) => {
+                            const positionInOptions = SQUAD_POSITION_OPTIONS.some(
+                              (option) => option.value === player.position
+                            );
+
+                            return (
+                              <div
+                                key={player.id}
+                                className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-2.5 rounded-xl border border-slate-100 bg-slate-50/70"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-bold text-slate-900 text-xs truncate">
+                                    #{player.jerseyNumber} {player.name}
+                                  </p>
+                                  <p className="text-[10px] text-slate-500 font-semibold">
+                                    Currently: {getSquadPositionBadge(player.position)}
+                                    {!positionInOptions && ` · ${player.position}`}
+                                  </p>
+                                </div>
+                                <select
+                                  value={player.position}
+                                  onChange={(e) =>
+                                    handleUpdatePlayerPosition(player.id, e.target.value)
+                                  }
+                                  disabled={updatingPlayerPositionId === player.id}
+                                  className="w-full sm:w-44 p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+                                >
+                                  {!positionInOptions && (
+                                    <option value={player.position}>
+                                      {player.position} (assign)
+                                    </option>
+                                  )}
+                                  {SQUAD_POSITION_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.groupHeading}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Action 2: Add Fixture (Dynamically updates upcoming games) */}
@@ -6880,7 +7737,7 @@ const recentFixtures = initialData.fixtures
                         )}
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div className="space-y-1">
                           <label className="font-bold text-slate-500">Venue</label>
                           <input
@@ -6891,14 +7748,34 @@ const recentFixtures = initialData.fixtures
                           />
                         </div>
                         <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Match Type</label>
+                          <select
+                            value={adminMatchType}
+                            onChange={(e) => setAdminMatchType(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
+                          >
+                            {MATCH_TYPES.map((type) => (
+                              <option key={type.value} value={type.value}>
+                                {type.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[10px] text-slate-500">
+                            Only league matches count toward season stats.
+                          </p>
+                        </div>
+                        <div className="space-y-1">
                           <label className="font-bold text-slate-500">Match Status</label>
                           <select
                             value={adminStatus}
                             onChange={(e) => setAdminStatus(e.target.value)}
                             className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
                           >
-                            <option value="upcoming">Upcoming</option>
-                            <option value="completed">Completed (FT)</option>
+                            {MATCH_STATUSES.map((status) => (
+                              <option key={status.value} value={status.value}>
+                                {status.label} ({status.badge})
+                              </option>
+                            ))}
                           </select>
                         </div>
                         <div className="space-y-1">
@@ -6914,7 +7791,7 @@ const recentFixtures = initialData.fixtures
                         </div>
                       </div>
 
-                      {adminStatus === "completed" && (
+                      {(adminStatus === "completed" || adminStatus === "live") && (
                         <div className="grid grid-cols-2 gap-3 bg-slate-50 p-2.5 rounded-lg">
                           <div className="space-y-1">
                             <label className="font-bold text-slate-500">Home Score</label>
@@ -6964,8 +7841,7 @@ const recentFixtures = initialData.fixtures
   </h3>
 
   <p className="text-[11px] text-slate-500">
-    Add Chairman, CEO, Team Manager, coaches, administrators and other club officials.
-    Photos can be uploaded directly from your computer.
+    Add unlimited officials: Chairman, CEO, coaches, and more. Upload photos from your device; full image shown with no cropping (max {MEDIA_UPLOAD_RULES.maxFileSizeLabel} each).
   </p>
 
  <form
@@ -7005,26 +7881,20 @@ const recentFixtures = initialData.fixtures
       value={adminManagementCategory}
       onChange={(e) => {
         const category = e.target.value;
-
         setAdminManagementCategory(category);
-
-        // Set a valid default position whenever section changes
-        if (category === "Club Leadership") {
-          setAdminManagementPosition("Chairman");
-        } else {
-          setAdminManagementPosition("Head Coach");
-        }
+        setAdminManagementPosition(getDefaultManagementPosition(category));
       }}
       className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
     >
-      <option value="Club Leadership">
-        Club Leadership / Board
-      </option>
-
-      <option value="Technical Team">
-        Technical Team
-      </option>
+      {MANAGEMENT_CATEGORIES.map((category) => (
+        <option key={category.id} value={category.dbValue}>
+          {category.heading}
+        </option>
+      ))}
     </select>
+    <p className="text-[10px] text-slate-500">
+      Officials are grouped on the public page by department and modern role type.
+    </p>
   </div>
 
 
@@ -7041,90 +7911,11 @@ const recentFixtures = initialData.fixtures
       }
       className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
     >
-
-      {/* CLUB LEADERSHIP */}
-      {adminManagementCategory === "Club Leadership" && (
-        <>
-          <option value="Chairman">
-            Chairman
-          </option>
-
-          <option value="Vice Chairman">
-            Vice Chairman
-          </option>
-
-          <option value="CEO / President">
-            CEO / President
-          </option>
-
-          <option value="Senior Team Manager">
-            Senior Team Manager
-          </option>
-
-          <option value="Club Secretary">
-            Club Secretary
-          </option>
-
-          <option value="Club Treasurer">
-            Club Treasurer
-          </option>
-
-          <option value="Community Representative">
-            Community Representative
-          </option>
-
-          <option value="Board Member">
-            Board Member
-          </option>
-        </>
-      )}
-
-
-      {/* TECHNICAL TEAM */}
-      {adminManagementCategory === "Technical Team" && (
-        <>
-          <option value="Head Coach">
-            Head Coach
-          </option>
-
-          <option value="Assistant Coach">
-            Assistant Coach
-          </option>
-
-          <option value="Goalkeeping Coach">
-            Goalkeeping Coach
-          </option>
-
-          <option value="Fitness Coach">
-            Fitness Coach
-          </option>
-
-          <option value="Team Doctor / Physiotherapist">
-            Team Doctor / Physiotherapist
-          </option>
-
-          <option value="Team Analyst">
-            Team Analyst
-          </option>
-
-          <option value="Kit Manager">
-            Kit Manager
-          </option>
-
-          <option value="Disciplinarian">
-            Disciplinarian
-          </option>
-
-          <option value="Photographer">
-            Photographer
-          </option>
-
-          <option value="Equipment & Matchday Assistant">
-            Equipment & Matchday Assistant
-          </option>
-        </>
-      )}
-
+      {getManagementPositionOptions(adminManagementCategory).map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.groupHeading} · {option.label}
+        </option>
+      ))}
     </select>
   </div>
 
@@ -7190,7 +7981,7 @@ const recentFixtures = initialData.fixtures
   {/* ================= MANAGEMENT PHOTO ================= */}
   <div className="space-y-1">
     <label className="font-bold text-slate-500">
-      Official's Photo
+      Official&apos;s Photo
     </label>
 
     <input
@@ -7244,6 +8035,79 @@ const recentFixtures = initialData.fixtures
   )}
 
 </form>
+
+{managementMembersSorted.length > 0 && (
+  <div className="pt-4 border-t border-slate-100 space-y-3">
+    <h4 className="font-bold text-sm text-slate-950">
+      Quick Role Updates
+    </h4>
+    <p className="text-[11px] text-slate-500 leading-relaxed">
+      Move officials between departments and roles without opening the full edit form.
+    </p>
+    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+      {managementMembersSorted.map((member) => {
+        const positionOptions = getManagementPositionOptions(member.category);
+        const positionInOptions = positionOptions.some(
+          (option) => option.value === member.position
+        );
+
+        return (
+          <div
+            key={member.id}
+            className="flex flex-col gap-2 p-2.5 rounded-xl border border-slate-100 bg-slate-50/70"
+          >
+            <p className="font-bold text-slate-900 text-xs truncate">
+              {member.name}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <select
+                value={member.category}
+                onChange={(e) =>
+                  handleUpdateManagementRole(
+                    member.id,
+                    e.target.value,
+                    getDefaultManagementPosition(e.target.value)
+                  )
+                }
+                disabled={updatingManagementRoleId === member.id}
+                className="w-full p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+              >
+                {MANAGEMENT_CATEGORIES.map((category) => (
+                  <option key={category.id} value={category.dbValue}>
+                    {category.heading}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={member.position}
+                onChange={(e) =>
+                  handleUpdateManagementRole(
+                    member.id,
+                    member.category,
+                    e.target.value
+                  )
+                }
+                disabled={updatingManagementRoleId === member.id}
+                className="w-full p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+              >
+                {!positionInOptions && (
+                  <option value={member.position}>
+                    {member.position} (assign)
+                  </option>
+                )}
+                {positionOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.groupHeading} · {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
 </div>
 
 {/* Action 3: Add Gallery Image */}
@@ -7255,7 +8119,7 @@ const recentFixtures = initialData.fixtures
                           <Camera className="w-5 h-5 text-emerald-600" /> Post Photo to Team Gallery
                         </h3>
                         <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                          Upload matchday, training, and community photos. Images are shown in full — nothing is cropped.
+                          Upload matchday, training, and community photos. Images are shown in full with no cropping.
                         </p>
                       </div>
                       <span className="shrink-0 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase tracking-wider">
@@ -7303,7 +8167,7 @@ const recentFixtures = initialData.fixtures
                                 Click to choose a photo
                               </p>
                               <p className="text-[11px] text-slate-500 mt-1">
-                                JPG, PNG, or WEBP — original proportions kept
+                                JPG, PNG, or WEBP. Original proportions kept
                               </p>
                             </div>
                           )}
@@ -7381,7 +8245,7 @@ const recentFixtures = initialData.fixtures
                       </div>
 
                       <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-[11px] text-slate-600 leading-relaxed">
-                        Photos appear on the homepage carousel and gallery page exactly as uploaded — no cropping applied.
+                        Unlimited gallery uploads from your device. Photos appear on the homepage carousel and gallery page exactly as uploaded with no cropping applied (max {MEDIA_UPLOAD_RULES.maxFileSizeLabel} each).
                       </div>
 
                       {/* Publish Button */}
@@ -7739,7 +8603,8 @@ const recentFixtures = initialData.fixtures
       </p>
     </div>
   ) : (
-    <div className="divide-y divide-slate-100">
+    <div className="overflow-x-auto -mx-1 px-1">
+    <div className="divide-y divide-slate-100 min-w-0">
       {adminOrders
   .filter((order) => {
     const status = String(
@@ -7985,6 +8850,7 @@ const recentFixtures = initialData.fixtures
         );
       })}
     </div>
+    </div>
   )}
 </div>
               </div>
@@ -8000,8 +8866,8 @@ const recentFixtures = initialData.fixtures
         <div className="fixed inset-0 z-50 overflow-hidden" aria-labelledby="slide-over-title" role="dialog" aria-modal="true">
           <div className="absolute inset-0 overflow-hidden bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsCartOpen(false)}></div>
 
-          <div className="absolute inset-y-0 right-0 pl-10 max-w-full flex">
-            <div className="w-screen max-w-md bg-white shadow-2xl flex flex-col justify-between border-l border-slate-100">
+          <div className="absolute inset-y-0 right-0 pl-0 sm:pl-10 max-w-full flex">
+            <div className="w-screen max-w-full sm:max-w-md bg-white shadow-2xl flex flex-col justify-between border-l border-slate-100">
               {/* Header */}
               <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -8078,7 +8944,7 @@ const recentFixtures = initialData.fixtures
                 ) : (
                   <div className="space-y-4">
                     <p className="text-xs text-slate-400">
-                      Buying items directly finances the team's Division One league expenses.
+                      Buying items directly finances the team&apos;s Division One league expenses.
                     </p>
 
                     <div className="space-y-3">
@@ -8116,7 +8982,33 @@ const recentFixtures = initialData.fixtures
 
                     <hr className="border-slate-100" />
 
-                  {/* ================= M-PESA CHECKOUT ================= */}
+                  {/* Checkout — account required */}
+                  {!customerProfile ? (
+                    <div className="space-y-4 bg-amber-50 p-5 rounded-2xl border border-amber-200">
+                      <div>
+                        <p className="font-black text-sm text-slate-950">
+                          Account required to checkout
+                        </p>
+                        <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                          Register free to pay with M-Pesa and track your order in My Orders.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => redirectToCheckoutAuth(true)}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                      >
+                        Create Account & Checkout
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => redirectToCheckoutAuth(false)}
+                        className="w-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                      >
+                        I Already Have an Account
+                      </button>
+                    </div>
+                  ) : (
 <form
   onSubmit={handleCheckoutSubmit}
   className="space-y-4 bg-slate-50 p-4 rounded-2xl border border-slate-200"
@@ -8299,6 +9191,7 @@ const recentFixtures = initialData.fixtures
   </p>
 
 </form>
+                  )}
                   </div>
                 )}
               </div>
@@ -8409,9 +9302,9 @@ const recentFixtures = initialData.fixtures
       )}
 
       {/* Footer Branding */}
-<footer className="bg-slate-950 text-white mt-20 border-t-2 border-yellow-500/30">
+<footer className="bg-slate-950 text-white mt-12 sm:mt-20 border-t-2 border-yellow-500/30">
 
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 md:grid-cols-4 gap-8">
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
 
     {/* ================= FOOTER BRANDING ================= */}
     <div className="space-y-5">
@@ -8419,13 +9312,13 @@ const recentFixtures = initialData.fixtures
       {/* Club Logo + Name */}
       <div className="flex items-center gap-3">
 
-        <div className="relative w-12 h-12 rounded-xl bg-slate-900 flex items-center justify-center border border-yellow-500 overflow-hidden">
+        <div className="relative w-12 h-12 flex items-center justify-center">
 
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/assets/logo.jpeg"
+            src="/assets/logo.png"
             alt="Kariobangi Legends FC badge"
-            className="w-full h-full object-contain p-1"
+            className="w-full h-full object-contain"
           />
 
         </div>
@@ -8452,76 +9345,7 @@ const recentFixtures = initialData.fixtures
         Molding the future legends of Kenya.
       </p>
 
-      {/* ================= SOCIAL MEDIA ================= */}
-      <div className="pt-2">
-
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3">
-          Follow the Legends
-        </p>
-
-        <div className="flex items-center gap-3">
-
-          {/* X / Twitter */}
-          <a
-            href="https://x.com/Kariobangi40852"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Kariobangi Legends on X"
-            title="Follow Kariobangi Legends on X"
-            className="group w-10 h-10 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-white hover:bg-black hover:border-yellow-400 hover:text-yellow-400 hover:-translate-y-1 transition-all duration-300 shadow-md"
-          >
-            <span className="text-lg font-black group-hover:scale-110 transition-transform">
-              𝕏
-            </span>
-          </a>
-
-          {/* Facebook */}
-          <a
-            href="https://www.facebook.com/profile.php?id=100092849342811"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Kariobangi Legends on Facebook"
-            title="Follow Kariobangi Legends on Facebook"
-            className="group w-10 h-10 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-white hover:bg-[#1877F2] hover:border-[#1877F2] hover:-translate-y-1 transition-all duration-300 shadow-md"
-          >
-            <span className="text-xl font-black group-hover:scale-110 transition-transform">
-              f
-            </span>
-          </a>
-
-          {/* Instagram */}
-          <a
-            href="https://www.instagram.com/kariobangi_legends_fc"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Kariobangi Legends on Instagram"
-            title="Follow Kariobangi Legends on Instagram"
-            className="group w-10 h-10 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-white hover:bg-pink-600 hover:border-pink-500 hover:-translate-y-1 transition-all duration-300 shadow-md"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="w-5 h-5 group-hover:scale-110 transition-transform"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="5" />
-              <circle cx="12" cy="12" r="4" />
-              <circle
-                cx="17.5"
-                cy="6.5"
-                r="1"
-                fill="currentColor"
-                stroke="none"
-              />
-            </svg>
-          </a>
-
-        </div>
-
-      </div>
+      <SocialMediaLinks />
 
     </div>
 
@@ -8592,10 +9416,14 @@ const recentFixtures = initialData.fixtures
       </h4>
 
       <p className="text-slate-400 leading-relaxed">
-        {CONTACT_CENTER.location.venue},
-        <br />
-        {CONTACT_CENTER.location.region}
+        {CONTACT_CENTER.location.fullAddress}
       </p>
+
+      <GetDirectionsLink
+        variant="text"
+        label="Directions to the ground"
+        className="text-yellow-400 hover:text-yellow-300 text-[11px]"
+      />
 
       <div className="space-y-1.5">
         {CONTACT_CENTER.phones.map((line) => (

@@ -31,7 +31,7 @@ export function useIdleSessionLock({
   heartbeatIntervalMs = 60 * 1000,
 }: UseIdleSessionLockOptions) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastActivityRef = useRef(Date.now());
+  const lastActivityRef = useRef(0);
   const lastHeartbeatRef = useRef(0);
   const onIdleRef = useRef(onIdle);
   const onActivityRef = useRef(onActivity);

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { MEDIA_UPLOAD_RULES } from "@/lib/uploaded-media";
 
 export const runtime = "nodejs";
 
@@ -53,11 +54,11 @@ export async function POST(request: Request) {
       );
     }
 
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > MEDIA_UPLOAD_RULES.maxFileSizeBytes) {
       return NextResponse.json(
         {
           success: false,
-          error: "Image is too large. Maximum size is 10 MB.",
+          error: `Image is too large. Maximum size is ${MEDIA_UPLOAD_RULES.maxFileSizeLabel}.`,
         },
         { status: 400 }
       );

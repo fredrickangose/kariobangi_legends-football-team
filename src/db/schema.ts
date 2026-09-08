@@ -3,7 +3,7 @@ import { pgTable, serial, text, integer, boolean, timestamp, numeric } from "dri
 export const players = pgTable("players", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  position: text("position").notNull(), // 'Goalkeeper', 'Defender', 'Midfielder', 'Forward'
+  position: text("position").notNull(), // Goalkeeper, Centre Back, Right Wing Back, etc.
   jerseyNumber: integer("jersey_number").notNull(),
   imageUrl: text("image_url").notNull(),
   bio: text("bio").notNull(),
@@ -22,6 +22,7 @@ export const fixtures = pgTable("fixtures", {
   awayScore: integer("away_score"),
   status: text("status").default("upcoming").notNull(), // 'upcoming', 'completed', 'live'
   venue: text("venue").notNull(),
+  matchType: text("match_type").default("league").notNull(), // 'league', 'friendly', 'charity'
 });
 
 export const news = pgTable("news", {

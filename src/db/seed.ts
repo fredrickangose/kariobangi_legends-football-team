@@ -4,10 +4,11 @@ import { count } from "drizzle-orm";
 
 export async function seedDatabaseIfNeeded() {
   try {
-    // Check if players exist
     const [{ value: playerCount }] = await db.select({ value: count() }).from(players);
+    const [{ value: fixtureCount }] = await db.select({ value: count() }).from(fixtures);
 
-    if (playerCount > 0) {
+    // Only seed a completely fresh database — not when squad was cleared intentionally
+    if (playerCount > 0 || fixtureCount > 0) {
       console.log("Database already has data. Skipping seed.");
       return;
     }

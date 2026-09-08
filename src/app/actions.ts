@@ -1,6 +1,6 @@
 "use server";
 
-import { db } from "@/db";
+import { db, ensureDatabaseSchema } from "@/db";
 import {
   players,
   fixtures,
@@ -60,6 +60,7 @@ function verifyAdminToken(token: string | undefined) {
 }
 
 export async function getClubData() {
+  await ensureDatabaseSchema();
   // Ensure the database has seed data on first load
   await seedDatabaseIfNeeded();
 
@@ -183,7 +184,7 @@ if (!verifyAdminToken(adminCookie?.value)) {
       name: data.name,
       position: data.position,
       jerseyNumber: Number(data.jerseyNumber),
-      imageUrl: data.imageUrl || "/images/squad-training.jpg",
+      imageUrl: data.imageUrl || "",
       bio: data.bio || "Kariobangi Legends player.",
       appearances: Number(data.appearances || 0),
       goals: Number(data.goals || 0),
@@ -194,6 +195,45 @@ if (!verifyAdminToken(adminCookie?.value)) {
     return {
       success: true,
       message: "Player added successfully!",
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
+export async function updatePlayerPosition(
+  playerId: number,
+  position: string
+) {
+  try {
+    const cookieStore = await cookies();
+    const adminCookie = cookieStore.get("kariobangi_admin");
+
+    if (!verifyAdminToken(adminCookie?.value)) {
+      return {
+        success: false,
+        error: "Unauthorized. Admin authentication required.",
+      };
+    }
+
+    const trimmed = position.trim();
+    if (!trimmed) {
+      return { success: false, error: "Position is required." };
+    }
+
+    await db
+      .update(players)
+      .set({ position: trimmed })
+      .where(eq(players.id, playerId));
+
+    revalidatePath("/");
+
+    return {
+      success: true,
+      message: "Player position updated.",
     };
   } catch (error) {
     return {
@@ -274,6 +314,7 @@ export async function addFixture(data: {
   isHome: boolean;
   status: string;
   venue: string;
+  matchType?: string;
   homeScore?: number;
   awayScore?: number;
 }) {
@@ -295,6 +336,7 @@ export async function addFixture(data: {
       isHome: data.isHome,
       status: data.status,
       venue: data.venue,
+      matchType: data.matchType || "league",
       homeScore:
         data.homeScore !== undefined ? Number(data.homeScore) : null,
       awayScore:
@@ -323,6 +365,7 @@ export async function updateFixture(
     isHome: boolean;
     status: string;
     venue: string;
+    matchType?: string;
     homeScore?: number;
     awayScore?: number;
   }
@@ -348,6 +391,7 @@ export async function updateFixture(
         isHome: data.isHome,
         status: data.status,
         venue: data.venue,
+        matchType: data.matchType || "league",
         homeScore:
           data.homeScore !== undefined ? Number(data.homeScore) : null,
         awayScore:
@@ -760,7 +804,7 @@ if (!verifyAdminToken(adminCookie?.value)) {
       category: data.category,
       bio: data.bio || "",
       responsibilities: data.responsibilities || "",
-      imageUrl: data.imageUrl || "/images/management-placeholder.jpg",
+      imageUrl: data.imageUrl || "",
       displayOrder: Number(data.displayOrder || 0),
     });
 
@@ -810,7 +854,7 @@ if (!verifyAdminToken(adminCookie?.value)) {
         category: data.category,
         bio: data.bio || "",
         responsibilities: data.responsibilities || "",
-        imageUrl: data.imageUrl || "/images/management-placeholder.jpg",
+        imageUrl: data.imageUrl || "",
         displayOrder: Number(data.displayOrder || 0),
       })
       .where(eq(management.id, managementId));
@@ -830,6 +874,53 @@ if (!verifyAdminToken(adminCookie?.value)) {
     };
   }
 }
+
+export async function updateManagementRole(
+  managementId: number,
+  data: {
+    category: string;
+    position: string;
+  }
+) {
+  try {
+    const cookieStore = await cookies();
+    const adminCookie = cookieStore.get("kariobangi_admin");
+
+    if (!verifyAdminToken(adminCookie?.value)) {
+      return {
+        success: false,
+        error: "Unauthorized. Admin authentication required.",
+      };
+    }
+
+    const category = data.category.trim();
+    const position = data.position.trim();
+
+    if (!category || !position) {
+      return { success: false, error: "Category and position are required." };
+    }
+
+    await db
+      .update(management)
+      .set({ category, position })
+      .where(eq(management.id, managementId));
+
+    revalidatePath("/");
+
+    return {
+      success: true,
+      message: "Management role updated.",
+    };
+  } catch (error) {
+    console.error("Update management role failed:", error);
+
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
 export async function deleteManagement(managementId: number) {
   try {
     const cookieStore = await cookies();

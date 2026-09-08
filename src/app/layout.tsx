@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 
@@ -7,10 +7,16 @@ export const metadata: Metadata = {
   description: "Official website of Kariobangi Legends Football Club (KLFC), playing in FKF Division One, Nairobi Kenya. Founded by Mr. Erick Otieno Atanga to empower slum youths through football and community leadership.",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-slate-50 text-slate-900 antialiased">{children}</body>
+      <body className="bg-slate-50 text-slate-900 antialiased overflow-x-hidden">{children}</body>
     </html>
   );
 }

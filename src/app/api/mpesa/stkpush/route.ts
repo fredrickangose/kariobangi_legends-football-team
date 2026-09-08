@@ -129,10 +129,21 @@ export async function POST(request: Request) {
       cookieStore.get("kariobangi_customer")?.value
     );
 
+    if (!customerId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Please create an account or sign in before completing your purchase.",
+        },
+        { status: 401 }
+      );
+    }
+
     const [order] = await db
       .insert(orders)
       .values({
-        customerId: customerId ?? null,
+        customerId: customerId,
         customerName: name,
         phoneNumber: formattedPhone,
         totalAmount: Math.round(amount),

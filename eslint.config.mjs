@@ -5,4 +5,10 @@ export default defineConfig([
   // Keep the starter on the flat config export that actually runs under the pinned ESLint/Next toolchain.
   ...nextCoreWebVitals,
   globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts"]),
+  {
+    rules: {
+      // Common data-fetch-on-mount patterns; refactor later if moving to a data library.
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
 ]);

@@ -9,7 +9,9 @@
   "typecheck": "tsc --noEmit",
   "db:push": "drizzle-kit push",
   "db:fix-fixtures-logo": "node scripts/migrate-fixtures-logo.mjs",
-  "db:fix-account-messages": "node scripts/migrate-account-messages.mjs"
+  "db:fix-fixtures-match-type": "node scripts/migrate-fixtures-match-type.mjs",
+  "db:fix-account-messages": "node scripts/migrate-account-messages.mjs",
+  "db:clear-squad-management": "node scripts/clear-squad-management.mjs"
 },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
