@@ -1,39 +1,54 @@
 "use client";
 
-import React, { useEffect, useState, useTransition } from "react";
+import React, { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
-  Shield,
-  Activity,
-  Heart,
-  ShoppingBag,
-  Award,
-  History,
-  Calendar,
-Trophy,
-  Users,
-  BookOpen,
-  HeartHandshake,
-  Menu,
-  X,
-  Plus,
-  Check,
-  ChevronLeft,
-  MapPin,
-  TrendingUp,
-  Coins,
-  MessageSquare,
   Settings,
-  UserPlus,
-  AlertCircle,
-  Phone,
-  Trash2,
-  ChevronRight,
+  Home,
+  BookOpen,
+  Users,
+  Shield,
+  CalendarDays,
+  Newspaper,
+  Images,
+  ShoppingBag,
+  HeartHandshake,
+  MessageCircle,
+  Menu,
+    Trophy,
+  ImageIcon,
+    Award,
   Sparkles,
-  Image as ImageIcon,
+  Activity,
+  Calendar,
+  ArrowRight,
   Camera,
-  Layers,
-  ArrowRight
+  MessageSquare,
+    ChevronLeft,
+  ChevronRight,
+  Plus,
+  Trash2,
+  UserPlus,
+  MapPin,
+  Heart,
+  Phone,
+  Mail,
+  Clock,
+  Check,
+  X,
+  ChevronDown,
+  Package,
+  User,
+  LogOut,
 } from "lucide-react";
+import {
+  OrderProgressTimeline,
+  OrderStatusBadge,
+} from "@/components/OrderProgressTimeline";
+import { PasswordInput } from "@/components/PasswordInput";
+import {
+  SESSION_IDLE_TIMEOUT_MS,
+  useIdleSessionLock,
+} from "@/hooks/useIdleSessionLock";
 import {
   submitDonation,
   submitFanMessage,
@@ -57,7 +72,12 @@ import {
   deleteFixture,
   getOrders,
   updateOrderStatus,
+  trackOrder,
+  getNotificationSetup,
 } from "./actions";
+import {
+  getOrderStatusLabel,
+} from "@/lib/order-tracking";
 interface Player {
   id: number;
   name: string;
@@ -73,6 +93,7 @@ interface Player {
 interface Fixture {
   id: number;
   opponent: string;
+  opponentLogoUrl: string | null;
   date: string;
   isHome: boolean;
   homeScore: number | null;
@@ -158,6 +179,43 @@ interface CartItem {
   kitType: string;
 }
 
+const CONTACT_CENTER = {
+  email: "Kariobangilegendsyouth@gmail.com",
+  location: {
+    venue: "Kariobangi North Ground",
+    region: "Nairobi County, Kenya",
+  },
+  phones: [
+    { label: "Club Line 1", number: "0723523254" },
+    { label: "Club Line 2", number: "0721916526" },
+    { label: "Club Line 3", number: "0748308682" },
+    { label: "Club Line 4", number: "0711844805" },
+  ],
+  hours: "Mon – Sat, 8:00 AM – 6:00 PM EAT",
+} as const;
+
+function toTelHref(number: string): string {
+  const digits = number.replace(/\D/g, "");
+  const normalized = digits.startsWith("0") ? `254${digits.slice(1)}` : digits;
+  return `tel:+${normalized}`;
+}
+
+function formatPhoneDisplay(number: string): string {
+  const digits = number.replace(/\D/g, "");
+  if (digits.length === 10 && digits.startsWith("0")) {
+    return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
+  }
+  return number;
+}
+
+function formatStoredPhoneForInput(number: string): string {
+  const digits = number.replace(/\D/g, "");
+  if (digits.startsWith("254") && digits.length === 12) {
+    return `0${digits.slice(3)}`;
+  }
+  return number;
+}
+
 export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
   const [selectedSizes, setSelectedSizes] = useState<Record<number, string>>({});
   const [activeTab, setActiveTab] = useState<string>("home");
@@ -181,6 +239,19 @@ useEffect(() => {
   return () => clearInterval(interval);
 }, [initialData.gallery.length]);
 
+useEffect(() => {
+  if (typeof window === "undefined") return;
+
+  const params = new URLSearchParams(window.location.search);
+  const orderFromUrl = params.get("order");
+
+  if (orderFromUrl) {
+    setActiveTab("account");
+    setTrackOrderId(orderFromUrl);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}, []);
+
   // Gallery filter state
   const [selectedGalleryCategory, setSelectedGalleryCategory] = useState<string>("All");
   const [selectedGalleryImage, setSelectedGalleryImage] =
@@ -203,17 +274,101 @@ useEffect(() => {
   const [checkoutMethod, setCheckoutMethod] = useState<"mpesa" | "card">("mpesa");
   const [checkoutSuccess, setCheckoutSuccess] = useState<boolean>(false);
   const [checkoutMessage, setCheckoutMessage] = useState<string>("");
+  const [lastOrderId, setLastOrderId] = useState<number | null>(null);
+
+  const [trackOrderId, setTrackOrderId] = useState<string>("");
+  const [trackPhone, setTrackPhone] = useState<string>("");
+  const [trackedOrder, setTrackedOrder] = useState<any | null>(null);
+  const [trackError, setTrackError] = useState<string>("");
+
+  const [customerProfile, setCustomerProfile] = useState<{
+    id: number;
+    fullName: string;
+    phoneNumber: string;
+    email: string | null;
+  } | null>(null);
+  const [customerOrders, setCustomerOrders] = useState<any[]>([]);
+  const [isLoadingCustomerOrders, setIsLoadingCustomerOrders] = useState(false);
+  const [accountView, setAccountView] = useState<"login" | "register">("login");
+  const [resetStep, setResetStep] = useState<"request" | "confirm">("request");
+  const [showFanPasswordReset, setShowFanPasswordReset] = useState(false);
+  const [isFanResetPending, setIsFanResetPending] = useState(false);
+  const [resetPhone, setResetPhone] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [registerName, setRegisterName] = useState("");
+  const [registerPhone, setRegisterPhone] = useState("");
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [loginPhone, setLoginPhone] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [expandedAccountOrderId, setExpandedAccountOrderId] = useState<number | null>(null);
+  const customerOrdersLoadRef = useRef(false);
+  const [customerMessages, setCustomerMessages] = useState<
+    Array<{
+      id: number;
+      senderType: string;
+      message: string;
+      createdAt: string;
+    }>
+  >([]);
+  const [customerMessageDraft, setCustomerMessageDraft] = useState("");
+  const [isLoadingCustomerMessages, setIsLoadingCustomerMessages] = useState(false);
+  const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
 
   // Admin states
   const [adminPassword, setAdminPassword] = useState<string>("");
+  const [adminResetStep, setAdminResetStep] = useState<"request" | "confirm">("request");
+  const [showAdminPasswordReset, setShowAdminPasswordReset] = useState(false);
+  const [isAdminResetPending, setIsAdminResetPending] = useState(false);
+  const [adminResetPhone, setAdminResetPhone] = useState("");
+  const [adminResetCode, setAdminResetCode] = useState("");
+  const [adminResetNewPassword, setAdminResetNewPassword] = useState("");
+  const [adminResetConfirmPassword, setAdminResetConfirmPassword] = useState("");
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
   const [adminOrders, setAdminOrders] = useState<any[]>([]);
 const [isLoadingOrders, setIsLoadingOrders] = useState<boolean>(false);
+const [adminInboxThreads, setAdminInboxThreads] = useState<
+  Array<{
+    customerId: number;
+    fullName: string;
+    phoneNumber: string;
+    email: string | null;
+    lastMessage: string;
+    lastMessageAt: string;
+    unreadCount: number;
+  }>
+>([]);
+const [selectedInboxCustomerId, setSelectedInboxCustomerId] = useState<number | null>(null);
+const [selectedInboxCustomer, setSelectedInboxCustomer] = useState<{
+  id: number;
+  fullName: string;
+  phoneNumber: string;
+  email: string | null;
+} | null>(null);
+const [adminInboxMessages, setAdminInboxMessages] = useState<
+  Array<{
+    id: number;
+    senderType: string;
+    message: string;
+    createdAt: string;
+  }>
+>([]);
+const [adminReplyDraft, setAdminReplyDraft] = useState("");
+const [isLoadingAdminInbox, setIsLoadingAdminInbox] = useState(false);
+const [isSendingAdminReply, setIsSendingAdminReply] = useState(false);
 const [orderFilter, setOrderFilter] = useState<
   "all" | "paid" | "pending" | "failed"
 >("all");
 
 const [orderSearch, setOrderSearch] = useState<string>("");
+const [notificationConfig, setNotificationConfig] = useState<{
+  channels: string[];
+  sms: boolean;
+  whatsapp: boolean;
+  trackingUrlConfigured: boolean;
+} | null>(null);
   
   const [adminPlayerName, setAdminPlayerName] = useState<string>("");
   const [adminPlayerPos, setAdminPlayerPos] = useState<string>("Midfielder");
@@ -225,6 +380,8 @@ const [orderSearch, setOrderSearch] = useState<string>("");
   const [adminPlayerFile, setAdminPlayerFile] = useState<File | null>(null);
 
   const [adminOpponent, setAdminOpponent] = useState<string>("");
+  const [adminOpponentLogoFile, setAdminOpponentLogoFile] = useState<File | null>(null);
+  const [adminOpponentLogoUrl, setAdminOpponentLogoUrl] = useState<string>("");
   const [adminDate, setAdminDate] = useState<string>("");
   const [adminIsHome, setAdminIsHome] = useState<boolean>(true);
   const [adminVenue, setAdminVenue] = useState<string>("Kariobangi North Ground, Nairobi");
@@ -239,9 +396,18 @@ const [orderSearch, setOrderSearch] = useState<string>("");
   const [adminNewsFile, setAdminNewsFile] = useState<File | null>(null);
 
   const [adminGalleryFile, setAdminGalleryFile] = useState<File | null>(null);
+  const [adminGalleryPreview, setAdminGalleryPreview] = useState<string | null>(null);
   const [adminGalleryCaption, setAdminGalleryCaption] = useState<string>("");
   const [adminGalleryCategory, setAdminGalleryCategory] =
     useState<string>("Training");
+
+useEffect(() => {
+  return () => {
+    if (adminGalleryPreview) {
+      URL.revokeObjectURL(adminGalleryPreview);
+    }
+  };
+}, [adminGalleryPreview]);
 
     // Management admin states
 const [adminManagementName, setAdminManagementName] = useState<string>("");
@@ -276,7 +442,7 @@ const [editingManagementId, setEditingManagementId] = useState<number | null>(nu
   };
 
   // Upload an image selected from the computer to Supabase Storage.
-  const uploadSelectedImage = async (file: File, folder: "gallery" | "news" | "merch" | "players" | "management") => {
+  const uploadSelectedImage = async (file: File, folder: "gallery" | "news" | "merch" | "players" | "management" | "fixtures") => {
     if (!file.type.startsWith("image/")) {
       throw new Error("Please select an image file.");
     }
@@ -477,8 +643,12 @@ const handleCheckoutSubmit = (e: React.FormEvent) => {
                 statusData.paymentStatus === "paid"
               ) {
                 setCheckoutMessage(
-                  `Payment successful! Your M-PESA receipt number is ${statusData.mpesaReceiptNumber || "confirmed"}. Your Kariobangi Legends merchandise order has been received and will be processed shortly.`
+                  `Payment successful! Your M-PESA receipt number is ${statusData.mpesaReceiptNumber || "confirmed"}. Your Kariobangi Legends merchandise order #${orderId} has been received and will be processed shortly.`
                 );
+
+                setLastOrderId(orderId);
+                setTrackOrderId(String(orderId));
+                setTrackPhone(checkoutPhone);
 
                 setCart([]);
 
@@ -508,6 +678,9 @@ const handleCheckoutSubmit = (e: React.FormEvent) => {
               setCheckoutMessage(
                 `Your M-PESA payment request is still being processed. Please check your M-PESA messages. Your order reference is #${orderId}.`
               );
+              setLastOrderId(orderId);
+              setTrackOrderId(String(orderId));
+              setTrackPhone(checkoutPhone);
             }
           } catch (statusError) {
             console.error(
@@ -559,13 +732,20 @@ const loadAdminOrders = async () => {
   setIsLoadingOrders(true);
 
   try {
-    const result = await getOrders();
+    const [result, notificationSetup] = await Promise.all([
+      getOrders(),
+      getNotificationSetup(),
+    ]);
 
     if (result.success) {
       setAdminOrders(result.orders || []);
     } else {
       console.error("Unable to load admin orders:", result.error);
       showToast(result.error || "Unable to load orders.", "error");
+    }
+
+    if (notificationSetup.success) {
+      setNotificationConfig(notificationSetup.config);
     }
   } catch (error) {
     console.error("Load admin orders failed:", error);
@@ -574,8 +754,615 @@ const loadAdminOrders = async () => {
     setIsLoadingOrders(false);
   }
 };
+
+const clearCustomerState = () => {
+  setCustomerProfile(null);
+  setCustomerOrders([]);
+  setExpandedAccountOrderId(null);
+  setCustomerMessages([]);
+  setCustomerMessageDraft("");
+};
+
+const clearAdminState = () => {
+  setIsAdminAuthenticated(false);
+  setAdminInboxThreads([]);
+  setSelectedInboxCustomerId(null);
+  setSelectedInboxCustomer(null);
+  setAdminInboxMessages([]);
+  setAdminReplyDraft("");
+};
+
+const loadAppSessions = async () => {
+  try {
+    const [customerRes, adminRes] = await Promise.all([
+      fetch("/api/customer/me", { credentials: "include", cache: "no-store" }),
+      fetch("/api/admin/me", { credentials: "include", cache: "no-store" }),
+    ]);
+
+    const customerData = await customerRes.json();
+    const adminData = await adminRes.json();
+
+    const customerAuth =
+      customerData.success && customerData.authenticated && customerData.customer;
+    let adminAuth = adminData.success && adminData.authenticated;
+
+    if (customerAuth && adminAuth) {
+      await fetch("/api/admin/logout", { method: "POST", credentials: "include" });
+      adminAuth = false;
+    }
+
+    clearCustomerState();
+    clearAdminState();
+
+    if (customerAuth) {
+      setCustomerProfile(customerData.customer);
+      setCheckoutName(customerData.customer.fullName);
+      setCheckoutPhone(formatStoredPhoneForInput(customerData.customer.phoneNumber));
+    }
+
+    if (adminAuth) {
+      setIsAdminAuthenticated(true);
+    }
+  } catch (error) {
+    console.error("Load app sessions failed:", error);
+  }
+};
+
+const loadCustomerOrders = async () => {
+  if (customerOrdersLoadRef.current) {
+    return;
+  }
+
+  customerOrdersLoadRef.current = true;
+  setIsLoadingCustomerOrders(true);
+
+  try {
+    const response = await fetch("/api/customer/orders", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      setCustomerOrders(result.orders || []);
+    } else {
+      setCustomerOrders([]);
+      if (result.error && response.status !== 401) {
+        showToast(result.error, "error");
+      }
+    }
+  } catch (error) {
+    console.error("Load customer orders failed:", error);
+    setCustomerOrders([]);
+    showToast("Unable to load your orders.", "error");
+  } finally {
+    setIsLoadingCustomerOrders(false);
+    customerOrdersLoadRef.current = false;
+  }
+};
+
+const loadCustomerMessages = async () => {
+  if (!customerProfile?.id) {
+    return;
+  }
+
+  setIsLoadingCustomerMessages(true);
+
+  try {
+    const response = await fetch("/api/customer/messages", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      setCustomerMessages(result.messages || []);
+    } else if (result.error && response.status !== 401) {
+      showToast(result.error, "error");
+    }
+  } catch (error) {
+    console.error("Load customer messages failed:", error);
+    showToast("Unable to load your messages.", "error");
+  } finally {
+    setIsLoadingCustomerMessages(false);
+  }
+};
+
+const handleSendCustomerMessage = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (!customerMessageDraft.trim()) {
+    showToast("Write a message before sending.", "error");
+    return;
+  }
+
+  setIsSendingCustomerMessage(true);
+
+  try {
+    const response = await fetch("/api/customer/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ message: customerMessageDraft }),
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      setCustomerMessageDraft("");
+      showToast("Message sent to the club admin.");
+      await loadCustomerMessages();
+    } else {
+      showToast(result.error || "Unable to send message.", "error");
+    }
+  } catch (error) {
+    console.error("Send customer message failed:", error);
+    showToast("Unable to send message right now.", "error");
+  } finally {
+    setIsSendingCustomerMessage(false);
+  }
+};
+
+const loadAdminInboxThreads = async (silent = false) => {
+  if (!silent) {
+    setIsLoadingAdminInbox(true);
+  }
+
+  try {
+    const response = await fetch("/api/admin/messages", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      setAdminInboxThreads(result.threads || []);
+    } else if (result.error && !silent) {
+      showToast(result.error, "error");
+    }
+  } catch (error) {
+    console.error("Load admin inbox failed:", error);
+    if (!silent) {
+      showToast("Unable to load fan messages.", "error");
+    }
+  } finally {
+    if (!silent) {
+      setIsLoadingAdminInbox(false);
+    }
+  }
+};
+
+const loadAdminInboxThread = async (customerId: number) => {
+  setSelectedInboxCustomerId(customerId);
+  setIsLoadingAdminInbox(true);
+
+  try {
+    const response = await fetch(`/api/admin/messages?customerId=${customerId}`, {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      setSelectedInboxCustomer(result.customer);
+      setAdminInboxMessages(result.messages || []);
+      await loadAdminInboxThreads(true);
+    } else {
+      showToast(result.error || "Unable to load conversation.", "error");
+    }
+  } catch (error) {
+    console.error("Load admin inbox thread failed:", error);
+    showToast("Unable to load conversation.", "error");
+  } finally {
+    setIsLoadingAdminInbox(false);
+  }
+};
+
+const handleAdminReply = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (!selectedInboxCustomerId) {
+    showToast("Select a fan conversation first.", "error");
+    return;
+  }
+
+  if (!adminReplyDraft.trim()) {
+    showToast("Write a reply before sending.", "error");
+    return;
+  }
+
+  setIsSendingAdminReply(true);
+
+  try {
+    const response = await fetch("/api/admin/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        customerId: selectedInboxCustomerId,
+        message: adminReplyDraft,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      setAdminReplyDraft("");
+      showToast("Reply sent to fan account.");
+      await loadAdminInboxThread(selectedInboxCustomerId);
+    } else {
+      showToast(result.error || "Unable to send reply.", "error");
+    }
+  } catch (error) {
+    console.error("Send admin reply failed:", error);
+    showToast("Unable to send reply right now.", "error");
+  } finally {
+    setIsSendingAdminReply(false);
+  }
+};
+
+const handleCustomerRegister = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (isAdminAuthenticated) {
+    showToast("Please sign out of the admin dashboard before creating a fan account.", "error");
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/customer/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fullName: registerName,
+        phone: registerPhone,
+        email: registerEmail,
+        password: registerPassword,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      clearAdminState();
+      setCustomerProfile(data.customer);
+      setCheckoutName(data.customer.fullName);
+      setCheckoutPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
+      setRegisterPassword("");
+      showToast("Account created successfully.");
+    } else {
+      showToast(data.error || "Unable to create account.", "error");
+    }
+  } catch (error) {
+    console.error("Customer register failed:", error);
+    showToast("Unable to create account right now.", "error");
+  }
+};
+
+const handleCustomerLogin = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (isAdminAuthenticated) {
+    showToast("Please sign out of the admin dashboard before signing in to your fan account.", "error");
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/customer/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone: loginPhone,
+        password: loginPassword,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      clearAdminState();
+      setCustomerProfile(data.customer);
+      setCheckoutName(data.customer.fullName);
+      setCheckoutPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
+      setLoginPassword("");
+      showToast("Welcome back!");
+    } else {
+      showToast(data.error || "Unable to sign in.", "error");
+    }
+  } catch (error) {
+    console.error("Customer login failed:", error);
+    showToast("Unable to sign in right now.", "error");
+  }
+};
+
+const handleCustomerLogout = async () => {
+  try {
+    await fetch("/api/customer/logout", { method: "POST", credentials: "include" });
+  } finally {
+    clearCustomerState();
+    showToast("Signed out successfully. You can now sign in to another account.");
+  }
+};
+
+const handleCustomerRequestReset = async (e?: React.FormEvent) => {
+  e?.preventDefault();
+
+  if (!resetPhone.trim()) {
+    showToast("Enter your M-PESA phone number.", "error");
+    return;
+  }
+
+  setIsFanResetPending(true);
+
+  try {
+    const response = await fetch("/api/customer/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: resetPhone }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      setResetStep("confirm");
+      showToast("Reset code sent to your phone.");
+    } else {
+      showToast(data.error || "Unable to send reset code.", "error");
+    }
+  } catch (error) {
+    console.error("Customer reset request failed:", error);
+    showToast("Unable to send reset code right now.", "error");
+  } finally {
+    setIsFanResetPending(false);
+  }
+};
+
+const handleCustomerCompleteReset = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  setIsFanResetPending(true);
+
+  try {
+    const response = await fetch("/api/customer/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone: resetPhone,
+        code: resetCode,
+        newPassword: resetNewPassword,
+        confirmPassword: resetConfirmPassword,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      const wasSignedIn = Boolean(customerProfile);
+      setAccountView("login");
+      setResetStep("request");
+      setResetCode("");
+      setResetNewPassword("");
+      setResetConfirmPassword("");
+      setLoginPhone(resetPhone);
+      setShowFanPasswordReset(false);
+
+      if (wasSignedIn) {
+        try {
+          await fetch("/api/customer/logout", { method: "POST", credentials: "include" });
+        } catch (error) {
+          console.error("Customer logout after reset failed:", error);
+        }
+        clearCustomerState();
+      }
+
+      showToast("Password updated. Sign in with your new password.");
+    } else {
+      showToast(data.error || "Unable to reset password.", "error");
+    }
+  } catch (error) {
+    console.error("Customer reset failed:", error);
+    showToast("Unable to reset password right now.", "error");
+  } finally {
+    setIsFanResetPending(false);
+  }
+};
+
+const handleAdminRequestReset = async (e?: React.FormEvent) => {
+  e?.preventDefault();
+
+  if (!adminResetPhone.trim()) {
+    showToast("Enter the authorized manager phone number.", "error");
+    return;
+  }
+
+  setIsAdminResetPending(true);
+
+  try {
+    const response = await fetch("/api/admin/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: adminResetPhone }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      setAdminResetStep("confirm");
+      showToast("Reset code sent to the authorized manager phone.");
+    } else {
+      showToast(data.error || "Unable to send reset code.", "error");
+    }
+  } catch (error) {
+    console.error("Admin reset request failed:", error);
+    showToast("Unable to send reset code right now.", "error");
+  } finally {
+    setIsAdminResetPending(false);
+  }
+};
+
+const handleAdminCompleteReset = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  setIsAdminResetPending(true);
+
+  try {
+    const response = await fetch("/api/admin/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone: adminResetPhone,
+        code: adminResetCode,
+        newPassword: adminResetNewPassword,
+        confirmPassword: adminResetConfirmPassword,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      setAdminResetStep("request");
+      setAdminResetCode("");
+      setAdminResetNewPassword("");
+      setAdminResetConfirmPassword("");
+      setShowAdminPasswordReset(false);
+      showToast("Admin password updated. Sign in with your new password.");
+    } else {
+      showToast(data.error || "Unable to reset admin password.", "error");
+    }
+  } catch (error) {
+    console.error("Admin reset failed:", error);
+    showToast("Unable to reset admin password right now.", "error");
+  } finally {
+    setIsAdminResetPending(false);
+  }
+};
+
+const handleTrackOrder = (e: React.FormEvent) => {
+  e.preventDefault();
+  setTrackError("");
+  setTrackedOrder(null);
+
+  startTransition(async () => {
+    const result = await trackOrder({
+      orderId: Number(trackOrderId),
+      phone: trackPhone,
+    });
+
+    if (result.success && result.order) {
+      setTrackedOrder(result.order);
+    } else {
+      setTrackError(result.error || "Unable to find that order.");
+    }
+  });
+};
+
+const handleUpdateOrderStatus = (
+  orderId: number,
+  orderStatus: "processing" | "shipped" | "delivered" | "cancelled"
+) => {
+  startTransition(async () => {
+    const result = await updateOrderStatus(orderId, orderStatus);
+
+    if (result.success) {
+      showToast(`Order #${orderId} updated to ${getOrderStatusLabel(orderStatus)}.`);
+      await loadAdminOrders();
+    } else {
+      showToast(result.error || "Unable to update order status.", "error");
+    }
+  });
+};
+
+useEffect(() => {
+  loadAppSessions();
+}, []);
+
+useEffect(() => {
+  if (activeTab === "account" && customerProfile?.id) {
+    loadCustomerOrders();
+    loadCustomerMessages();
+  }
+}, [activeTab, customerProfile?.id]);
+
+useEffect(() => {
+  if (activeTab === "admin" && isAdminAuthenticated) {
+    loadAdminOrders();
+    loadAdminInboxThreads();
+  }
+}, [activeTab, isAdminAuthenticated]);
+
+useEffect(() => {
+  if (!trackOrderId || customerOrders.length === 0) return;
+
+  const orderId = Number(trackOrderId);
+  if (customerOrders.some((order) => order.id === orderId)) {
+    setExpandedAccountOrderId(orderId);
+  }
+}, [customerOrders, trackOrderId]);
+
+const handleSessionIdleLock = useCallback(async () => {
+  if (customerProfile) {
+    try {
+      await fetch("/api/customer/logout", { method: "POST", credentials: "include" });
+    } catch (error) {
+      console.error("Customer idle lock logout failed:", error);
+    }
+
+    clearCustomerState();
+    showToast(
+      "Session locked after 3 minutes of inactivity. Please sign in again.",
+      "error"
+    );
+    return;
+  }
+
+  if (isAdminAuthenticated) {
+    try {
+      await fetch("/api/admin/logout", { method: "POST", credentials: "include" });
+    } catch (error) {
+      console.error("Admin idle lock logout failed:", error);
+    }
+
+    clearAdminState();
+    showToast(
+      "Session locked after 3 minutes of inactivity. Please sign in again.",
+      "error"
+    );
+  }
+}, [customerProfile, isAdminAuthenticated]);
+
+const pingSession = useCallback(async () => {
+  try {
+    await fetch("/api/session/heartbeat", {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (error) {
+    console.error("Session heartbeat failed:", error);
+  }
+}, []);
+
+useIdleSessionLock({
+  enabled: Boolean(customerProfile || isAdminAuthenticated),
+  onIdle: handleSessionIdleLock,
+  onActivity: pingSession,
+  timeoutMs: SESSION_IDLE_TIMEOUT_MS,
+});
+
   const handleAdminLogin = async (e: React.FormEvent) => {
   e.preventDefault();
+
+  if (customerProfile) {
+    showToast("Please sign out of your fan account before signing in to admin.", "error");
+    return;
+  }
 
   try {
     const response = await fetch("/api/admin/login", {
@@ -591,6 +1378,7 @@ const loadAdminOrders = async () => {
     const result = await response.json();
 
    if (response.ok && result.success) {
+  clearCustomerState();
   setIsAdminAuthenticated(true);
   setAdminPassword("");
 
@@ -709,29 +1497,43 @@ const handleAdminAddFixture = (e: React.FormEvent) => {
   }
 
   startTransition(async () => {
-    const res = await addFixture({
-      opponent: adminOpponent,
-      date: adminDate,
-      isHome: adminIsHome,
-      status: adminStatus,
-      venue: adminVenue,
-      homeScore:
-        adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
-      awayScore:
-        adminAwayScore !== "" ? parseInt(adminAwayScore) : undefined,
-    });
+    try {
+      const opponentLogoUrl = adminOpponentLogoFile
+        ? await uploadSelectedImage(adminOpponentLogoFile, "fixtures")
+        : adminOpponentLogoUrl || undefined;
 
-    if (res.success) {
+      const res = await addFixture({
+        opponent: adminOpponent,
+        opponentLogoUrl,
+        date: adminDate,
+        isHome: adminIsHome,
+        status: adminStatus,
+        venue: adminVenue,
+        homeScore:
+          adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
+        awayScore:
+          adminAwayScore !== "" ? parseInt(adminAwayScore) : undefined,
+      });
+
+      if (res.success) {
+        showToast(
+          "Fixture registered in system! The upcoming match has been updated."
+        );
+
+        setAdminOpponent("");
+        setAdminDate("");
+        setAdminHomeScore("");
+        setAdminAwayScore("");
+        setAdminOpponentLogoFile(null);
+        setAdminOpponentLogoUrl("");
+      } else {
+        showToast(res.error || "Error adding fixture", "error");
+      }
+    } catch (error) {
       showToast(
-        "Fixture registered in system! The upcoming match has been updated."
+        error instanceof Error ? error.message : "Error uploading opponent logo",
+        "error"
       );
-
-      setAdminOpponent("");
-      setAdminDate("");
-      setAdminHomeScore("");
-      setAdminAwayScore("");
-    } else {
-      showToast(res.error || "Error adding fixture", "error");
     }
   });
 };
@@ -753,8 +1555,15 @@ const handleAdminUpdateFixture = (e: React.FormEvent) => {
 
   startTransition(async () => {
     try {
+      let opponentLogoUrl: string | null | undefined = adminOpponentLogoUrl || null;
+
+      if (adminOpponentLogoFile) {
+        opponentLogoUrl = await uploadSelectedImage(adminOpponentLogoFile, "fixtures");
+      }
+
       const res = await updateFixture(editingFixtureId, {
         opponent: adminOpponent,
+        opponentLogoUrl,
         date: adminDate,
         isHome: adminIsHome,
         status: adminStatus,
@@ -776,6 +1585,8 @@ const handleAdminUpdateFixture = (e: React.FormEvent) => {
         setAdminStatus("upcoming");
         setAdminIsHome(true);
         setAdminVenue("Kariobangi North Ground, Nairobi");
+        setAdminOpponentLogoFile(null);
+        setAdminOpponentLogoUrl("");
       } else {
         showToast(
           res.error || "Error updating fixture",
@@ -799,6 +1610,8 @@ const handleEditFixture = (
   setEditingFixtureId(fixture.id);
 
   setAdminOpponent(fixture.opponent);
+  setAdminOpponentLogoUrl(fixture.opponentLogoUrl || "");
+  setAdminOpponentLogoFile(null);
   setAdminDate(fixture.date);
   setAdminIsHome(fixture.isHome);
   setAdminVenue(fixture.venue);
@@ -816,7 +1629,9 @@ const handleEditFixture = (
       : ""
   );
 
-  showToast(`Editing match vs ${fixture.opponent}`);
+  showToast(`Editing match vs ${fixture.opponent}. Open the Admin tab to update the logo or details.`);
+  setActiveTab("admin");
+  window.scrollTo({ top: 0, behavior: "smooth" });
 };
   // Admin Add News
   const handleAdminAddNews = (e: React.FormEvent) => {
@@ -882,6 +1697,10 @@ const handleEditFixture = (
           setAdminGalleryFile(null);
           setAdminGalleryCaption("");
           setAdminGalleryCategory("Training");
+          if (adminGalleryPreview) {
+            URL.revokeObjectURL(adminGalleryPreview);
+            setAdminGalleryPreview(null);
+          }
         } else {
           showToast(res.error || "Error adding photo", "error");
         }
@@ -1333,6 +2152,23 @@ const recentFixtures = initialData.fixtures
       fixture.date < todayString
   )
   .sort((a, b) => b.date.localeCompare(a.date));
+
+  const goToTab = (tab: string) => {
+    setActiveTab(tab);
+    setMobileMenuOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const desktopNavLinkClass = (isActive: boolean) =>
+    `relative px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all duration-200 cursor-pointer ${
+      isActive
+        ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/25"
+        : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+    }`;
+
+  const desktopNavTriggerClass = (isActive: boolean) =>
+    `${desktopNavLinkClass(isActive)} flex items-center gap-1`;
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-emerald-600 selection:text-white">
       {/* Toast Alert */}
@@ -1346,180 +2182,459 @@ const recentFixtures = initialData.fixtures
         </div>
       )}
 
-      {/* Top Banner with slogan */}
-      <div className="bg-slate-950 text-white text-center py-2 px-4 text-xs font-medium border-b border-yellow-500/20 flex justify-between items-center max-w-7xl mx-auto rounded-b-lg">
-        <span className="flex items-center gap-1.5 text-yellow-400">
-          <Shield className="w-3.5 h-3.5 fill-yellow-400" /> Est. 2018 | Nairobi County, Kenya
-        </span>
-        <span className="hidden md:inline italic text-slate-400 text-[11px]">
-          "From Kariobangi North slums to the World - Molding Football Legends"
-        </span>
-        <button
-          onClick={() => {
-            setActiveTab("admin");
-            setMobileMenuOpen(false);
-          }}
-          className="hover:text-yellow-400 transition text-[11px] bg-slate-900 px-2 py-0.5 rounded border border-slate-800 flex items-center gap-1 cursor-pointer font-bold"
-        >
-          <Settings className="w-3 h-3" /> Add Game & Photos (Admin)
-        </button>
-      </div>
 
       {/* Main Header */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md shadow-sm border-b border-slate-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          {/* Logo Brand */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab("home")}>
-           <div className="relative w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl bg-slate-950 border-2 border-yellow-400 shadow-lg flex items-center justify-center overflow-hidden group">
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-200/80 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.18)]">
 
-  {/* Subtle club-color glow */}
-  <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/20 via-transparent to-yellow-400/10" />
+        {/* Top club strip */}
+        <div className="relative bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 text-white">
+          <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-emerald-500/70 to-transparent" />
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between gap-4">
 
-  {/* Club badge */}
-  {/* eslint-disable-next-line @next/next/no-img-element */}
-  <img
-    src="/assets/logo.jpeg"
-    alt="Kariobangi Legends FC badge"
-    className="relative z-10 w-full h-full object-contain p-1.5 group-hover:scale-105 transition-transform duration-300"
-  />
-
-</div>
-            <div>
-              <h1 className="font-black italic text-lg sm:text-xl md:text-2xl tracking-[-0.04em] text-slate-950 leading-none uppercase">
-  KARIOBANGI
-  <span className="text-emerald-600 ml-1">
-    LEGENDS
-  </span>
-</h1>
-<p className="mt-1 text-[9px] sm:text-[10px] font-black text-slate-500 tracking-[0.16em] uppercase">
-  Football Club
-  <span className="text-yellow-500 mx-1">•</span>
-  Division One
-</p>
-              <p className="text-[10px] font-semibold text-emerald-600 tracking-wider uppercase">
-                Football Club • Division One
-              </p>
+            <div className="flex items-center gap-2 text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+              <span className="inline-flex items-center gap-1.5 text-yellow-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                Est. 2018
+              </span>
+              <span className="text-slate-600">|</span>
+              <span>Nairobi County, Kenya</span>
             </div>
-          </div>
 
-          {/* ================= DESKTOP NAVIGATION ================= */}
-<nav className="hidden xl:flex items-center gap-1 p-1.5 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm">
+            <p className="hidden lg:block text-[10px] text-slate-400 tracking-wide">
+              From Kariobangi North slums to the world — molding football legends
+            </p>
 
-  {[
-    { id: "home", label: "Home" },
-    { id: "history", label: "Our Story" },
-    { id: "squad", label: "Squad" },
-    { id: "management", label: "Management" },
-    { id: "fixtures", label: "Matches" },
-    { id: "news", label: "Club News" },
-    { id: "gallery", label: "Photo Gallery" },
-    { id: "shop", label: "Merchandise Shop" },
-    { id: "donors", label: "Support & Donors" },
-    { id: "fanzone", label: "Fan Zone" },
-  ].map((tab) => (
+            <div className="hidden sm:flex items-center gap-2 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
+              <Trophy className="w-3 h-3" />
+              Official Club Site
+            </div>
 
-    <button
-      key={tab.id}
-      onClick={() => {
-        setActiveTab(tab.id);
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }}
-      className={`relative px-3 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wide transition-all duration-300 whitespace-nowrap cursor-pointer ${
-        activeTab === tab.id
-          ? "bg-slate-950 text-yellow-400 shadow-md"
-          : "text-slate-600 hover:bg-white hover:text-emerald-700 hover:shadow-sm"
-      }`}
-    >
-
-      {/* Active indicator */}
-      {activeTab === tab.id && (
-        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-4 h-0.5 rounded-full bg-yellow-400" />
-      )}
-
-      {tab.label}
-
-    </button>
-
-  ))}
-
-</nav>
-
-          {/* Action buttons (Cart, Donate) */}
-          <div className="flex items-center gap-2">
-            {/* Cart Trigger */}
-            <button
-              onClick={() => setIsCartOpen(true)}
-              className="relative p-2.5 text-slate-700 hover:text-emerald-600 hover:bg-emerald-50 rounded-full transition-all border border-slate-200"
-              title="Open Shopping Cart"
-            >
-              <ShoppingBag className="w-5.5 h-5.5" />
-              {cart.length > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white font-bold text-[10px] w-5 h-5 rounded-full flex items-center justify-center ring-2 ring-white">
-                  {cart.reduce((sum, item) => sum + item.quantity, 0)}
-                </span>
-              )}
-            </button>
-
-            {/* Support Quick CTA */}
-            <button
-              onClick={() => {
-                setActiveTab("donors");
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              className="hidden sm:flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition shadow-md shadow-emerald-600/10 cursor-pointer"
-            >
-              <HeartHandshake className="w-4 h-4 text-emerald-100" /> Support
-            </button>
-
-            {/* Mobile Menu Toggle */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="xl:hidden p-2.5 text-slate-700 hover:text-slate-950 rounded-lg hover:bg-slate-100"
-            >
-              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-            </button>
           </div>
         </div>
 
-        {/* Mobile Dropdown Navigation */}
-        {mobileMenuOpen && (
-          <div className="xl:hidden bg-white border-t border-slate-100 py-3 px-4 shadow-inner space-y-1">
-            {[
-              { id: "home", label: "Home Base" },
-              { id: "history", label: "Club History & Mr. Erick Otieno Atanga" },
-              { id: "squad", label: "Senior Squad List" },
-              { id: "fixtures", label: "Fixtures & Matches" },
-              { id: "news", label: "Club Blogs & News" },
-              { id: "gallery", label: "Team Photo Gallery" },
-              { id: "shop", label: "Merchandise Store" },
-              { id: "donors", label: "Donation Portal" },
-              { id: "fanzone", label: "Fan Guestbook" },
-              { id: "admin", label: "Admin: Add Games & Photos" },
-            ].map((tab) => (
+        {/* Main navigation bar */}
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="min-h-[88px] flex items-center justify-between gap-4 lg:gap-6">
+
+            {/* Club brand */}
+            <button
+              type="button"
+              onClick={() => goToTab("home")}
+              className="flex items-center gap-3 sm:gap-4 min-w-0 cursor-pointer group shrink-0"
+            >
+              <div className="relative shrink-0">
+                <div className="absolute -inset-1 rounded-[1.35rem] bg-gradient-to-br from-yellow-400/80 via-emerald-500/50 to-yellow-400/80 opacity-80 blur-[2px] group-hover:opacity-100 transition-opacity duration-300" />
+                <div className="relative w-16 h-16 sm:w-[4.5rem] sm:h-[4.5rem] md:w-20 md:h-20 rounded-2xl bg-white border-[3px] border-yellow-400 shadow-xl shadow-slate-950/15 flex items-center justify-center overflow-hidden transition-all duration-300 group-hover:border-emerald-500 group-hover:shadow-emerald-500/25 group-hover:scale-[1.02]">
+                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 via-white to-yellow-50" />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="/assets/logo.jpeg"
+                    alt="Kariobangi Legends FC badge"
+                    className="relative z-10 w-[88%] h-[88%] object-contain drop-shadow-md group-hover:scale-105 transition-transform duration-300"
+                  />
+                </div>
+              </div>
+
+              <div className="min-w-0 text-left">
+                <div className="flex items-center gap-1">
+                  <h1 className="font-black italic text-[15px] sm:text-lg md:text-xl tracking-[-0.04em] text-slate-950 leading-none uppercase whitespace-nowrap">
+                    KARIOBANGI
+                  </h1>
+                  <span className="font-black italic text-[15px] sm:text-lg md:text-xl tracking-[-0.04em] text-emerald-600 leading-none uppercase">
+                    LEGENDS
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <span className="text-[8px] sm:text-[9px] font-bold text-slate-500 tracking-[0.16em] uppercase">
+                    Football Club
+                  </span>
+                  <span className="w-1 h-1 rounded-full bg-yellow-400" />
+                  <span className="text-[8px] sm:text-[9px] font-bold text-emerald-600 tracking-[0.12em] uppercase">
+                    Est. 2018
+                  </span>
+                </div>
+              </div>
+            </button>
+
+            {/* Desktop navigation */}
+            <nav className="hidden xl:flex items-center gap-1 p-1 rounded-2xl bg-slate-50/80 border border-slate-200/70">
+
               <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  setMobileMenuOpen(false);
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                className={`w-full text-left px-4 py-3 rounded-xl font-bold transition ${
-                  activeTab === tab.id
-                    ? "bg-slate-950 text-yellow-400"
-                    : "text-slate-700 hover:bg-slate-100"
-                }`}
+                type="button"
+                onClick={() => goToTab("home")}
+                className={desktopNavLinkClass(activeTab === "home")}
               >
-                {tab.label}
+                Home
               </button>
-            ))}
+
+              <div className="relative group">
+                <button
+                  type="button"
+                  className={desktopNavTriggerClass(["history", "management"].includes(activeTab))}
+                >
+                  Club
+                  <ChevronDown className="w-3 h-3 transition-transform duration-300 group-hover:rotate-180" />
+                </button>
+
+                <div className="absolute left-0 top-full pt-2 opacity-0 invisible translate-y-1 group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 transition-all duration-200 z-50">
+                  <div className="w-64 bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200/80 shadow-2xl shadow-slate-950/10 p-2">
+                    <button
+                      type="button"
+                      onClick={() => goToTab("history")}
+                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
+                    >
+                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
+                        <BookOpen className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
+                      </span>
+                      <span>
+                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
+                          Our Story
+                        </span>
+                        <span className="block text-[10px] text-slate-500 mt-0.5">
+                          Club history and journey
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => goToTab("management")}
+                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
+                    >
+                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
+                        <Shield className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
+                      </span>
+                      <span>
+                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
+                          Management
+                        </span>
+                        <span className="block text-[10px] text-slate-500 mt-0.5">
+                          Leadership and technical team
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => goToTab("squad")}
+                className={desktopNavLinkClass(activeTab === "squad")}
+              >
+                Squad
+              </button>
+
+              <div className="relative group">
+                <button
+                  type="button"
+                  className={desktopNavTriggerClass(activeTab === "fixtures")}
+                >
+                  Matches
+                  <ChevronDown className="w-3 h-3 transition-transform duration-300 group-hover:rotate-180" />
+                </button>
+
+                <div className="absolute left-0 top-full pt-2 opacity-0 invisible translate-y-1 group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 transition-all duration-200 z-50">
+                  <div className="w-64 bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200/80 shadow-2xl shadow-slate-950/10 p-2">
+                    <button
+                      type="button"
+                      onClick={() => goToTab("fixtures")}
+                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
+                    >
+                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
+                        <CalendarDays className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
+                      </span>
+                      <span>
+                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
+                          Fixtures & Results
+                        </span>
+                        <span className="block text-[10px] text-slate-500 mt-0.5">
+                          Upcoming and completed matches
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => goToTab("news")}
+                className={desktopNavLinkClass(activeTab === "news")}
+              >
+                News
+              </button>
+
+              <div className="relative group">
+                <button
+                  type="button"
+                  className={desktopNavTriggerClass(["gallery", "fanzone"].includes(activeTab))}
+                >
+                  Media
+                  <ChevronDown className="w-3 h-3 transition-transform duration-300 group-hover:rotate-180" />
+                </button>
+
+                <div className="absolute left-0 top-full pt-2 opacity-0 invisible translate-y-1 group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 transition-all duration-200 z-50">
+                  <div className="w-64 bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200/80 shadow-2xl shadow-slate-950/10 p-2">
+                    <button
+                      type="button"
+                      onClick={() => goToTab("gallery")}
+                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
+                    >
+                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
+                        <Images className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
+                      </span>
+                      <span>
+                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
+                          Photo Gallery
+                        </span>
+                        <span className="block text-[10px] text-slate-500 mt-0.5">
+                          Matchday and club moments
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => goToTab("fanzone")}
+                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
+                    >
+                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
+                        <MessageCircle className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
+                      </span>
+                      <span>
+                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
+                          Fan Zone
+                        </span>
+                        <span className="block text-[10px] text-slate-500 mt-0.5">
+                          Supporter messages and community
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => goToTab("shop")}
+                className={desktopNavLinkClass(activeTab === "shop")}
+              >
+                Shop
+              </button>
+
+              <button
+                type="button"
+                onClick={() => goToTab("contact")}
+                className={desktopNavLinkClass(activeTab === "contact")}
+              >
+                Contact
+              </button>
+            </nav>
+
+            {/* Right actions */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => goToTab("account")}
+                className={`hidden lg:flex items-center gap-2 border font-bold text-[10px] uppercase tracking-wider px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer ${
+                  activeTab === "account"
+                    ? "border-emerald-300 bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
+                    : customerProfile
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                }`}
+                title={customerProfile ? "View your orders" : "Sign in to your account"}
+              >
+                <User className="w-4 h-4" />
+                {customerProfile ? "My Orders" : "Account"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsCartOpen(true)}
+                className="relative w-10 h-10 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition-all duration-200 cursor-pointer shadow-sm"
+                title="Open Shopping Cart"
+                aria-label="Open Shopping Cart"
+              >
+                <ShoppingBag className="w-[18px] h-[18px]" />
+                {cart.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 bg-rose-500 text-white font-black text-[9px] rounded-full flex items-center justify-center ring-2 ring-white shadow-sm">
+                    {cart.reduce((sum, item) => sum + item.quantity, 0)}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => goToTab("donors")}
+                className="hidden 2xl:flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all duration-200 shadow-lg shadow-emerald-600/20 cursor-pointer"
+              >
+                <HeartHandshake className="w-4 h-4" />
+                Support
+              </button>
+
+              <button
+                type="button"
+                onClick={() => goToTab("admin")}
+                className={`hidden xl:flex items-center gap-2 font-bold text-[10px] uppercase tracking-wider px-3.5 py-2.5 rounded-xl transition-all duration-200 shadow-lg cursor-pointer ${
+                  isAdminAuthenticated
+                    ? "bg-yellow-400 hover:bg-yellow-300 text-slate-950 shadow-yellow-400/20"
+                    : "bg-slate-950 hover:bg-slate-900 text-yellow-400 shadow-slate-950/10"
+                }`}
+                title={isAdminAuthenticated ? "Admin dashboard (signed in)" : "Open admin dashboard"}
+              >
+                <Settings className="w-4 h-4" />
+                {isAdminAuthenticated ? "Admin Live" : "Admin"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className={`xl:hidden w-10 h-10 flex items-center justify-center rounded-xl border transition-all duration-200 cursor-pointer ${
+                  mobileMenuOpen
+                    ? "border-slate-950 bg-slate-950 text-yellow-400"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950"
+                }`}
+                aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              >
+                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </button>
+            </div>
+
           </div>
-        )}
+
+          {/* Mobile navigation */}
+          {mobileMenuOpen && (
+            <div className="xl:hidden border-t border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl shadow-slate-950/10">
+              <div className="py-5 space-y-5">
+
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
+                      Main
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {[
+                        { id: "home", label: "Home", icon: Home },
+                        { id: "news", label: "Club News", icon: Newspaper },
+                        { id: "shop", label: "Merchandise Shop", icon: ShoppingBag },
+                        { id: "contact", label: "Contact Centre", icon: Phone },
+                      ].map((tab) => {
+                        const Icon = tab.icon;
+                        const isActive = activeTab === tab.id;
+                        return (
+                          <button
+                            type="button"
+                            key={tab.id}
+                            onClick={() => goToTab(tab.id)}
+                            className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                              isActive
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
+                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                            }`}
+                          >
+                            <Icon className="w-4 h-4 shrink-0" />
+                            <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
+                      Club
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {[
+                        { id: "history", label: "Our Story", icon: BookOpen },
+                        { id: "management", label: "Management", icon: Shield },
+                        { id: "squad", label: "Squad", icon: Users },
+                        { id: "fixtures", label: "Matches", icon: CalendarDays },
+                      ].map((tab) => {
+                        const Icon = tab.icon;
+                        const isActive = activeTab === tab.id;
+                        return (
+                          <button
+                            type="button"
+                            key={tab.id}
+                            onClick={() => goToTab(tab.id)}
+                            className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                              isActive
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
+                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                            }`}
+                          >
+                            <Icon className="w-4 h-4 shrink-0" />
+                            <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
+                      Fans
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {[
+                        { id: "gallery", label: "Photo Gallery", icon: Images },
+                        { id: "fanzone", label: "Fan Zone", icon: MessageCircle },
+                        { id: "account", label: "My Account", icon: User },
+                        { id: "donors", label: "Support & Donors", icon: HeartHandshake },
+                      ].map((tab) => {
+                        const Icon = tab.icon;
+                        const isActive = activeTab === tab.id;
+                        return (
+                          <button
+                            type="button"
+                            key={tab.id}
+                            onClick={() => goToTab(tab.id)}
+                            className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                              isActive
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
+                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                            }`}
+                          >
+                            <Icon className="w-4 h-4 shrink-0" />
+                            <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => goToTab("donors")}
+                      className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-4 py-3 rounded-xl transition cursor-pointer shadow-lg shadow-emerald-600/20"
+                    >
+                      <HeartHandshake className="w-4 h-4" />
+                      Support the Club
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => goToTab("admin")}
+                      className={`flex-1 flex items-center justify-center gap-2 font-bold text-xs uppercase tracking-wider px-4 py-3 rounded-xl transition cursor-pointer ${
+                        isAdminAuthenticated
+                          ? "bg-yellow-400 hover:bg-yellow-300 text-slate-950"
+                          : "bg-slate-950 hover:bg-slate-900 text-yellow-400"
+                      }`}
+                    >
+                      <Settings className="w-4 h-4" />
+                      Admin Dashboard
+                    </button>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+        </div>
       </header>
 
-     
-
-      {/* Main body wrapper */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+{/* Main body wrapper */}
+<main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {/* ================= TAB: HOME ================= */}
         {activeTab === "home" && (
@@ -1810,9 +2925,14 @@ const recentFixtures = initialData.fixtures
           {/* ================= HOME TEAM ================= */}
           <div className="flex flex-col items-center text-center">
 
-            {/* Logo placeholder */}
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shadow-xl mb-4">
-              <Shield className="w-12 h-12 sm:w-14 sm:h-14 text-emerald-400" />
+            {/* Logo */}
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white border-2 border-yellow-400/80 flex items-center justify-center shadow-xl mb-4 overflow-hidden p-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/assets/logo.jpeg"
+                alt="Kariobangi Legends FC"
+                className="w-full h-full object-contain"
+              />
             </div>
 
             <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] text-emerald-400 mb-2">
@@ -1843,9 +2963,18 @@ const recentFixtures = initialData.fixtures
           {/* ================= OPPONENT ================= */}
           <div className="flex flex-col items-center text-center">
 
-            {/* Opponent logo placeholder */}
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shadow-xl mb-4">
-              <Shield className="w-12 h-12 sm:w-14 sm:h-14 text-slate-400" />
+            {/* Opponent logo */}
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white border border-white/20 flex items-center justify-center shadow-xl mb-4 overflow-hidden p-2">
+              {upcomingFixtures[0].opponentLogoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={upcomingFixtures[0].opponentLogoUrl}
+                  alt={`${upcomingFixtures[0].opponent} logo`}
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <Shield className="w-12 h-12 sm:w-14 sm:h-14 text-slate-400" />
+              )}
             </div>
 
             <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">
@@ -1987,97 +3116,147 @@ const recentFixtures = initialData.fixtures
 
     <div className="relative group">
 
-      {/* Large image area */}
-      <div className="relative h-[320px] sm:h-[430px] md:h-[520px] lg:h-[560px] rounded-3xl overflow-hidden bg-slate-950 border border-slate-200 shadow-xl">
+      {/* Soft outer glow */}
+      <div className="absolute -inset-px rounded-[1.75rem] bg-gradient-to-r from-emerald-500/30 via-yellow-400/20 to-emerald-500/30 opacity-70 blur-[2px] group-hover:opacity-100 transition-opacity duration-500" />
 
-        {initialData.gallery.map((item, index) => (
+      <div className="relative rounded-3xl overflow-hidden border border-slate-200/80 shadow-2xl shadow-slate-950/10 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900">
 
-          <div
-            key={item.id}
-            className={`absolute inset-0 flex items-center justify-center transition-opacity duration-1000 ${
-              index === galleryCarouselIndex
-                ? "opacity-100 z-10"
-                : "opacity-0 z-0 pointer-events-none"
-            }`}
-          >
+        {/* Ambient background accents */}
+        <div className="absolute top-0 right-0 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-72 h-72 bg-yellow-400/5 rounded-full blur-3xl pointer-events-none" />
 
-            {/* Clear image */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={item.imageUrl}
-              alt={item.caption || "Kariobangi Legends FC"}
-              className="w-full h-full object-contain"
-            />
+        {/* Image stage */}
+        <div className="relative px-4 sm:px-8 pt-6 sm:pt-8 pb-2">
 
-            {/* Very light overlay only at bottom */}
-            <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+          <div className="relative h-[300px] sm:h-[400px] md:h-[480px] lg:h-[520px] flex items-center justify-center">
+
+            {initialData.gallery.map((item, index) => (
+
+              <div
+                key={item.id}
+                className={`absolute inset-0 flex items-center justify-center transition-all duration-700 ease-out ${
+                  index === galleryCarouselIndex
+                    ? "opacity-100 z-10 scale-100"
+                    : "opacity-0 z-0 scale-[0.98] pointer-events-none"
+                }`}
+              >
+
+                {/* Photo frame — full image, no crop */}
+                <div className="relative max-w-full max-h-full rounded-2xl p-1 sm:p-1.5 bg-gradient-to-br from-white/20 via-white/5 to-white/10 shadow-2xl ring-1 ring-white/15">
+
+                  <div className="rounded-xl overflow-hidden bg-slate-900/80 backdrop-blur-sm flex items-center justify-center min-w-[240px] min-h-[220px] sm:min-h-[320px] max-h-[280px] sm:max-h-[380px] md:max-h-[460px] lg:max-h-[500px]">
+
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={item.imageUrl}
+                      alt={item.caption || "Kariobangi Legends FC"}
+                      className="max-w-full max-h-[280px] sm:max-h-[380px] md:max-h-[460px] lg:max-h-[500px] w-auto h-auto object-contain"
+                      draggable={false}
+                    />
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            ))}
 
 
-            {/* Caption */}
-            <div className="absolute bottom-0 left-0 right-0 p-5 sm:p-8 z-20">
+            {/* Previous */}
+            <button
+              onClick={() =>
+                setGalleryCarouselIndex((current) =>
+                  current === 0
+                    ? initialData.gallery.length - 1
+                    : current - 1
+                )
+              }
+              className="absolute z-30 left-2 sm:left-4 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-slate-950/70 hover:bg-yellow-400 hover:text-slate-950 text-white border border-white/15 backdrop-blur-md flex items-center justify-center transition-all duration-300 opacity-80 group-hover:opacity-100 cursor-pointer shadow-lg"
+              aria-label="Previous image"
+            >
+              <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+            </button>
 
-              {item.category && (
-                <span className="inline-flex items-center bg-emerald-600 text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full mb-2">
-                  {item.category}
-                </span>
-              )}
 
-              <p className="text-lg sm:text-2xl font-black text-white leading-snug max-w-2xl">
-                {item.caption || "Kariobangi Legends FC"}
-              </p>
+            {/* Next */}
+            <button
+              onClick={() =>
+                setGalleryCarouselIndex((current) =>
+                  current === initialData.gallery.length - 1
+                    ? 0
+                    : current + 1
+                )
+              }
+              className="absolute z-30 right-2 sm:right-4 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-slate-950/70 hover:bg-yellow-400 hover:text-slate-950 text-white border border-white/15 backdrop-blur-md flex items-center justify-center transition-all duration-300 opacity-80 group-hover:opacity-100 cursor-pointer shadow-lg"
+              aria-label="Next image"
+            >
+              <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+            </button>
+
+
+            {/* Counter badge */}
+            <div className="absolute z-30 top-2 sm:top-4 right-2 sm:right-4">
+
+              <div className="px-3 py-1.5 rounded-full bg-slate-950/75 border border-emerald-500/30 backdrop-blur-md text-emerald-300 text-[9px] font-black tracking-wider">
+                {galleryCarouselIndex + 1} / {initialData.gallery.length}
+              </div>
 
             </div>
 
           </div>
 
-        ))}
+        </div>
 
 
-        {/* Previous */}
-        <button
-          onClick={() =>
-            setGalleryCarouselIndex((current) =>
-              current === 0
-                ? initialData.gallery.length - 1
-                : current - 1
-            )
-          }
-          className="absolute z-30 left-4 top-1/2 -translate-y-1/2 w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-black/60 hover:bg-yellow-400 hover:text-slate-950 text-white border border-white/20 backdrop-blur-md flex items-center justify-center transition-all duration-300 opacity-70 group-hover:opacity-100"
-          aria-label="Previous image"
-        >
-          <ChevronLeft className="w-6 h-6" />
-        </button>
+        {/* Caption bar */}
+        <div className="relative border-t border-white/10 bg-slate-950/90 backdrop-blur-sm px-5 sm:px-8 py-4 sm:py-5 min-h-[104px]">
 
+          <div className="absolute top-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent" />
 
-        {/* Next */}
-        <button
-          onClick={() =>
-            setGalleryCarouselIndex((current) =>
-              current === initialData.gallery.length - 1
-                ? 0
-                : current + 1
-            )
-          }
-          className="absolute z-30 right-4 top-1/2 -translate-y-1/2 w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-black/60 hover:bg-yellow-400 hover:text-slate-950 text-white border border-white/20 backdrop-blur-md flex items-center justify-center transition-all duration-300 opacity-70 group-hover:opacity-100"
-          aria-label="Next image"
-        >
-          <ChevronRight className="w-6 h-6" />
-        </button>
+          {initialData.gallery.map((item, index) => (
 
+            <div
+              key={`caption-${item.id}`}
+              className={`transition-all duration-500 ${
+                index === galleryCarouselIndex
+                  ? "opacity-100 relative z-10 translate-y-0"
+                  : "opacity-0 absolute inset-0 px-5 sm:px-8 py-4 sm:py-5 pointer-events-none translate-y-1"
+              }`}
+            >
 
-        {/* Counter */}
-        <div className="absolute z-30 top-4 right-4">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
 
-          <div className="px-3 py-1.5 rounded-full bg-black/60 border border-white/20 backdrop-blur-md text-white text-[9px] font-black">
-            {galleryCarouselIndex + 1} / {initialData.gallery.length}
-          </div>
+                {item.category && (
+                  <span className="inline-flex items-center bg-emerald-600 text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full">
+                    {item.category}
+                  </span>
+                )}
+
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
+                  {new Date(item.createdAt).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </span>
+
+              </div>
+
+              <p className="text-base sm:text-xl font-black text-white leading-snug max-w-3xl">
+                {item.caption || "Kariobangi Legends FC"}
+              </p>
+
+            </div>
+
+          ))}
 
         </div>
 
       </div>
 
 
-      {/* ================= DOTS ================= */}
+      {/* Progress dots */}
       <div className="flex justify-center items-center gap-2 mt-5">
 
         {initialData.gallery.map((_, index) => (
@@ -2085,9 +3264,9 @@ const recentFixtures = initialData.fixtures
           <button
             key={index}
             onClick={() => setGalleryCarouselIndex(index)}
-            className={`h-2 rounded-full transition-all duration-500 ${
+            className={`h-2 rounded-full transition-all duration-500 cursor-pointer ${
               index === galleryCarouselIndex
-                ? "w-8 bg-yellow-400"
+                ? "w-8 bg-yellow-400 shadow-sm shadow-yellow-400/40"
                 : "w-2 bg-slate-300 hover:bg-emerald-500"
             }`}
             aria-label={`Show image ${index + 1}`}
@@ -2102,18 +3281,20 @@ const recentFixtures = initialData.fixtures
   ) : (
 
     /* Empty gallery */
-    <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
+    <div className="relative rounded-3xl overflow-hidden border border-dashed border-emerald-200 bg-gradient-to-br from-white via-emerald-50/30 to-white p-12 text-center shadow-sm">
 
-      <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4">
-        <Camera className="w-7 h-7 text-slate-300" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.08),transparent_55%)] pointer-events-none" />
+
+      <div className="relative w-16 h-16 rounded-2xl bg-white border border-emerald-100 flex items-center justify-center mx-auto mb-4 shadow-sm">
+        <Camera className="w-8 h-8 text-emerald-500" />
       </div>
 
-      <h4 className="font-black text-slate-800">
+      <h4 className="font-black text-slate-800 text-lg">
         No Gallery Photos Yet
       </h4>
 
-      <p className="text-sm text-slate-500 mt-2">
-        Club photos and matchday moments will appear here.
+      <p className="text-sm text-slate-500 mt-2 max-w-md mx-auto">
+        Club photos and matchday moments will appear here once uploaded from the Admin Panel.
       </p>
 
     </div>
@@ -2602,18 +3783,20 @@ const recentFixtures = initialData.fixtures
               <div className="max-w-xl space-y-1">
                 <h2 className="text-3xl font-black text-slate-950 tracking-tight">Legends Photo Gallery</h2>
                 <p className="text-sm text-slate-600">
-                  Showcasing real team moments in Kariobangi North. You can dynamically add new photos of match fixtures and academy work through the Admin Panel.
+                  Showcasing real team moments in Kariobangi North — matchday action, training, academy work, and community events.
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  setActiveTab("admin");
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs px-4 py-2.5 rounded-xl uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-              >
-                <Plus className="w-4 h-4" /> Add Photo to Board
-              </button>
+              {isAdminAuthenticated && (
+                <button
+                  onClick={() => {
+                    setActiveTab("admin");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs px-4 py-2.5 rounded-xl uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" /> Add Photo to Board
+                </button>
+              )}
             </div>
 
             {/* Category Filter buttons */}
@@ -2638,30 +3821,33 @@ const recentFixtures = initialData.fixtures
               {filteredGallery.map((item) => (
                 <div
                   key={item.id}
-                  className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group"
-                  
+                  className="group bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
                 >
-                  <div className="h-72 relative bg-slate-900 overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <div className="relative h-72 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 overflow-hidden">
+
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.08),transparent_65%)] pointer-events-none" />
+
                     <button
-  type="button"
-  onClick={() => {
-    setSelectedGalleryImage(item);
-  }}
-  className="w-full h-full cursor-zoom-in"
->
-  {/* eslint-disable-next-line @next/next/no-img-element */}
-  <img
-    src={item.imageUrl}
-    alt={item.caption}
-    className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500 ease-out"
-  />
-</button>
-                    <span className="absolute top-4 left-4 bg-slate-950/90 text-yellow-400 text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
+                      type="button"
+                      onClick={() => {
+                        setSelectedGalleryImage(item);
+                      }}
+                      className="relative z-10 w-full h-full flex items-center justify-center p-3 cursor-zoom-in"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={item.imageUrl}
+                        alt={item.caption}
+                        className="max-w-full max-h-full w-auto h-auto object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out drop-shadow-lg"
+                      />
+                    </button>
+
+                    <span className="absolute top-4 left-4 z-20 bg-slate-950/90 text-yellow-400 text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider border border-yellow-400/20">
                       {item.category}
                     </span>
                   </div>
-                  <div className="p-5 space-y-2">
+
+                  <div className="p-5 space-y-2 border-t border-slate-100 bg-gradient-to-b from-white to-slate-50/50">
                     <p className="text-xs text-slate-700 leading-relaxed font-semibold">
                       {item.caption}
                     </p>
@@ -2669,20 +3855,22 @@ const recentFixtures = initialData.fixtures
                       <p className="text-[10px] text-slate-400 font-bold">
                         Published: {new Date(item.createdAt).toLocaleDateString()}
                       </p>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => openReplaceImage(item.id, "gallery", item.imageUrl, item.caption)}
-                          className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-0.5 cursor-pointer px-2 py-1 rounded hover:bg-blue-50"
-                        >
-                          <Camera className="w-3 h-3" /> Swap
-                        </button>
-                        <button
-                          onClick={() => handleDeleteGallery(item.id)}
-                          className="text-[10px] font-bold text-rose-500 hover:text-rose-700 flex items-center gap-0.5 cursor-pointer px-2 py-1 rounded hover:bg-rose-50"
-                        >
-                          <Trash2 className="w-3 h-3" /> Remove
-                        </button>
-                      </div>
+                      {isAdminAuthenticated && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => openReplaceImage(item.id, "gallery", item.imageUrl, item.caption)}
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-0.5 cursor-pointer px-2 py-1 rounded hover:bg-blue-50"
+                          >
+                            <Camera className="w-3 h-3" /> Swap
+                          </button>
+                          <button
+                            onClick={() => handleDeleteGallery(item.id)}
+                            className="text-[10px] font-bold text-rose-500 hover:text-rose-700 flex items-center gap-0.5 cursor-pointer px-2 py-1 rounded hover:bg-rose-50"
+                          >
+                            <Trash2 className="w-3 h-3" /> Remove
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2693,7 +3881,9 @@ const recentFixtures = initialData.fixtures
               <div className="text-center py-16 bg-white rounded-3xl border border-slate-100 shadow-sm">
                 <ImageIcon className="w-12 h-12 text-slate-300 mx-auto" />
                 <p className="font-bold text-slate-500 text-sm mt-3">No photos in this category yet</p>
-                <p className="text-xs text-slate-400 mt-1">Go to the Admin Panel to post pictures of this event!</p>
+                {isAdminAuthenticated && (
+                  <p className="text-xs text-slate-400 mt-1">Go to the Admin Panel to post pictures of this event.</p>
+                )}
               </div>
             )}
           </div>
@@ -3562,8 +4752,13 @@ const recentFixtures = initialData.fixtures
                         {/* Teams display */}
                         <div className="flex items-center justify-between py-1">
                           <div className="flex items-center gap-2 w-5/12">
-                            <div className="w-8 h-8 rounded-full bg-slate-950 flex items-center justify-center font-bold text-yellow-400 text-xs border-2 border-yellow-500">
-                              KL
+                            <div className="w-8 h-8 rounded-full bg-slate-950 flex items-center justify-center font-bold text-yellow-400 text-xs border-2 border-yellow-500 overflow-hidden p-0.5">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src="/assets/logo.jpeg"
+                                alt="Kariobangi Legends FC"
+                                className="w-full h-full object-contain"
+                              />
                             </div>
                             <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
                               Legends FC
@@ -3578,9 +4773,20 @@ const recentFixtures = initialData.fixtures
                             <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
                               {fixture.opponent}
                             </span>
-                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs">
-                              {fixture.opponent.slice(0, 2).toUpperCase()}
-                            </div>
+                            {fixture.opponentLogoUrl ? (
+                              <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center overflow-hidden p-0.5 shrink-0">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={fixture.opponentLogoUrl}
+                                  alt={`${fixture.opponent} logo`}
+                                  className="w-full h-full object-contain"
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs shrink-0">
+                                {fixture.opponent.slice(0, 2).toUpperCase()}
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -3638,8 +4844,13 @@ const recentFixtures = initialData.fixtures
                         <div className="flex items-center justify-between py-1">
                           {/* Legends */}
                           <div className="flex items-center gap-2 w-5/12">
-                            <div className="w-8 h-8 rounded-full bg-slate-950 flex items-center justify-center font-bold text-yellow-400 text-xs border-2 border-yellow-500">
-                              KL
+                            <div className="w-8 h-8 rounded-full bg-slate-950 flex items-center justify-center font-bold text-yellow-400 text-xs border-2 border-yellow-500 overflow-hidden p-0.5">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src="/assets/logo.jpeg"
+                                alt="Kariobangi Legends FC"
+                                className="w-full h-full object-contain"
+                              />
                             </div>
                             <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
                               Legends FC
@@ -3662,9 +4873,20 @@ const recentFixtures = initialData.fixtures
                             <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
                               {fixture.opponent}
                             </span>
-                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs">
-                              {fixture.opponent.slice(0, 2).toUpperCase()}
-                            </div>
+                            {fixture.opponentLogoUrl ? (
+                              <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center overflow-hidden p-0.5 shrink-0">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={fixture.opponentLogoUrl}
+                                  alt={`${fixture.opponent} logo`}
+                                  className="w-full h-full object-contain"
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs shrink-0">
+                                {fixture.opponent.slice(0, 2).toUpperCase()}
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -3789,6 +5011,104 @@ const recentFixtures = initialData.fixtures
               <p className="text-sm text-slate-600">
                 100% of profit goes directly toward sponsoring player boots, school scholarships, and match travel for our Division One squad.
               </p>
+            </div>
+
+            {/* Track order */}
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                    <Package className="w-5 h-5 text-emerald-600" />
+                    Track Your Order
+                  </h3>
+                  <p className="text-sm text-slate-600">
+                    {customerProfile
+                      ? "View all your orders in My Account, or look up a single order below."
+                      : "Sign in to see all your orders, or track one purchase with your order number and M-PESA phone."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("account");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="shrink-0 inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer"
+                >
+                  <User className="w-4 h-4" />
+                  {customerProfile ? "My Orders" : "Sign In / Register"}
+                </button>
+              </div>
+
+              <form onSubmit={handleTrackOrder} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Order Number
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="e.g. 12"
+                    value={trackOrderId}
+                    onChange={(e) => setTrackOrderId(e.target.value)}
+                    className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    M-PESA Phone
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. 0712345678"
+                    value={trackPhone}
+                    onChange={(e) => setTrackPhone(e.target.value)}
+                    className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    required
+                  />
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="submit"
+                    disabled={isPending}
+                    className="w-full sm:w-auto bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold px-6 py-3 rounded-xl uppercase tracking-wider text-xs transition cursor-pointer disabled:opacity-50"
+                  >
+                    {isPending ? "Checking..." : "Track Order"}
+                  </button>
+                </div>
+              </form>
+
+              {trackError && (
+                <p className="text-sm text-rose-600 font-semibold">{trackError}</p>
+              )}
+
+              {trackedOrder && (
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        Order #{trackedOrder.id}
+                      </p>
+                      <p className="text-lg font-black text-slate-950">
+                        {trackedOrder.customerName}
+                      </p>
+                    </div>
+                    <OrderStatusBadge orderStatus={trackedOrder.orderStatus} />
+                  </div>
+
+                  <OrderProgressTimeline
+                    orderStatus={trackedOrder.orderStatus}
+                    paymentStatus={trackedOrder.paymentStatus}
+                    mpesaReceiptNumber={trackedOrder.mpesaReceiptNumber}
+                    items={trackedOrder.items}
+                    totalAmount={trackedOrder.totalAmount}
+                    createdAt={trackedOrder.createdAt}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Shop banner */}
@@ -4166,6 +5486,823 @@ const recentFixtures = initialData.fixtures
           </div>
         )}
 
+        {/* ================= TAB: MY ACCOUNT ================= */}
+        {activeTab === "account" && (
+          <div className="space-y-8">
+            <div className="relative overflow-hidden rounded-3xl bg-slate-950 text-white border border-slate-800 shadow-2xl">
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/20 via-transparent to-yellow-400/10" />
+              <div className="relative z-10 p-6 sm:p-10 space-y-4">
+                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-600/90 text-white text-[9px] font-black uppercase tracking-widest">
+                  <User className="w-3.5 h-3.5" />
+                  Fan Account
+                </span>
+                <div className="space-y-2 max-w-3xl">
+                  <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
+                    {customerProfile ? (
+                      <>
+                        Welcome,{" "}
+                        <span className="text-yellow-400">
+                          {customerProfile.fullName.split(" ")[0]}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        Your <span className="text-yellow-400">Account</span>
+                      </>
+                    )}
+                  </h2>
+                  <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
+                    {customerProfile
+                      ? "Track your orders, message the club admin, and read replies here in your account."
+                      : "Create a free account to save your details at checkout and trace all your merchandise orders in one place."}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {!isAdminAuthenticated && (
+              <div className="space-y-4">
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    aria-expanded={showFanPasswordReset}
+                    onClick={() => {
+                      setShowFanPasswordReset((open) => {
+                        if (open) {
+                          setResetStep("request");
+                        } else if (customerProfile) {
+                          setResetPhone(
+                            formatStoredPhoneForInput(customerProfile.phoneNumber)
+                          );
+                        }
+                        return !open;
+                      });
+                    }}
+                    className={`inline-flex items-center gap-2 font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer shadow-md active:scale-[0.98] ${
+                      showFanPasswordReset
+                        ? "bg-emerald-700 text-white ring-2 ring-emerald-300 ring-offset-2"
+                        : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    }`}
+                  >
+                    <Shield className="w-3.5 h-3.5" />
+                    {showFanPasswordReset ? "Hide Password Reset" : "Reset Password"}
+                  </button>
+                </div>
+
+                {showFanPasswordReset && (
+                  <div className="bg-white rounded-3xl border border-emerald-100 shadow-sm p-6 sm:p-8 space-y-5">
+                    <div className="space-y-1">
+                      <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
+                        <Shield className="w-5 h-5 text-emerald-600" />
+                        Reset Fan Account Password
+                      </h3>
+                      <p className="text-sm text-slate-600">
+                        Enter your M-PESA phone number to receive a 6-digit SMS code.
+                      </p>
+                    </div>
+
+                    {resetStep === "request" ? (
+                      <form onSubmit={handleCustomerRequestReset} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            M-PESA Phone
+                          </label>
+                          <input
+                            type="tel"
+                            placeholder="e.g. 0712345678"
+                            value={resetPhone}
+                            onChange={(e) => setResetPhone(e.target.value)}
+                            className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                            required
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            type="submit"
+                            disabled={isFanResetPending}
+                            className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isFanResetPending ? "Sending..." : "Send Reset Code"}
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleCustomerCompleteReset} className="space-y-4">
+                        <p className="text-xs text-slate-500">
+                          Check SMS on {resetPhone || "your phone"} and choose a new password.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Reset Code
+                            </label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="6-digit code"
+                              value={resetCode}
+                              onChange={(e) => setResetCode(e.target.value)}
+                              className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              New Password
+                            </label>
+                            <PasswordInput
+                              value={resetNewPassword}
+                              onChange={setResetNewPassword}
+                              placeholder="At least 6 characters"
+                              required
+                              minLength={6}
+                              autoComplete="new-password"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Confirm Password
+                            </label>
+                            <PasswordInput
+                              value={resetConfirmPassword}
+                              onChange={setResetConfirmPassword}
+                              placeholder="Confirm new password"
+                              required
+                              minLength={6}
+                              autoComplete="new-password"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            type="submit"
+                            disabled={isFanResetPending}
+                            className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isFanResetPending ? "Updating..." : "Reset Password"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCustomerRequestReset()}
+                            disabled={isFanResetPending}
+                            className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 hover:text-emerald-800 cursor-pointer px-2 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isFanResetPending ? "Sending..." : "Resend Code"}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {customerProfile ? (
+              <div className="space-y-6">
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        Signed in as
+                      </p>
+                      <p className="text-xl font-black text-slate-950">{customerProfile.fullName}</p>
+                      <p className="text-sm text-slate-600">
+                        {formatPhoneDisplay(formatStoredPhoneForInput(customerProfile.phoneNumber))}
+                        {customerProfile.email && (
+                          <> • {customerProfile.email}</>
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCustomerLogout}
+                      className="inline-flex items-center justify-center gap-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                      <Package className="w-5 h-5 text-emerald-600" />
+                      My Orders
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => loadCustomerOrders()}
+                      disabled={isLoadingCustomerOrders}
+                      className="text-[10px] font-black uppercase tracking-wider text-emerald-700 hover:text-emerald-800 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isLoadingCustomerOrders ? "Refreshing..." : "Refresh"}
+                    </button>
+                  </div>
+
+                  {isLoadingCustomerOrders ? (
+                    <div className="bg-white rounded-3xl border border-slate-100 p-10 text-center text-sm text-slate-500">
+                      Loading your orders...
+                    </div>
+                  ) : customerOrders.length === 0 ? (
+                    <div className="bg-white rounded-3xl border border-slate-100 p-10 text-center space-y-4">
+                      <ShoppingBag className="w-10 h-10 text-slate-300 mx-auto" />
+                      <div>
+                        <p className="font-bold text-slate-700">No orders yet</p>
+                        <p className="text-sm text-slate-500 mt-1">
+                          When you buy official kits, your orders will show up here for easy tracking.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab("shop");
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                        className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition cursor-pointer"
+                      >
+                        Browse the Shop
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {customerOrders.map((order) => {
+                        const isExpanded = expandedAccountOrderId === order.id;
+                        const itemCount = order.items?.length || 0;
+
+                        return (
+                          <div
+                            key={order.id}
+                            className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedAccountOrderId(
+                                  isExpanded ? null : order.id
+                                )
+                              }
+                              className="w-full text-left p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 hover:bg-slate-50/80 transition cursor-pointer"
+                            >
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                  Order #{order.id}
+                                </p>
+                                <p className="font-black text-slate-950">
+                                  Ksh {order.totalAmount?.toLocaleString()}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  {itemCount} item{itemCount === 1 ? "" : "s"} •{" "}
+                                  {new Date(order.createdAt).toLocaleDateString()}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <OrderStatusBadge orderStatus={order.orderStatus} />
+                                <ChevronDown
+                                  className={`w-4 h-4 text-slate-400 transition-transform ${
+                                    isExpanded ? "rotate-180" : ""
+                                  }`}
+                                />
+                              </div>
+                            </button>
+
+                            {isExpanded && (
+                              <div className="px-5 sm:px-6 pb-6 border-t border-slate-100 pt-5 bg-slate-50/50">
+                                <OrderProgressTimeline
+                                  orderStatus={order.orderStatus}
+                                  paymentStatus={order.paymentStatus}
+                                  mpesaReceiptNumber={order.mpesaReceiptNumber}
+                                  items={order.items}
+                                  totalAmount={order.totalAmount}
+                                  createdAt={order.createdAt}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                      <MessageSquare className="w-5 h-5 text-emerald-600" />
+                      Message Admin
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => loadCustomerMessages()}
+                      disabled={isLoadingCustomerMessages}
+                      className="text-[10px] font-black uppercase tracking-wider text-emerald-700 hover:text-emerald-800 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isLoadingCustomerMessages ? "Refreshing..." : "Refresh"}
+                    </button>
+                  </div>
+
+                  <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
+                    <p className="text-sm text-slate-600">
+                      Ask about orders, memberships, tickets, or club updates. Admin replies appear here in your account.
+                    </p>
+
+                    <div className="max-h-80 overflow-y-auto space-y-3 pr-1">
+                      {isLoadingCustomerMessages ? (
+                        <p className="text-sm text-slate-500 text-center py-8">Loading messages...</p>
+                      ) : customerMessages.length === 0 ? (
+                        <div className="text-center py-8 space-y-2">
+                          <MessageCircle className="w-8 h-8 text-slate-300 mx-auto" />
+                          <p className="text-sm font-semibold text-slate-600">No messages yet</p>
+                          <p className="text-xs text-slate-500">
+                            Send your first message to the club admin below.
+                          </p>
+                        </div>
+                      ) : (
+                        customerMessages.map((entry) => {
+                          const isAdmin = entry.senderType === "admin";
+
+                          return (
+                            <div
+                              key={entry.id}
+                              className={`flex ${isAdmin ? "justify-start" : "justify-end"}`}
+                            >
+                              <div
+                                className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
+                                  isAdmin
+                                    ? "bg-slate-100 border border-slate-200 text-slate-800"
+                                    : "bg-emerald-600 text-white"
+                                }`}
+                              >
+                                <p className="text-[10px] font-black uppercase tracking-wider opacity-80 mb-1">
+                                  {isAdmin ? "Club Admin" : "You"}
+                                </p>
+                                <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                                  {entry.message}
+                                </p>
+                                <p className="text-[10px] mt-2 opacity-70">
+                                  {new Date(entry.createdAt).toLocaleString()}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    <form onSubmit={handleSendCustomerMessage} className="space-y-3 border-t border-slate-100 pt-5">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Your message
+                      </label>
+                      <textarea
+                        rows={3}
+                        placeholder="Write your message to the club admin..."
+                        value={customerMessageDraft}
+                        onChange={(e) => setCustomerMessageDraft(e.target.value)}
+                        maxLength={2000}
+                        className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none resize-y"
+                        required
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSendingCustomerMessage}
+                        className="w-full sm:w-auto bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSendingCustomerMessage ? "Sending..." : "Send to Admin"}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
+                  <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountView("login");
+                        setResetStep("request");
+                      }}
+                      className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
+                        accountView === "login"
+                          ? "bg-white text-slate-950 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      Sign In
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountView("register");
+                        setResetStep("request");
+                      }}
+                      className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
+                        accountView === "register"
+                          ? "bg-white text-slate-950 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      Register
+                    </button>
+                  </div>
+
+                  {accountView === "login" ? (
+                    <form onSubmit={handleCustomerLogin} className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          M-PESA Phone
+                        </label>
+                        <input
+                          type="tel"
+                          placeholder="e.g. 0712345678"
+                          value={loginPhone}
+                          onChange={(e) => setLoginPhone(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Password
+                        </label>
+                        <PasswordInput
+                          value={loginPassword}
+                          onChange={setLoginPassword}
+                          placeholder="Your account password"
+                          required
+                          autoComplete="current-password"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                      >
+                        Sign In
+                      </button>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleCustomerRegister} className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Full Name
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="As on M-PESA"
+                          value={registerName}
+                          onChange={(e) => setRegisterName(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          M-PESA Phone
+                        </label>
+                        <input
+                          type="tel"
+                          placeholder="e.g. 0712345678"
+                          value={registerPhone}
+                          onChange={(e) => setRegisterPhone(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Email (optional)
+                        </label>
+                        <input
+                          type="email"
+                          placeholder="For receipts"
+                          value={registerEmail}
+                          onChange={(e) => setRegisterEmail(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Password
+                        </label>
+                        <PasswordInput
+                          value={registerPassword}
+                          onChange={setRegisterPassword}
+                          placeholder="At least 6 characters"
+                          required
+                          minLength={6}
+                          autoComplete="new-password"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                      >
+                        Create Account
+                      </button>
+                    </form>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
+                  <div className="space-y-1">
+                    <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                      <Package className="w-5 h-5 text-emerald-600" />
+                      Track Without Signing In
+                    </h3>
+                    <p className="text-sm text-slate-600">
+                      Use your order number and the M-PESA phone used at checkout.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleTrackOrder} className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Order Number
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="e.g. 12"
+                        value={trackOrderId}
+                        onChange={(e) => setTrackOrderId(e.target.value)}
+                        className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        M-PESA Phone
+                      </label>
+                      <input
+                        type="tel"
+                        placeholder="e.g. 0712345678"
+                        value={trackPhone}
+                        onChange={(e) => setTrackPhone(e.target.value)}
+                        className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isPending}
+                      className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+                    >
+                      {isPending ? "Checking..." : "Track Order"}
+                    </button>
+                  </form>
+
+                  {trackError && (
+                    <p className="text-sm text-rose-600 font-semibold">{trackError}</p>
+                  )}
+
+                  {trackedOrder && (
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                            Order #{trackedOrder.id}
+                          </p>
+                          <p className="text-lg font-black text-slate-950">
+                            {trackedOrder.customerName}
+                          </p>
+                        </div>
+                        <OrderStatusBadge orderStatus={trackedOrder.orderStatus} />
+                      </div>
+                      <OrderProgressTimeline
+                        orderStatus={trackedOrder.orderStatus}
+                        paymentStatus={trackedOrder.paymentStatus}
+                        mpesaReceiptNumber={trackedOrder.mpesaReceiptNumber}
+                        items={trackedOrder.items}
+                        totalAmount={trackedOrder.totalAmount}
+                        createdAt={trackedOrder.createdAt}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ================= TAB: CONTACT CENTRE ================= */}
+        {activeTab === "contact" && (
+          <div className="space-y-8">
+            <div className="relative overflow-hidden rounded-3xl bg-slate-950 text-white border border-slate-800 shadow-2xl">
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/20 via-transparent to-yellow-400/10" />
+              <div className="absolute -top-20 -right-20 w-64 h-64 bg-emerald-500/20 rounded-full blur-3xl" />
+
+              <div className="relative z-10 p-6 sm:p-10 lg:p-12 space-y-5">
+                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-600/90 text-white text-[9px] font-black uppercase tracking-widest">
+                  <Phone className="w-3.5 h-3.5" />
+                  Official Contact Centre
+                </span>
+
+                <div className="space-y-2 max-w-3xl">
+                  <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
+                    Reach the{" "}
+                    <span className="text-yellow-400">Legends</span>
+                  </h2>
+                  <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
+                    Our contact centre is open to fans, donors, sponsors, and partners.
+                    Call or email us for match tickets, merchandise, donations, academy enquiries,
+                    or general club support.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-1">
+                  <a
+                    href={`mailto:${CONTACT_CENTER.email}`}
+                    className="inline-flex items-center gap-2 bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-[10px] uppercase tracking-wider px-5 py-3 rounded-xl transition-all duration-300 shadow-lg"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Email the Club
+                  </a>
+                  {CONTACT_CENTER.phones[0] && (
+                    <a
+                      href={toTelHref(CONTACT_CENTER.phones[0].number)}
+                      className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-black text-[10px] uppercase tracking-wider px-5 py-3 rounded-xl transition-all duration-300"
+                    >
+                      <Phone className="w-4 h-4" />
+                      Call Now
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+                <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-black text-slate-950">For Fans</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Match updates, fan zone messages, ticket enquiries, merchandise orders,
+                    and community events across Kariobangi North.
+                  </p>
+                </div>
+                <ul className="space-y-2 text-xs text-slate-600">
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    Fixtures, results, and matchday information
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    Supporter messages and club news
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    Official kit and merchandise support
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+                <div className="w-11 h-11 rounded-2xl bg-yellow-50 text-yellow-700 flex items-center justify-center">
+                  <HeartHandshake className="w-5 h-5" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-black text-slate-950">For Donors</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Sponsorship, donations, academy support, transport funding,
+                    and partnership opportunities for individuals and organizations.
+                  </p>
+                </div>
+                <ul className="space-y-2 text-xs text-slate-600">
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    Boots, kits, meals, and academy contributions
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    Corporate sponsorship and CSR partnerships
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    Donor receipts and follow-up coordination
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-slate-950 text-white rounded-3xl p-6 border border-slate-900 shadow-sm space-y-4">
+                <div className="w-11 h-11 rounded-2xl bg-slate-900 text-yellow-400 flex items-center justify-center border border-slate-800">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-black text-yellow-400">Visit Us</h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {CONTACT_CENTER.location.venue}
+                    <br />
+                    {CONTACT_CENTER.location.region}
+                  </p>
+                </div>
+                <div className="flex items-start gap-2 text-xs text-slate-300">
+                  <Clock className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <span>{CONTACT_CENTER.hours}</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed border-t border-slate-800 pt-3">
+                  Founded under Mr. Erick Otieno Atanga&apos;s leadership.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-sm space-y-5">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-black text-slate-950">Club Phone Lines</h3>
+                  <p className="text-xs text-slate-500">
+                    Tap any number to call directly from your phone.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {CONTACT_CENTER.phones.map((line) => (
+                    <a
+                      key={line.number}
+                      href={toTelHref(line.number)}
+                      className="group p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-200 transition-all duration-200"
+                    >
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 group-hover:text-emerald-700">
+                        {line.label}
+                      </p>
+                      <p className="mt-1 text-lg font-black text-slate-950 group-hover:text-emerald-800">
+                        {formatPhoneDisplay(line.number)}
+                      </p>
+                      <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-emerald-600">
+                        Tap to call
+                      </p>
+                    </a>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-sm space-y-5">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-black text-slate-950">Email the Club</h3>
+                  <p className="text-xs text-slate-500">
+                    For detailed enquiries, sponsorship proposals, or written follow-ups.
+                  </p>
+                </div>
+
+                <a
+                  href={`mailto:${CONTACT_CENTER.email}`}
+                  className="flex items-center gap-4 p-5 rounded-2xl bg-slate-950 text-white hover:bg-slate-900 transition-all duration-200 border border-slate-900"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-yellow-400 text-slate-950 flex items-center justify-center shrink-0">
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-yellow-400">
+                      Official Email
+                    </p>
+                    <p className="text-sm sm:text-base font-bold break-all">
+                      {CONTACT_CENTER.email}
+                    </p>
+                  </div>
+                </a>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab("donors");
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="p-4 rounded-2xl border border-emerald-100 bg-emerald-50 hover:bg-emerald-100 transition text-left cursor-pointer"
+                  >
+                    <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                      Donors
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-slate-950">
+                      Make a support donation
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab("fanzone");
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-slate-100 transition text-left cursor-pointer"
+                  >
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                      Fans
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-slate-950">
+                      Post a supporter message
+                    </p>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ================= TAB: ADMIN PANEL ================= */}
         {activeTab === "admin" && (
           <div className="space-y-8">
@@ -4177,21 +6314,157 @@ const recentFixtures = initialData.fixtures
             </div>
 
             {!isAdminAuthenticated ? (
+              <div className="space-y-6">
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    aria-expanded={showAdminPasswordReset}
+                    onClick={() => {
+                      setShowAdminPasswordReset((open) => {
+                        if (open) {
+                          setAdminResetStep("request");
+                        }
+                        return !open;
+                      });
+                    }}
+                    className={`inline-flex items-center gap-2 font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer shadow-md active:scale-[0.98] ${
+                      showAdminPasswordReset
+                        ? "bg-slate-800 text-yellow-400 ring-2 ring-yellow-300 ring-offset-2"
+                        : "bg-slate-950 hover:bg-slate-900 text-yellow-400"
+                    }`}
+                  >
+                    <Shield className="w-3.5 h-3.5" />
+                    {showAdminPasswordReset ? "Hide Password Reset" : "Reset Password"}
+                  </button>
+                </div>
+
+                {showAdminPasswordReset && (
+                  <div className="bg-white rounded-3xl border border-yellow-200 shadow-sm p-6 sm:p-8 space-y-5">
+                  <div className="space-y-1">
+                    <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-yellow-600" />
+                      Reset Manager Password
+                    </h3>
+                    <p className="text-sm text-slate-600">
+                      Use an authorized manager phone number to receive a reset code by SMS.
+                    </p>
+                  </div>
+
+                  {adminResetStep === "request" ? (
+                    <form onSubmit={handleAdminRequestReset} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Authorized Manager Phone
+                        </label>
+                        <input
+                          type="tel"
+                          placeholder="Authorized manager phone"
+                          value={adminResetPhone}
+                          onChange={(e) => setAdminResetPhone(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                          required
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="submit"
+                          disabled={isAdminResetPending}
+                          className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isAdminResetPending ? "Sending..." : "Send Reset Code"}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleAdminCompleteReset} className="space-y-4">
+                      <p className="text-xs text-slate-500">
+                        Enter the SMS code and choose a new manager password.
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Reset Code
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="6-digit code"
+                            value={adminResetCode}
+                            onChange={(e) => setAdminResetCode(e.target.value)}
+                            className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                            required
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            New Password
+                          </label>
+                          <PasswordInput
+                            value={adminResetNewPassword}
+                            onChange={setAdminResetNewPassword}
+                            placeholder="New password"
+                            required
+                            minLength={6}
+                            className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
+                            autoComplete="new-password"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Confirm Password
+                          </label>
+                          <PasswordInput
+                            value={adminResetConfirmPassword}
+                            onChange={setAdminResetConfirmPassword}
+                            placeholder="Confirm new password"
+                            required
+                            minLength={6}
+                            className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
+                            autoComplete="new-password"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          type="submit"
+                          disabled={isAdminResetPending}
+                          className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isAdminResetPending ? "Updating..." : "Reset Password"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAdminRequestReset()}
+                          disabled={isAdminResetPending}
+                          className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 hover:text-emerald-800 cursor-pointer px-2 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isAdminResetPending ? "Sending..." : "Resend Code"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                  </div>
+                )}
+
               <div className="max-w-md mx-auto bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
                 <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-950 mx-auto">
                   <Settings className="w-6 h-6" />
                 </div>
                 <div className="text-center space-y-1">
                   <h3 className="font-bold text-slate-950">Enter Manager Password</h3>
-                  
+                  <p className="text-xs text-slate-500">
+                    Sign in to manage players, orders, news, and gallery content.
+                  </p>
                 </div>
+
                 <form onSubmit={handleAdminLogin} className="space-y-3">
-                  <input
-                    type="password"
-                    placeholder="Enter password"
+                  <PasswordInput
                     value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center text-slate-900"
+                    onChange={setAdminPassword}
+                    placeholder="Enter password"
+                    required
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center text-slate-900 pr-11"
+                    autoComplete="current-password"
                   />
                   <button
                     type="submit"
@@ -4201,25 +6474,208 @@ const recentFixtures = initialData.fixtures
                   </button>
                 </form>
               </div>
+              </div>
             ) : (
               <div className="space-y-8">
                 {/* Admin Status Header */}
-                <div className="bg-emerald-600 text-white p-4 rounded-2xl flex justify-between items-center text-xs">
+                <div className="bg-emerald-600 text-white p-4 rounded-2xl flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 text-xs">
                   <span className="font-bold">✓ Authenticated as Kariobangi Legends Manager</span>
                   <button
   onClick={async () => {
     try {
       await fetch("/api/admin/logout", {
         method: "POST",
+        credentials: "include",
       });
     } finally {
-      setIsAdminAuthenticated(false);
+      clearAdminState();
+      showToast("Admin signed out. You can now sign in to your fan account.");
     }
   }}
   className="bg-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-800 font-bold transition"
 >
   Logout Admin
 </button>
+                </div>
+
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                        <MessageSquare className="w-5 h-5 text-emerald-600" />
+                        Fan Account Inbox
+                      </h3>
+                      <p className="text-sm text-slate-600 mt-1">
+                        Read messages from registered fans and send replies to their accounts.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        loadAdminInboxThreads();
+                        if (selectedInboxCustomerId) {
+                          loadAdminInboxThread(selectedInboxCustomerId);
+                        }
+                      }}
+                      disabled={isLoadingAdminInbox}
+                      className="text-[10px] font-black uppercase tracking-wider text-emerald-700 hover:text-emerald-800 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isLoadingAdminInbox ? "Refreshing..." : "Refresh Inbox"}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 min-h-[360px]">
+                    <div className="border border-slate-100 rounded-2xl overflow-hidden bg-slate-50/60">
+                      <div className="px-4 py-3 border-b border-slate-100 bg-white">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          Fan Conversations
+                        </p>
+                      </div>
+                      <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                        {isLoadingAdminInbox && adminInboxThreads.length === 0 ? (
+                          <p className="text-sm text-slate-500 p-4">Loading inbox...</p>
+                        ) : adminInboxThreads.length === 0 ? (
+                          <p className="text-sm text-slate-500 p-4">
+                            No fan messages yet. Messages from signed-in accounts will appear here.
+                          </p>
+                        ) : (
+                          adminInboxThreads.map((thread) => {
+                            const isSelected = selectedInboxCustomerId === thread.customerId;
+
+                            return (
+                              <button
+                                type="button"
+                                key={thread.customerId}
+                                onClick={() => loadAdminInboxThread(thread.customerId)}
+                                className={`w-full text-left px-4 py-3 transition cursor-pointer ${
+                                  isSelected
+                                    ? "bg-emerald-50 border-l-4 border-emerald-500"
+                                    : "hover:bg-white"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-sm text-slate-900 truncate">
+                                      {thread.fullName}
+                                    </p>
+                                    <p className="text-[10px] text-slate-500 truncate">
+                                      {formatPhoneDisplay(formatStoredPhoneForInput(thread.phoneNumber))}
+                                    </p>
+                                  </div>
+                                  {thread.unreadCount > 0 && (
+                                    <span className="shrink-0 min-w-5 h-5 px-1 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center">
+                                      {thread.unreadCount}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-600 mt-2 line-clamp-2">
+                                  {thread.lastMessage}
+                                </p>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="border border-slate-100 rounded-2xl overflow-hidden flex flex-col bg-white">
+                      {!selectedInboxCustomerId ? (
+                        <div className="flex-1 flex items-center justify-center p-8 text-center">
+                          <div className="space-y-2">
+                            <MessageCircle className="w-10 h-10 text-slate-300 mx-auto" />
+                            <p className="font-semibold text-slate-700">Select a fan conversation</p>
+                            <p className="text-sm text-slate-500">
+                              Choose a fan on the left to read their message and send a reply.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80">
+                            <p className="font-bold text-slate-900">
+                              {selectedInboxCustomer?.fullName || "Fan account"}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {selectedInboxCustomer
+                                ? formatPhoneDisplay(
+                                    formatStoredPhoneForInput(selectedInboxCustomer.phoneNumber)
+                                  )
+                                : ""}
+                              {selectedInboxCustomer?.email
+                                ? ` • ${selectedInboxCustomer.email}`
+                                : ""}
+                            </p>
+                          </div>
+
+                          <div className="flex-1 max-h-72 overflow-y-auto p-4 space-y-3 bg-slate-50/40">
+                            {isLoadingAdminInbox && adminInboxMessages.length === 0 ? (
+                              <p className="text-sm text-slate-500 text-center py-8">
+                                Loading conversation...
+                              </p>
+                            ) : adminInboxMessages.length === 0 ? (
+                              <p className="text-sm text-slate-500 text-center py-8">
+                                No messages in this conversation yet.
+                              </p>
+                            ) : (
+                              adminInboxMessages.map((entry) => {
+                                const isAdmin = entry.senderType === "admin";
+
+                                return (
+                                  <div
+                                    key={entry.id}
+                                    className={`flex ${isAdmin ? "justify-end" : "justify-start"}`}
+                                  >
+                                    <div
+                                      className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
+                                        isAdmin
+                                          ? "bg-slate-950 text-yellow-400"
+                                          : "bg-white border border-slate-200 text-slate-800"
+                                      }`}
+                                    >
+                                      <p className="text-[10px] font-black uppercase tracking-wider opacity-80 mb-1">
+                                        {isAdmin ? "You (Admin)" : "Fan"}
+                                      </p>
+                                      <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                                        {entry.message}
+                                      </p>
+                                      <p className="text-[10px] mt-2 opacity-70">
+                                        {new Date(entry.createdAt).toLocaleString()}
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+
+                          <form
+                            onSubmit={handleAdminReply}
+                            className="border-t border-slate-100 p-4 space-y-3 bg-white"
+                          >
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Reply to fan
+                            </label>
+                            <textarea
+                              rows={3}
+                              placeholder="Type your reply..."
+                              value={adminReplyDraft}
+                              onChange={(e) => setAdminReplyDraft(e.target.value)}
+                              maxLength={2000}
+                              className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none resize-y text-sm"
+                              required
+                            />
+                            <button
+                              type="submit"
+                              disabled={isSendingAdminReply}
+                              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {isSendingAdminReply ? "Sending..." : "Send Reply"}
+                            </button>
+                          </form>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -4326,7 +6782,7 @@ const recentFixtures = initialData.fixtures
                       <Calendar className="w-5 h-5 text-yellow-500" /> Log / Update Match Game
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Instantly updates the **Upcoming Next Match Banner** on the Home Page and the Match Center.
+                      Instantly updates the upcoming match banner on the Home page and the Match Center. Upload opponent logos directly from your device.
                     </p>
                     <form
   onSubmit={
@@ -4359,6 +6815,69 @@ const recentFixtures = initialData.fixtures
                             required
                           />
                         </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-500">
+                          Opponent Team Logo (optional)
+                        </label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) =>
+                            setAdminOpponentLogoFile(e.target.files?.[0] || null)
+                          }
+                          className="block w-full text-sm text-slate-600 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-950 file:text-yellow-400 hover:file:bg-slate-800 cursor-pointer"
+                        />
+                        <p className="text-[10px] text-slate-500">
+                          Upload directly from your computer or phone gallery. No image link required.
+                        </p>
+                        {adminOpponentLogoFile && (
+                          <p className="text-[10px] text-emerald-600 font-semibold">
+                            Selected: {adminOpponentLogoFile.name}
+                          </p>
+                        )}
+                        {(adminOpponentLogoUrl || adminOpponentLogoFile) && (
+                          <div className="flex items-center gap-3 p-2.5 bg-slate-50 rounded-lg border border-slate-100">
+                            <div className="w-12 h-12 rounded-full overflow-hidden bg-white border border-slate-200 flex items-center justify-center shrink-0">
+                              {adminOpponentLogoFile ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={URL.createObjectURL(adminOpponentLogoFile)}
+                                  alt="Opponent logo preview"
+                                  className="w-full h-full object-contain p-1"
+                                />
+                              ) : (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={adminOpponentLogoUrl}
+                                  alt="Current opponent logo"
+                                  className="w-full h-full object-contain p-1"
+                                />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-bold text-slate-700 uppercase tracking-wide">
+                                Logo preview
+                              </p>
+                              <p className="text-[10px] text-slate-500 truncate">
+                                {adminOpponentLogoFile
+                                  ? "New upload ready to save"
+                                  : "Current saved logo"}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAdminOpponentLogoFile(null);
+                                setAdminOpponentLogoUrl("");
+                              }}
+                              className="text-[10px] font-bold uppercase tracking-wider text-rose-600 hover:text-rose-700 cursor-pointer px-2 py-1"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-3 gap-2">
@@ -4727,65 +7246,131 @@ const recentFixtures = initialData.fixtures
 </form>
 </div>
 
-{/* Action 4: Add Gallery Image (For Showcasing More Images!) */}
+{/* Action 3: Add Gallery Image */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-5 overflow-hidden">
 
-                  {/* Action 3: Add Gallery Image (For Showcasing More Images!) */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
-                    <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
-                      <Camera className="w-5 h-5 text-emerald-600" /> Post Photo to Team Gallery
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      Upload a photo directly from your computer to the Kariobangi Legends team gallery.
-                    </p>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
+                          <Camera className="w-5 h-5 text-emerald-600" /> Post Photo to Team Gallery
+                        </h3>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                          Upload matchday, training, and community photos. Images are shown in full — nothing is cropped.
+                        </p>
+                      </div>
+                      <span className="shrink-0 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase tracking-wider">
+                        Full Image
+                      </span>
+                    </div>
 
-                    <form onSubmit={handleAdminAddGallery} className="space-y-3 text-xs">
-                      {/* Gallery Photo */}
-                      <div className="space-y-1">
-                        <label className="font-bold text-slate-500">Gallery Photo</label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0] || null;
-                            setAdminGalleryFile(file);
-                          }}
-                          className="block w-full text-sm text-slate-600
-                            file:mr-4 file:py-2.5 file:px-4
-                            file:rounded-xl file:border-0
-                            file:text-xs file:font-bold
-                            file:bg-slate-950 file:text-yellow-400
-                            hover:file:bg-slate-800
-                            cursor-pointer"
-                          required
-                        />
+                    <form onSubmit={handleAdminAddGallery} className="space-y-4 text-xs">
+
+                      {/* Upload zone with live preview */}
+                      <div className="space-y-2">
+                        <label className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                          Gallery Photo
+                        </label>
+
+                        <label
+                          htmlFor="admin-gallery-upload"
+                          className={`relative block rounded-2xl border-2 border-dashed transition-all duration-300 cursor-pointer overflow-hidden ${
+                            adminGalleryPreview
+                              ? "border-emerald-300 bg-slate-950"
+                              : "border-slate-200 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 hover:border-emerald-300 hover:bg-emerald-50/30"
+                          }`}
+                        >
+                          {adminGalleryPreview ? (
+                            <div className="relative min-h-[220px] sm:min-h-[280px] flex items-center justify-center p-4">
+                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.12),transparent_70%)] pointer-events-none" />
+
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={adminGalleryPreview}
+                                alt="Gallery upload preview"
+                                className="relative z-10 max-w-full max-h-[240px] sm:max-h-[300px] w-auto h-auto object-contain rounded-xl shadow-2xl ring-1 ring-white/10"
+                              />
+
+                              <div className="absolute top-3 right-3 z-20 px-2.5 py-1 rounded-full bg-emerald-600 text-white text-[9px] font-black uppercase tracking-wider">
+                                Preview
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="py-10 px-6 text-center">
+                              <div className="w-14 h-14 rounded-2xl bg-white border border-emerald-100 flex items-center justify-center mx-auto mb-3 shadow-sm">
+                                <ImageIcon className="w-7 h-7 text-emerald-500" />
+                              </div>
+                              <p className="font-black text-slate-800 text-sm">
+                                Click to choose a photo
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-1">
+                                JPG, PNG, or WEBP — original proportions kept
+                              </p>
+                            </div>
+                          )}
+
+                          <input
+                            id="admin-gallery-upload"
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] || null;
+                              if (adminGalleryPreview) {
+                                URL.revokeObjectURL(adminGalleryPreview);
+                              }
+                              setAdminGalleryFile(file);
+                              setAdminGalleryPreview(file ? URL.createObjectURL(file) : null);
+                            }}
+                            className="sr-only"
+                            required
+                          />
+                        </label>
 
                         {adminGalleryFile && (
-                          <p className="text-xs text-emerald-600 font-semibold">
-                            Selected: {adminGalleryFile.name}
-                          </p>
+                          <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-100">
+                            <p className="text-xs text-emerald-800 font-semibold truncate">
+                              {adminGalleryFile.name}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (adminGalleryPreview) {
+                                  URL.revokeObjectURL(adminGalleryPreview);
+                                }
+                                setAdminGalleryFile(null);
+                                setAdminGalleryPreview(null);
+                              }}
+                              className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-rose-600 hover:text-rose-700 cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          </div>
                         )}
                       </div>
 
                       {/* Caption and Category */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <label className="font-bold text-slate-500">Caption / Description</label>
+                          <label className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                            Caption / Description
+                          </label>
                           <input
                             type="text"
                             placeholder="e.g. Celebrating our winning goal in Githurai."
                             value={adminGalleryCaption}
                             onChange={(e) => setAdminGalleryCaption(e.target.value)}
-                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+                            className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                             required
                           />
                         </div>
 
                         <div className="space-y-1">
-                          <label className="font-bold text-slate-500">Event Category</label>
+                          <label className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                            Event Category
+                          </label>
                           <select
                             value={adminGalleryCategory}
                             onChange={(e) => setAdminGalleryCategory(e.target.value)}
-                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
+                            className="w-full p-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                           >
                             <option value="Match">Matchday Action</option>
                             <option value="Training">Pitch Training</option>
@@ -4795,13 +7380,17 @@ const recentFixtures = initialData.fixtures
                         </div>
                       </div>
 
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-[11px] text-slate-600 leading-relaxed">
+                        Photos appear on the homepage carousel and gallery page exactly as uploaded — no cropping applied.
+                      </div>
+
                       {/* Publish Button */}
                       <button
                         type="submit"
                         disabled={isPending || !adminGalleryFile}
-                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-slate-950 text-yellow-400 font-bold py-3 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-slate-950/10"
                       >
-                        {isPending ? "Uploading Image..." : "Choose Photo & Publish"}
+                        {isPending ? "Uploading Image..." : "Publish to Gallery"}
                       </button>
                     </form>
                   </div>
@@ -5079,6 +7668,20 @@ const recentFixtures = initialData.fixtures
       <p className="text-[11px] text-slate-500 mt-1">
         View merchandise purchases and M-PESA payment confirmations.
       </p>
+
+      {notificationConfig && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-600 leading-relaxed">
+          <span className="font-black uppercase tracking-wider text-slate-500">
+            Buyer notifications:
+          </span>{" "}
+          SMS {notificationConfig.sms ? "ready" : "not configured"} • WhatsApp{" "}
+          {notificationConfig.whatsapp ? "ready" : "not configured"}
+          {notificationConfig.trackingUrlConfigured
+            ? " • Tracking links enabled"
+            : " • Add NEXT_PUBLIC_SITE_URL for tracking links"}
+        </div>
+      )}
+
       <div className="mt-4 flex flex-col sm:flex-row gap-3">
   <input
     type="text"
@@ -5191,6 +7794,10 @@ const recentFixtures = initialData.fixtures
                   >
                     {status}
                   </span>
+
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-700">
+                    {getOrderStatusLabel(order.orderStatus || "processing")}
+                  </span>
                 </div>
 
                 {/* CUSTOMER DETAILS */}
@@ -5286,82 +7893,7 @@ const recentFixtures = initialData.fixtures
 
                 </div>
               </div>
-              {/* ORDER DELIVERY STATUS */}
-<div className="mt-4 bg-slate-50 rounded-2xl p-4 border border-slate-100">
-  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-    <div>
-      <p className="text-[10px] text-slate-400 uppercase tracking-wider font-black">
-        Order Status
-      </p>
-
-      <p className="text-[11px] text-slate-500 mt-1">
-        Manage merchandise delivery progress.
-      </p>
-    </div>
-
-    <select
-      value={order.orderStatus || "processing"}
-      disabled={
-        String(order.paymentStatus || "").toLowerCase() !== "paid"
-      }
-      onChange={async (e) => {
-        const newStatus = e.target.value as
-          | "processing"
-          | "shipped"
-          | "delivered"
-          | "cancelled";
-
-        try {
-          const result = await updateOrderStatus(
-            Number(order.id),
-            newStatus
-          );
-
-          if (result.success) {
-            setAdminOrders((currentOrders) =>
-              currentOrders.map((currentOrder) =>
-                currentOrder.id === order.id
-                  ? {
-                      ...currentOrder,
-                      orderStatus: newStatus,
-                    }
-                  : currentOrder
-              )
-            );
-
-            showToast(
-              `Order #${order.id} updated to ${newStatus}.`
-            );
-          } else {
-            showToast(
-              result.error || "Unable to update order status.",
-              "error"
-            );
-          }
-        } catch (error) {
-          console.error("Order status update failed:", error);
-
-          showToast(
-            "Unable to update order status.",
-            "error"
-          );
-        }
-      }}
-      className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
-    >
-      <option value="processing">Processing</option>
-      <option value="shipped">Shipped</option>
-      <option value="delivered">Delivered</option>
-      <option value="cancelled">Cancelled</option>
-    </select>
-  </div>
-
-  {String(order.paymentStatus || "").toLowerCase() !== "paid" && (
-    <p className="text-[10px] text-rose-500 font-semibold mt-2">
-      Order status can only be changed after M-PESA payment is confirmed.
-    </p>
-  )}
-</div>
+              
 
               {/* PAYMENT SUMMARY */}
               <div className="lg:w-64 bg-slate-950 rounded-2xl p-5 text-white space-y-4">
@@ -5410,6 +7942,39 @@ const recentFixtures = initialData.fixtures
                       {order.checkoutRequestId ||
                         "Not available"}
                     </p>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-400">
+                      Delivery Progress
+                    </p>
+
+                    <select
+                      value={order.orderStatus || "processing"}
+                      onChange={(e) =>
+                        handleUpdateOrderStatus(
+                          order.id,
+                          e.target.value as
+                            | "processing"
+                            | "shipped"
+                            | "delivered"
+                            | "cancelled"
+                        )
+                      }
+                      disabled={isPending || status !== "paid"}
+                      className="mt-1 w-full bg-slate-900 border border-slate-700 text-white text-xs font-bold rounded-lg px-2 py-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <option value="processing">Processing</option>
+                      <option value="shipped">Shipped</option>
+                      <option value="delivered">Delivered</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+
+                    {status !== "paid" && (
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Update delivery after payment is confirmed.
+                      </p>
+                    )}
                   </div>
 
                 </div>
@@ -5461,16 +8026,37 @@ const recentFixtures = initialData.fixtures
                     <div>
                       <h3 className="font-black text-lg text-slate-950">Checkout Successful!</h3>
                       <p className="text-xs text-slate-600 mt-2">{checkoutMessage}</p>
+                      {lastOrderId && (
+                        <p className="text-xs text-emerald-700 font-bold mt-3">
+                          Save your order number: #{lastOrderId}
+                        </p>
+                      )}
                     </div>
-                    <button
-                      onClick={() => {
-                        setCheckoutSuccess(false);
-                        setIsCartOpen(false);
-                      }}
-                      className="bg-slate-950 text-yellow-400 px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-900 cursor-pointer"
-                    >
-                      Back to Shop
-                    </button>
+                    <div className="flex flex-col gap-2">
+                      {lastOrderId && (
+                        <button
+                          onClick={() => {
+                            setCheckoutSuccess(false);
+                            setIsCartOpen(false);
+                            setActiveTab("account");
+                            setExpandedAccountOrderId(lastOrderId);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider cursor-pointer"
+                        >
+                          Track Order #{lastOrderId}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          setCheckoutSuccess(false);
+                          setIsCartOpen(false);
+                        }}
+                        className="bg-slate-950 text-yellow-400 px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-900 cursor-pointer"
+                      >
+                        Back to Shop
+                      </button>
+                    </div>
                   </div>
                 ) : cart.length === 0 ? (
                   <div className="text-center py-16 space-y-4">
@@ -5972,7 +8558,9 @@ const recentFixtures = initialData.fixtures
           { label: "Matches & Fixtures", tab: "fixtures" },
           { label: "Team Photo Gallery", tab: "gallery" },
           { label: "Merchandise Shop", tab: "shop" },
+          { label: "My Account", tab: "account" },
           { label: "Donors & Supporters", tab: "donors" },
+          { label: "Contact Centre", tab: "contact" },
         ].map((item, idx) => (
 
           <li key={idx}>
@@ -6000,18 +8588,44 @@ const recentFixtures = initialData.fixtures
     <div className="space-y-3 text-xs">
 
       <h4 className="font-bold uppercase tracking-wider text-yellow-400">
-        Slum-to-Stardom Contact
+        Contact Centre
       </h4>
 
       <p className="text-slate-400 leading-relaxed">
-        Kariobangi North Ground,
+        {CONTACT_CENTER.location.venue},
         <br />
-        Nairobi County, Kenya
+        {CONTACT_CENTER.location.region}
       </p>
 
-      <p className="text-slate-400 leading-relaxed">
-        Founded under Mr. Erick Otieno Atanga's leadership.
-      </p>
+      <div className="space-y-1.5">
+        {CONTACT_CENTER.phones.map((line) => (
+          <a
+            key={line.number}
+            href={toTelHref(line.number)}
+            className="block text-slate-300 hover:text-yellow-400 transition"
+          >
+            {formatPhoneDisplay(line.number)}
+          </a>
+        ))}
+      </div>
+
+      <a
+        href={`mailto:${CONTACT_CENTER.email}`}
+        className="block text-slate-300 hover:text-yellow-400 transition break-all"
+      >
+        {CONTACT_CENTER.email}
+      </a>
+
+      <button
+        type="button"
+        onClick={() => {
+          setActiveTab("contact");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+        className="text-emerald-400 hover:text-emerald-300 font-bold uppercase tracking-wider text-[10px] transition cursor-pointer"
+      >
+        Open Contact Centre →
+      </button>
 
       <p className="text-[10px] text-slate-500 pt-2 border-t border-slate-900">
         © {new Date().getFullYear()} Kariobangi Legends FC. Made with love for Nairobi youth.

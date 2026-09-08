@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { orders } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { notifyBuyerOrderUpdate } from "@/lib/notifications";
 
 export async function POST(request: Request) {
   try {
@@ -137,6 +138,12 @@ export async function POST(request: Request) {
 
       console.log(
         `✅ Order #${order.id} updated to PAID`
+      );
+
+      await notifyBuyerOrderUpdate(
+        order.phoneNumber,
+        order.id,
+        "payment_confirmed"
       );
 
       return NextResponse.json({

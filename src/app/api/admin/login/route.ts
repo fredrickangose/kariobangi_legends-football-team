@@ -1,29 +1,18 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-
-function createAdminToken() {
-  const secret = process.env.ADMIN_SESSION_SECRET;
-
-  if (!secret) {
-    throw new Error("ADMIN_SESSION_SECRET is not configured.");
-  }
-
-  const payload = `admin:${Date.now()}`;
-  const signature = crypto
-    .createHmac("sha256", secret)
-    .update(payload)
-    .digest("hex");
-
-  return `${payload}.${signature}`;
-}
+import { db } from "@/db";
+import { adminSettings } from "@/db/schema";
+import { createAdminToken, verifyAdminPassword } from "@/lib/admin-auth";
+import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
+import { clearCustomerSessionCookie } from "@/lib/session-exclusive";
 
 export async function POST(request: Request) {
   try {
     const { password } = await request.json();
+    const [settings] = await db.select().from(adminSettings).limit(1);
+    const hasAdminAuth = Boolean(settings?.passwordHash || process.env.ADMIN_PASSWORD);
 
-    const adminPassword = process.env.ADMIN_PASSWORD;
-
-    if (!adminPassword) {
+    if (!hasAdminAuth) {
       console.error("ADMIN_PASSWORD is not configured");
 
       return NextResponse.json(
@@ -47,7 +36,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (password !== adminPassword) {
+    const passwordValid = await verifyAdminPassword(String(password || ""));
+
+    if (!passwordValid) {
       return NextResponse.json(
         {
           success: false,
@@ -69,8 +60,10 @@ export async function POST(request: Request) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 8,
+      maxAge: SESSION_MAX_AGE_SECONDS,
     });
+
+    clearCustomerSessionCookie(response);
 
     return response;
   } catch (error) {

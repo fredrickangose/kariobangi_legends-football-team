@@ -7,7 +7,9 @@
   "start": "next start",
   "lint": "eslint .",
   "typecheck": "tsc --noEmit",
-  "db:push": "drizzle-kit push"
+  "db:push": "drizzle-kit push",
+  "db:fix-fixtures-logo": "node scripts/migrate-fixtures-logo.mjs",
+  "db:fix-account-messages": "node scripts/migrate-account-messages.mjs"
 },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",

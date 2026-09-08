@@ -12,12 +12,18 @@ import {
   management,
   orders,
   orderItems,
+  customers,
 } from "@/db/schema";
 import { seedDatabaseIfNeeded } from "@/db/seed";
-import { desc, asc, eq } from "drizzle-orm";
+import { desc, asc, eq, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import crypto from "crypto";
+import { normalizeKenyaPhone } from "@/lib/order-tracking";
+import { notifyBuyerOrderUpdate } from "@/lib/notifications";
+import { getNotificationConfigSummary } from "@/lib/notifications/config";
+import { verifyCustomerToken } from "@/lib/customer-auth";
+import { getPhoneLookupVariants } from "@/lib/link-customer-orders";
 
 function verifyAdminToken(token: string | undefined) {
   if (!token) return false;
@@ -263,6 +269,7 @@ if (!verifyAdminToken(adminCookie?.value)) {
 
 export async function addFixture(data: {
   opponent: string;
+  opponentLogoUrl?: string;
   date: string;
   isHome: boolean;
   status: string;
@@ -283,6 +290,7 @@ export async function addFixture(data: {
 
     await db.insert(fixtures).values({
       opponent: data.opponent,
+      opponentLogoUrl: data.opponentLogoUrl || null,
       date: data.date,
       isHome: data.isHome,
       status: data.status,
@@ -310,6 +318,7 @@ export async function updateFixture(
   fixtureId: number,
   data: {
     opponent: string;
+    opponentLogoUrl?: string | null;
     date: string;
     isHome: boolean;
     status: string;
@@ -333,6 +342,8 @@ export async function updateFixture(
       .update(fixtures)
       .set({
         opponent: data.opponent,
+        opponentLogoUrl:
+          data.opponentLogoUrl !== undefined ? data.opponentLogoUrl : null,
         date: data.date,
         isHome: data.isHome,
         status: data.status,
@@ -905,6 +916,72 @@ export async function getOrders() {
     };
   }
 }
+
+export async function trackOrder(data: { orderId: number; phone: string }) {
+  try {
+    const orderId = Number(data.orderId);
+    const normalizedInputPhone = normalizeKenyaPhone(String(data.phone || ""));
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return {
+        success: false,
+        error: "Please enter a valid order number.",
+      };
+    }
+
+    if (!normalizedInputPhone) {
+      return {
+        success: false,
+        error: "Please enter the M-PESA phone number used during checkout.",
+      };
+    }
+
+    const [order] = await db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!order) {
+      return {
+        success: false,
+        error: "Order not found. Check your order number and try again.",
+      };
+    }
+
+    const normalizedOrderPhone = normalizeKenyaPhone(order.phoneNumber);
+
+    if (normalizedInputPhone !== normalizedOrderPhone) {
+      return {
+        success: false,
+        error: "Order details do not match the phone number provided.",
+      };
+    }
+
+    const items = await db
+      .select()
+      .from(orderItems)
+      .where(eq(orderItems.orderId, order.id));
+
+    return {
+      success: true,
+      order: {
+        ...order,
+        items,
+      },
+    };
+  } catch (error) {
+    console.error("Track order failed:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to track order right now.",
+    };
+  }
+}
+
 export async function updateOrderStatus(
   orderId: number,
   orderStatus: "processing" | "shipped" | "delivered" | "cancelled"
@@ -956,9 +1033,19 @@ export async function updateOrderStatus(
       };
     }
 
+    const order = updatedOrder[0];
+
+    await notifyBuyerOrderUpdate(
+      order.phoneNumber,
+      order.id,
+      order.orderStatus as "processing" | "shipped" | "delivered" | "cancelled"
+    );
+
+    revalidatePath("/");
+
     return {
       success: true,
-      order: updatedOrder[0],
+      order,
     };
   } catch (error) {
     console.error("Update order status failed:", error);
@@ -969,6 +1056,93 @@ export async function updateOrderStatus(
         error instanceof Error
           ? error.message
           : "Unable to update order status.",
+    };
+  }
+}
+
+export async function getNotificationSetup() {
+  return {
+    success: true,
+    config: getNotificationConfigSummary(),
+  };
+}
+
+export async function getCustomerOrders() {
+  try {
+    const cookieStore = await cookies();
+    const customerId = verifyCustomerToken(
+      cookieStore.get("kariobangi_customer")?.value
+    );
+
+    if (!customerId) {
+      return {
+        success: false,
+        error: "Please sign in to view your orders.",
+        orders: [],
+      };
+    }
+
+    const [customer] = await db
+      .select()
+      .from(customers)
+      .where(eq(customers.id, customerId))
+      .limit(1);
+
+    if (!customer) {
+      return {
+        success: false,
+        error: "Account not found.",
+        orders: [],
+      };
+    }
+
+    const phoneVariants = getPhoneLookupVariants(customer.phoneNumber);
+
+    const orderList = await db
+      .select()
+      .from(orders)
+      .where(
+        or(
+          eq(orders.customerId, customer.id),
+          ...phoneVariants.map((phone) => eq(orders.phoneNumber, phone))
+        )
+      )
+      .orderBy(desc(orders.createdAt));
+
+    const ordersWithItems = await Promise.all(
+      orderList.map(async (order) => {
+        const items = await db
+          .select()
+          .from(orderItems)
+          .where(eq(orderItems.orderId, order.id));
+
+        return {
+          ...order,
+          items,
+        };
+      })
+    );
+
+    return {
+      success: true,
+      customer: {
+        id: customer.id,
+        fullName: customer.fullName,
+        phoneNumber: customer.phoneNumber,
+        email: customer.email,
+      },
+      orders: ordersWithItems,
+    };
+  } catch (error) {
+    console.error("Get customer orders failed:", error);
+
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to load your orders.",
+      orders: [],
     };
   }
 }

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { db } from "@/db";
 import { orders, orderItems } from "@/db/schema";
+import { verifyCustomerToken } from "@/lib/customer-auth";
 
 function getTimestamp() {
   const now = new Date();
@@ -122,9 +124,15 @@ export async function POST(request: Request) {
     // 2. CREATE PENDING ORDER
     // --------------------------------------------------
 
+    const cookieStore = await cookies();
+    const customerId = verifyCustomerToken(
+      cookieStore.get("kariobangi_customer")?.value
+    );
+
     const [order] = await db
       .insert(orders)
       .values({
+        customerId: customerId ?? null,
         customerName: name,
         phoneNumber: formattedPhone,
         totalAmount: Math.round(amount),
