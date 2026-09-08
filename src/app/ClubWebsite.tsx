@@ -3731,14 +3731,14 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
     style={{ backgroundImage: "url('/assets/background.jpeg')" }}
   />
 
-  {/* Dark cinematic overlays */}
-  <div className="absolute inset-0 bg-slate-950/55" />
-  <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/70 to-slate-950/20" />
-  <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-slate-950/20" />
+  {/* Light overlays — keep text readable while showing more of the photo */}
+  <div className="absolute inset-0 bg-slate-950/30" />
+  <div className="absolute inset-0 bg-gradient-to-r from-slate-950/75 via-slate-950/40 to-slate-950/5" />
+  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/45 via-transparent to-slate-950/10" />
 
   {/* Decorative glow */}
-  <div className="absolute -top-24 -right-24 w-80 h-80 bg-emerald-500/20 rounded-full blur-3xl" />
-  <div className="absolute -bottom-24 -left-20 w-80 h-80 bg-yellow-400/10 rounded-full blur-3xl" />
+  <div className="absolute -top-24 -right-24 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+  <div className="absolute -bottom-24 -left-20 w-80 h-80 bg-yellow-400/5 rounded-full blur-3xl pointer-events-none" />
 
   {/* Hero content */}
   <div className="relative z-10 min-h-[500px] sm:min-h-[580px] flex items-center">
@@ -4748,38 +4748,34 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   </div>
 
   {/* Main story card */}
-  <div className="relative overflow-hidden rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl">
+  <div className="relative overflow-hidden rounded-3xl bg-slate-950 border border-slate-800">
 
     {/* Decorative background */}
-    <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-emerald-500/10 blur-3xl" />
-    <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-yellow-400/5 blur-3xl" />
+    <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
 
     <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[minmax(300px,420px)_1fr]">
 
       {/* Founder image */}
-      <div className="relative min-h-[420px] lg:min-h-[560px] bg-slate-900 flex items-end justify-center p-4">
+      <div className="bg-white flex flex-col">
 
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/images/founder-atanga.jpg"
-          alt="Mr. Erick Otieno Atanga - Founder and Patron of Kariobangi Legends FC"
-          className="relative z-0 max-w-full max-h-[560px] w-auto h-auto object-contain"
-        />
-
-        {/* Image overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent pointer-events-none" />
+        <div className="flex items-center justify-center p-4 sm:p-6 min-h-[420px] lg:min-h-[520px]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/images/founder-atanga.jpg"
+            alt="Mr. Erick Otieno Atanga - Founder and Patron of Kariobangi Legends FC"
+            className="max-w-full max-h-[520px] w-auto h-auto object-contain"
+          />
+        </div>
 
         {/* Founder label */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
-
+        <div className="px-6 pb-6 pt-2 border-t border-slate-100 bg-white">
           <span className="inline-flex items-center bg-yellow-400 text-slate-950 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full mb-3">
             Founder & Patron
           </span>
 
-          <h3 className="text-xl font-black text-white">
+          <h3 className="text-xl font-black text-slate-950">
             Mr. Erick Otieno Atanga
           </h3>
-
         </div>
 
       </div>
