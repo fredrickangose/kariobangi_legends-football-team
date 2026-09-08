@@ -199,6 +199,50 @@ export function formatKickoff(date: string): string {
   return date;
 }
 
+export function toFixtureDateInputValue(date: string): string {
+  if (!date) return "";
+
+  const dateOnly = date.trim().split(/[T\s]/)[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {
+    return dateOnly;
+  }
+
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
+export function toFixtureTimeInputValue(date: string): string {
+  if (!date) return "";
+
+  const timeMatch = date.match(/(?:T|\s)(\d{1,2}):(\d{2})/);
+  if (timeMatch) {
+    return `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`;
+  }
+
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime()) || !date.includes("T")) {
+    return "";
+  }
+
+  return `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`;
+}
+
+export function combineFixtureDateTime(date: string, time?: string): string {
+  const trimmedDate = date.trim();
+  if (!trimmedDate) return "";
+
+  const trimmedTime = time?.trim();
+  if (trimmedTime) {
+    return `${trimmedDate}T${trimmedTime}`;
+  }
+
+  return trimmedDate;
+}
+
 export function partitionFixtures(fixtures: FixtureLike[], todayString: string) {
   const live = fixtures
     .filter((fixture) => normalizeMatchStatus(fixture.status) === "live")

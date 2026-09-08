@@ -64,7 +64,7 @@ export const gallery = pgTable("gallery", {
   id: serial("id").primaryKey(),
   imageUrl: text("image_url").notNull(),
   caption: text("caption").notNull(),
-  category: text("category").default("Training").notNull(), // 'Match', 'Training', 'Community', 'Academy'
+  category: text("category").default("Training").notNull(), // 'Match', 'Training', 'Community', 'Academy', 'Wazee'
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

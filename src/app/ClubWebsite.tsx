@@ -70,6 +70,7 @@ import {
 } from "@/lib/management-roles";
 import {
   COMPETITION_NAME,
+  combineFixtureDateTime,
   formatKickoff,
   getHomeAwayTeams,
   getMatchResult,
@@ -84,6 +85,8 @@ import {
   MATCH_STATUSES,
   MATCH_TYPES,
   partitionFixtures,
+  toFixtureDateInputValue,
+  toFixtureTimeInputValue,
   type TeamDisplay,
 } from "@/lib/match-fixtures";
 import {
@@ -216,6 +219,8 @@ interface ClubWebsiteProps {
   };
 }
 
+const HOME_CAROUSEL_PHOTO_LIMIT = 5;
+
 interface CartItem {
   merchId: number;
   name: string;
@@ -241,6 +246,102 @@ const CONTACT_CENTER = {
   ],
   hours: "Mon – Sat, 8:00 AM – 6:00 PM EAT",
 } as const;
+
+const MPESA_PAYBILL = {
+  paybill: "4004975",
+  account: "KARIOBANGI LEGENDS",
+} as const;
+
+function MpesaDonationPrompt({
+  amount,
+  phone,
+  onPhoneChange,
+  showPhone = false,
+}: {
+  amount?: number | null;
+  phone?: string;
+  onPhoneChange?: (value: string) => void;
+  showPhone?: boolean;
+}) {
+  const displayAmount =
+    amount && amount > 0 ? `Ksh ${amount.toLocaleString()}` : "your chosen amount";
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-slate-950 text-white p-4 sm:p-5 border border-slate-800">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-yellow-400">
+            M-Pesa Payment
+          </p>
+          <span className="text-[9px] font-bold bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-full">
+            Secure
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-white/5 rounded-xl p-3">
+            <p className="text-[8px] text-slate-400 uppercase font-bold">PayBill Number</p>
+            <p className="text-xl font-black text-yellow-400 mt-1">{MPESA_PAYBILL.paybill}</p>
+          </div>
+          <div className="bg-white/5 rounded-xl p-3">
+            <p className="text-[8px] text-slate-400 uppercase font-bold">Account</p>
+            <p className="text-xs font-black text-white mt-2 leading-snug">
+              {MPESA_PAYBILL.account}
+            </p>
+          </div>
+        </div>
+
+        {amount && amount > 0 && (
+          <div className="mt-3 flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Donation amount
+            </span>
+            <span className="text-lg font-black text-emerald-400">{displayAmount}</span>
+          </div>
+        )}
+      </div>
+
+      {showPhone && onPhoneChange && (
+        <div className="space-y-1">
+          <label className="text-[10px] text-slate-400 font-bold uppercase block">
+            M-Pesa mobile number (optional)
+          </label>
+          <div className="relative">
+            <Phone className="absolute left-3 top-3.5 w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="tel"
+              placeholder="0712345678"
+              value={phone ?? ""}
+              onChange={(e) => onPhoneChange(e.target.value)}
+              className="w-full text-sm pl-9 pr-3 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <span className="text-[10px] text-slate-400 block">
+            For payment confirmation and receipt follow-up.
+          </span>
+        </div>
+      )}
+
+      <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-3 sm:p-4">
+        <p className="text-[10px] font-black uppercase tracking-wider text-slate-900 mb-2">
+          How to pay via M-Pesa
+        </p>
+        <ol className="space-y-1 text-xs text-slate-600 leading-relaxed list-decimal list-inside">
+          <li>Open M-Pesa on your phone.</li>
+          <li>Select <strong>Lipa na M-Pesa</strong>, then <strong>PayBill</strong>.</li>
+          <li>
+            Enter PayBill <strong>{MPESA_PAYBILL.paybill}</strong> and Account{" "}
+            <strong>{MPESA_PAYBILL.account}</strong>.
+          </li>
+          <li>
+            Enter {displayAmount} and confirm with your M-Pesa PIN.
+          </li>
+          <li>Submit your details below so we can acknowledge your gift.</li>
+        </ol>
+      </div>
+    </div>
+  );
+}
 
 function toTelHref(number: string): string {
   const digits = number.replace(/\D/g, "");
@@ -1012,9 +1113,25 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
   const [galleryCarouselIndex, setGalleryCarouselIndex] = useState(0);
 
   const carouselGallery = useMemo(
-    () => initialData.gallery.filter((item) => isUploadedMediaUrl(item.imageUrl)),
+    () =>
+      initialData.gallery
+        .filter((item) => isUploadedMediaUrl(item.imageUrl))
+        .slice(0, HOME_CAROUSEL_PHOTO_LIMIT),
     [initialData.gallery]
   );
+
+  const donationSummary = useMemo(() => {
+    const totalRaised = initialData.donations.reduce(
+      (sum, donation) => sum + Number(donation.amount || 0),
+      0
+    );
+
+    return {
+      totalRaised,
+      donorCount: initialData.donations.length,
+      recentDonors: initialData.donations.slice(0, 4),
+    };
+  }, [initialData.donations]);
 
   const safeGalleryCarouselIndex =
     carouselGallery.length === 0
@@ -1111,6 +1228,13 @@ useEffect(() => {
   const [donorName, setDonorName] = useState<string>("");
   const [donationMessage, setDonationMessage] = useState<string>("");
   const [donationPurpose, setDonationPurpose] = useState<string>("Boots & Equipment");
+  const [donationPhone, setDonationPhone] = useState<string>("");
+
+  const selectedDonationAmount = useMemo(() => {
+    const custom = customDonation ? parseInt(customDonation, 10) : NaN;
+    if (!isNaN(custom) && custom > 0) return custom;
+    return donationAmount > 0 ? donationAmount : null;
+  }, [customDonation, donationAmount]);
 
   const [fanName, setFanName] = useState<string>("");
   const [fanText, setFanText] = useState<string>("");
@@ -1222,12 +1346,37 @@ const [orderFilter, setOrderFilter] = useState<
 >("all");
 
 const [orderSearch, setOrderSearch] = useState<string>("");
+const [adminPanelView, setAdminPanelView] = useState<"content" | "inbox" | "orders">("content");
 const [notificationConfig, setNotificationConfig] = useState<{
   channels: string[];
   sms: boolean;
   whatsapp: boolean;
   trackingUrlConfigured: boolean;
 } | null>(null);
+
+  const adminOrderStats = useMemo(() => {
+    const paidOrders = adminOrders.filter(
+      (order) => String(order.paymentStatus || "").toLowerCase() === "paid"
+    );
+    const pendingOrders = adminOrders.filter(
+      (order) => String(order.paymentStatus || "").toLowerCase() === "pending"
+    );
+    const failedOrders = adminOrders.filter(
+      (order) => String(order.paymentStatus || "").toLowerCase() === "failed"
+    );
+    const totalSales = paidOrders.reduce(
+      (total, order) => total + Number(order.totalAmount || 0),
+      0
+    );
+
+    return {
+      totalOrders: adminOrders.length,
+      paidCount: paidOrders.length,
+      pendingCount: pendingOrders.length,
+      failedCount: failedOrders.length,
+      totalSales,
+    };
+  }, [adminOrders]);
   
   const [adminPlayerName, setAdminPlayerName] = useState<string>("");
   const [adminPlayerPos, setAdminPlayerPos] = useState<string>("Centre Back");
@@ -1242,7 +1391,8 @@ const [notificationConfig, setNotificationConfig] = useState<{
   const [adminOpponent, setAdminOpponent] = useState<string>("");
   const [adminOpponentLogoFile, setAdminOpponentLogoFile] = useState<File | null>(null);
   const [adminOpponentLogoUrl, setAdminOpponentLogoUrl] = useState<string>("");
-  const [adminDate, setAdminDate] = useState<string>("");
+  const [adminMatchDate, setAdminMatchDate] = useState<string>("");
+  const [adminMatchTime, setAdminMatchTime] = useState<string>("");
   const [adminIsHome, setAdminIsHome] = useState<boolean>(true);
   const [adminVenue, setAdminVenue] = useState<string>(HOME_GROUND.fullAddress);
   const [adminHomeScore, setAdminHomeScore] = useState<string>("");
@@ -1380,10 +1530,14 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
       });
 
       if (res.success) {
-        showToast(res.message || "Thank you! Your donation was recorded.");
+        showToast(
+          res.message ||
+            `Thank you! Complete your M-Pesa payment of Ksh ${finalAmount.toLocaleString()} to PayBill ${MPESA_PAYBILL.paybill} (${MPESA_PAYBILL.account}).`
+        );
         setDonorName("");
         setDonationMessage("");
         setCustomDonation("");
+        setDonationPhone("");
       } else {
         showToast(res.error || "Something went wrong", "error");
       }
@@ -2174,6 +2328,12 @@ useEffect(() => {
   }
 }, [activeTab, isAdminAuthenticated]);
 
+useEffect(() => {
+  if (activeTab !== "admin") {
+    setAdminPanelView("content");
+  }
+}, [activeTab]);
+
 const handleSessionIdleLock = useCallback(async () => {
   if (customerProfile) {
     try {
@@ -2361,10 +2521,12 @@ const handleAdminAddManagement = (e: React.FormEvent) => {
 const handleAdminAddFixture = (e: React.FormEvent) => {
   e.preventDefault();
 
-  if (!adminOpponent || !adminDate) {
+  if (!adminOpponent || !adminMatchDate) {
     showToast("Opponent name and date are required", "error");
     return;
   }
+
+  const fixtureDate = combineFixtureDateTime(adminMatchDate, adminMatchTime);
 
   startTransition(async () => {
     try {
@@ -2375,7 +2537,7 @@ const handleAdminAddFixture = (e: React.FormEvent) => {
       const res = await addFixture({
         opponent: adminOpponent,
         opponentLogoUrl,
-        date: adminDate,
+        date: fixtureDate,
         isHome: adminIsHome,
         status: adminStatus,
         venue: adminVenue,
@@ -2392,7 +2554,8 @@ const handleAdminAddFixture = (e: React.FormEvent) => {
         );
 
         setAdminOpponent("");
-        setAdminDate("");
+        setAdminMatchDate("");
+        setAdminMatchTime("");
         setAdminHomeScore("");
         setAdminAwayScore("");
         setAdminOpponentLogoFile(null);
@@ -2419,10 +2582,12 @@ const handleAdminUpdateFixture = (e: React.FormEvent) => {
     return;
   }
 
-  if (!adminOpponent || !adminDate) {
+  if (!adminOpponent || !adminMatchDate) {
     showToast("Opponent name and date are required", "error");
     return;
   }
+
+  const fixtureDate = combineFixtureDateTime(adminMatchDate, adminMatchTime);
 
   startTransition(async () => {
     try {
@@ -2435,7 +2600,7 @@ const handleAdminUpdateFixture = (e: React.FormEvent) => {
       const res = await updateFixture(editingFixtureId, {
         opponent: adminOpponent,
         opponentLogoUrl,
-        date: adminDate,
+        date: fixtureDate,
         isHome: adminIsHome,
         status: adminStatus,
         venue: adminVenue,
@@ -2451,7 +2616,8 @@ const handleAdminUpdateFixture = (e: React.FormEvent) => {
 
         setEditingFixtureId(null);
         setAdminOpponent("");
-        setAdminDate("");
+        setAdminMatchDate("");
+        setAdminMatchTime("");
         setAdminHomeScore("");
         setAdminAwayScore("");
         setAdminStatus("upcoming");
@@ -2485,7 +2651,8 @@ const handleEditFixture = (
   setAdminOpponent(fixture.opponent);
   setAdminOpponentLogoUrl(fixture.opponentLogoUrl || "");
   setAdminOpponentLogoFile(null);
-  setAdminDate(fixture.date);
+  setAdminMatchDate(toFixtureDateInputValue(fixture.date));
+  setAdminMatchTime(toFixtureTimeInputValue(fixture.date));
   setAdminIsHome(fixture.isHome);
   setAdminVenue(fixture.venue);
   setAdminStatus(fixture.status);
@@ -3274,54 +3441,21 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 News
               </button>
 
-              <div className="relative group">
-                <button
-                  type="button"
-                  className={desktopNavTriggerClass(["gallery", "fanzone"].includes(activeTab))}
-                >
-                  Media
-                  <ChevronDown className="w-3 h-3 transition-transform duration-300 group-hover:rotate-180" />
-                </button>
+              <button
+                type="button"
+                onClick={() => goToTab("gallery")}
+                className={desktopNavLinkClass(activeTab === "gallery")}
+              >
+                Gallery
+              </button>
 
-                <div className="absolute left-0 top-full pt-2 opacity-0 invisible translate-y-1 group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 transition-all duration-200 z-50">
-                  <div className="w-64 bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200/80 shadow-2xl shadow-slate-950/10 p-2">
-                    <button
-                      type="button"
-                      onClick={() => goToTab("gallery")}
-                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
-                    >
-                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
-                        <Images className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
-                      </span>
-                      <span>
-                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
-                          Photo Gallery
-                        </span>
-                        <span className="block text-[10px] text-slate-500 mt-0.5">
-                          Matchday and club moments
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => goToTab("fanzone")}
-                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
-                    >
-                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
-                        <MessageCircle className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
-                      </span>
-                      <span>
-                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
-                          Fan Zone
-                        </span>
-                        <span className="block text-[10px] text-slate-500 mt-0.5">
-                          Supporter messages and community
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={() => goToTab("fanzone")}
+                className={desktopNavLinkClass(activeTab === "fanzone")}
+              >
+                Fan Zone
+              </button>
 
               <button
                 type="button"
@@ -3337,6 +3471,14 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 className={desktopNavLinkClass(activeTab === "contact")}
               >
                 Contact
+              </button>
+
+              <button
+                type="button"
+                onClick={() => goToTab("donors")}
+                className={desktopNavLinkClass(activeTab === "donors")}
+              >
+                Donations
               </button>
             </nav>
 
@@ -3379,7 +3521,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 className="hidden 2xl:flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all duration-200 shadow-lg shadow-emerald-600/20 cursor-pointer"
               >
                 <HeartHandshake className="w-4 h-4" />
-                Support
+                Donate
               </button>
 
               <button
@@ -3412,6 +3554,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                         { id: "home", label: "Home", icon: Home },
                         { id: "news", label: "Club News", icon: Newspaper },
                         { id: "shop", label: "Merchandise Shop", icon: ShoppingBag },
+                        { id: "donors", label: "Donations", icon: HeartHandshake },
                         { id: "contact", label: "Contact Centre", icon: Phone },
                       ].map((tab) => {
                         const Icon = tab.icon;
@@ -3469,14 +3612,70 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
                   <div className="space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
-                      Fans
+                      Media
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {[
                         { id: "gallery", label: "Photo Gallery", icon: Images },
-                        { id: "fanzone", label: "Fan Zone", icon: MessageCircle },
+                      ].map((tab) => {
+                        const Icon = tab.icon;
+                        const isActive = activeTab === tab.id;
+                        return (
+                          <button
+                            type="button"
+                            key={tab.id}
+                            onClick={() => goToTab(tab.id)}
+                            className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                              isActive
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
+                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                            }`}
+                          >
+                            <Icon className="w-4 h-4 shrink-0" />
+                            <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
+                      Fan Zone
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {[
+                        { id: "fanzone", label: "Supporter Board", icon: MessageCircle },
+                      ].map((tab) => {
+                        const Icon = tab.icon;
+                        const isActive = activeTab === tab.id;
+                        return (
+                          <button
+                            type="button"
+                            key={tab.id}
+                            onClick={() => goToTab(tab.id)}
+                            className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                              isActive
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
+                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                            }`}
+                          >
+                            <Icon className="w-4 h-4 shrink-0" />
+                            <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
+                      Fans
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {[
                         { id: "account", label: customerProfile ? "My Orders" : "Sign In", icon: User },
-                        { id: "donors", label: "Support & Donors", icon: HeartHandshake },
+                        { id: "donors", label: "Donations", icon: HeartHandshake },
                       ].map((tab) => {
                         const Icon = tab.icon;
                         const isActive = activeTab === tab.id;
@@ -3506,7 +3705,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                       className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-4 py-3 rounded-xl transition cursor-pointer shadow-lg shadow-emerald-600/20"
                     >
                       <HeartHandshake className="w-4 h-4" />
-                      Support the Club
+                      Donate
                     </button>
                   </div>
 
@@ -3664,6 +3863,16 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
             <Users className="w-4 h-4" />
             Meet the Team
 
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </button>
+
+
+          <button
+            onClick={() => setActiveTab("donors")}
+            className="group bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] sm:text-xs uppercase tracking-wider px-5 sm:px-6 py-3 rounded-xl transition-all duration-300 shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer"
+          >
+            <HeartHandshake className="w-4 h-4" />
+            Donate
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </button>
 
@@ -4117,11 +4326,8 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   </button>
 
 </div>
-           {/* ================= NEWS & FAN SUPPORT ================= */}
-<div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-  {/* ================= LATEST CLUB NEWS ================= */}
-  <div className="lg:col-span-2 space-y-6">
+           {/* ================= LATEST CLUB NEWS ================= */}
+<div className="space-y-6">
 
     {/* Heading */}
     <div className="flex items-end justify-between gap-4">
@@ -4275,10 +4481,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
       <ArrowRight className="w-4 h-4" />
     </button>
 
-  </div>
+</div>
 
 
-  {/* ================= FAN SUPPORT BOARD ================= */}
+           {/* ================= FAN ZONE ================= */}
   <div className="space-y-6">
 
     {/* Heading */}
@@ -4288,12 +4494,13 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
         <span className="w-2 h-2 rounded-full bg-yellow-400" />
 
         <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-yellow-600">
-          The Fans
+          Fan Zone
         </span>
       </div>
 
       <h3 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight flex items-center gap-2">
-        Fan Support
+        <MessageCircle className="w-6 h-6 text-emerald-600" />
+        Supporter Board
       </h3>
 
       <p className="text-sm text-slate-500 mt-2">
@@ -4444,7 +4651,134 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
   </div>
 
-</div>
+           {/* ================= DONATIONS ================= */}
+<section className="space-y-6">
+
+  <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="w-2 h-2 rounded-full bg-yellow-400" />
+        <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+          Club Donations
+        </span>
+      </div>
+
+      <h3 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight flex items-center gap-2">
+        <HeartHandshake className="w-6 h-6 text-emerald-600" />
+        Donate to Kariobangi Legends
+      </h3>
+
+      <p className="text-sm text-slate-500 mt-2 max-w-2xl">
+        Partner with us to provide boots, academy meals, match travel, and training
+        equipment for young footballers in Kariobangi North.
+      </p>
+    </div>
+
+    <button
+      type="button"
+      onClick={() => {
+        setActiveTab("donors");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }}
+      className="hidden sm:inline-flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-700 transition cursor-pointer"
+    >
+      Full Donation Form
+      <ArrowRight className="w-4 h-4" />
+    </button>
+  </div>
+
+  <div className="relative overflow-hidden rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl">
+    <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+    <div className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-yellow-400/5 blur-3xl pointer-events-none" />
+
+    <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-0">
+      <div className="p-6 sm:p-8 space-y-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { amount: "500", label: "Academy lunch" },
+            { amount: "1,500", label: "Training support" },
+            { amount: "3,000", label: "Boots & kit" },
+            { amount: "8,000", label: "Away travel" },
+          ].map((tier) => (
+            <div
+              key={tier.amount}
+              className="rounded-2xl bg-white/5 border border-white/10 p-4 text-center"
+            >
+              <p className="text-yellow-400 font-black text-sm">Ksh {tier.amount}</p>
+              <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-2">
+                {tier.label}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <MpesaDonationPrompt />
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab("donors");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          className="w-full sm:w-auto bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-xs uppercase tracking-wider px-6 py-3.5 rounded-xl transition cursor-pointer inline-flex items-center justify-center gap-2"
+        >
+          <HeartHandshake className="w-4 h-4" />
+          Complete Donation Form
+          <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="border-t lg:border-t-0 lg:border-l border-white/10 bg-slate-900/50 p-6 sm:p-8">
+        <p className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+          Recent Donors
+        </p>
+        <p className="text-sm text-slate-400 mt-1 mb-4">
+          Thank you to everyone investing in the Legends.
+        </p>
+
+        <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+          {donationSummary.recentDonors.length > 0 ? (
+            donationSummary.recentDonors.map((donation) => (
+              <div
+                key={donation.id}
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-bold text-sm text-white truncate">
+                    {donation.donorName}
+                  </p>
+                  <p className="text-emerald-400 font-black text-xs shrink-0">
+                    Ksh {Number(donation.amount).toLocaleString()}
+                  </p>
+                </div>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">
+                  {donation.purpose}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-slate-500 py-6 text-center">
+              Be the first donor on our honor board.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button
+    type="button"
+    onClick={() => {
+      setActiveTab("donors");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }}
+    className="sm:hidden w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-wider text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-50 transition cursor-pointer"
+  >
+    Complete Donation Form
+    <ArrowRight className="w-4 h-4" />
+  </button>
+
+</section>
 
            {/* ================= CLUB STORY / FOUNDER ================= */}
 <section className="space-y-6">
@@ -4606,7 +4940,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
             {/* Category Filter buttons */}
             <div className="flex gap-2 flex-wrap bg-white p-2.5 rounded-2xl border border-slate-100 shadow-sm">
-              {["All", "Match", "Training", "Community", "Academy"].map((cat) => (
+              {["All", "Match", "Training", "Community", "Academy", "Wazee"].map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedGalleryCategory(cat)}
@@ -4628,9 +4962,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                   key={item.id}
                   className="group bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
                 >
-                  <div className="relative h-72 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 overflow-hidden">
-
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.08),transparent_65%)] pointer-events-none" />
+                  <div className="relative min-h-64 bg-white overflow-hidden border-b border-slate-100">
 
                     <button
                       type="button"
@@ -4639,17 +4971,17 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                           setSelectedGalleryImage(item);
                         }
                       }}
-                      className="relative z-10 w-full h-full flex items-center justify-center p-3 cursor-zoom-in"
+                      className="relative z-10 w-full min-h-64 flex items-center justify-center p-3 cursor-zoom-in"
                     >
                       {isUploadedMediaUrl(item.imageUrl) ? (
                         /* eslint-disable-next-line @next/next/no-img-element */
                         <img
                           src={item.imageUrl}
                           alt={item.caption}
-                          className="max-w-full max-h-full w-auto h-auto object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out drop-shadow-lg"
+                          className="max-w-full max-h-72 w-auto h-auto object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out"
                         />
                       ) : (
-                        <div className="text-center text-slate-400 px-4">
+                        <div className="min-h-64 w-full flex flex-col items-center justify-center text-center text-slate-400 px-4 bg-slate-50">
                           <ImageIcon className="w-10 h-10 mx-auto mb-2" />
                           <p className="text-[10px] font-bold uppercase tracking-wider">
                             Legacy entry: upload a photo
@@ -4706,18 +5038,18 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
         )}
                     {selectedGalleryImage && (
               <div
-                className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-300"
+                className="fixed inset-0 z-[100] bg-white/95 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300"
                 onClick={() => setSelectedGalleryImage(null)}
               >
                 <div
-                  className="relative w-full max-w-6xl h-[90vh] flex items-center justify-center"
+                  className="relative w-full max-w-6xl max-h-[90vh] flex flex-col items-center justify-center"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {/* Close Button */}
                   <button
                     type="button"
                     onClick={() => setSelectedGalleryImage(null)}
-                    className="absolute top-2 right-2 z-20 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-2xl transition"
+                    className="absolute top-2 right-2 z-20 w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center text-2xl transition"
                     aria-label="Close image"
                   >
                     ×
@@ -4726,7 +5058,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 {/* Previous Button */}
 <button
   type="button"
-  className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 z-20 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-2xl transition"
+  className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 z-20 w-12 h-12 rounded-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 flex items-center justify-center text-2xl transition shadow-sm"
   aria-label="Previous photo"
   onClick={() => {
     const currentIndex = filteredGallery.findIndex(
@@ -4747,7 +5079,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 {/* Next Button */}
 <button
   type="button"
-  className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 z-20 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-2xl transition"
+  className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 z-20 w-12 h-12 rounded-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 flex items-center justify-center text-2xl transition shadow-sm"
   aria-label="Next photo"
   onClick={() => {
     const currentIndex = filteredGallery.findIndex(
@@ -4765,7 +5097,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   ›
 </button>
 {/* Photo Counter */}
-<div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-black/60 text-white text-xs font-bold px-4 py-2 rounded-full">
+<div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-white border border-slate-200 text-slate-700 text-xs font-bold px-4 py-2 rounded-full shadow-sm">
   {filteredGallery.findIndex(
     (image) => image.id === selectedGalleryImage.id
   ) + 1}{" "}
@@ -4776,15 +5108,15 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                   <img
                     src={selectedGalleryImage.imageUrl}
                     alt={selectedGalleryImage.caption}
-                    className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-300"
+                    className="max-w-full max-h-[calc(90vh-8rem)] object-contain rounded-lg animate-in zoom-in-95 duration-300"
                   />
 
                   {/* Caption */}
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-6 pt-16 rounded-b-lg">
-                    <p className="text-white font-bold text-sm">
+                  <div className="mt-4 w-full max-w-3xl text-center px-4">
+                    <p className="text-slate-950 font-bold text-sm">
                       {selectedGalleryImage.caption}
                     </p>
-                    <p className="text-emerald-400 text-xs font-semibold mt-1 uppercase">
+                    <p className="text-emerald-600 text-xs font-semibold mt-1 uppercase">
                       {selectedGalleryImage.category}
                     </p>
                   </div>
@@ -5113,22 +5445,22 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
         <hr className="border-slate-200" />
 
-        {/* Support */}
+        {/* Donations */}
         <div className="space-y-3">
           <h4 className="font-bold text-xs text-slate-900 uppercase">
-            Support Our Mission
+            Club Donations
           </h4>
 
           <p className="text-xs text-slate-600 leading-relaxed">
-            Supporting Kariobangi Legends means supporting football talent,
-            community development and the dreams of young people.
+            Donating to Kariobangi Legends means investing in football talent,
+            community development, and the dreams of young people.
           </p>
 
           <button
             onClick={() => setActiveTab("donors")}
             className="w-full bg-slate-950 text-yellow-400 text-xs font-bold py-3 rounded-xl hover:bg-slate-900 transition uppercase tracking-wider cursor-pointer"
           >
-            Go To Donation Options
+            Donate Now
           </button>
         </div>
 
@@ -5889,38 +6221,52 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
           </div>
         )}
 
-        {/* ================= TAB: DONORS & SUPPORT ================= */}
+        {/* ================= TAB: DONATIONS ================= */}
         {activeTab === "donors" && (
           <div className="space-y-8">
-            <div className="max-w-3xl space-y-2">
-              <h2 className="text-3xl font-black text-slate-950 tracking-tight">Sponsor Kariobangi Legends</h2>
-              <p className="text-sm text-slate-600">
-                Operating a competitive club in Division One of the Kenyan league requires resources. 
-                Our boys face immense hurdles. Your support directly provides boots, matches transport, academy training, and daily healthy meals.
-              </p>
+            <div className="relative overflow-hidden rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.12),transparent_55%)] pointer-events-none" />
+              <div className="relative z-10 px-6 sm:px-10 py-8 sm:py-10">
+                <div className="max-w-3xl space-y-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-yellow-400" />
+                    <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-400">
+                      Club Donations
+                    </span>
+                  </div>
+                  <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+                    Donate to Kariobangi Legends FC
+                  </h2>
+                  <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
+                    Division One football demands more than passion. Your donation helps us provide
+                    boots, academy programmes, match travel, and daily training for young players
+                    from Kariobangi North.
+                  </p>
+                </div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-              {/* Left Form Column */}
-              <div className="lg:col-span-2 bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-sm space-y-6">
-                <h3 className="text-xl font-bold text-slate-950">Make a Safe Support Donation</h3>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  Every Shilling matters. A single pair of standard boots costs around Ksh 2,500 ($19 USD). 
-                  Fill in the details below to contribute dynamically to our team.
-                </p>
+            <div className="grid grid-cols-1 xl:grid-cols-[1.15fr_0.85fr] gap-8 items-start">
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-sm space-y-6">
+                <div>
+                  <h3 className="text-xl font-black text-slate-950">Make a donation</h3>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Pay via M-Pesa using the details below, then submit your information so we can
+                    acknowledge your gift.
+                  </p>
+                </div>
 
                 <form onSubmit={handleDonationSubmit} className="space-y-5">
-                  {/* Preset amounts in Ksh */}
                   <div className="space-y-2">
                     <label className="text-[10px] text-slate-400 font-bold uppercase block">
-                      Select Amount (Ksh)
+                      Select amount (Ksh)
                     </label>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {[
-                        { val: 500, label: "500\n(Academy Lunch)" },
-                        { val: 1500, label: "1,500\n(Academy Fee)" },
-                        { val: 3000, label: "3,000\n(1 Boot Pair)" },
-                        { val: 8000, label: "8,000\n(Away Bus)" },
+                        { val: 500, label: "Academy lunch" },
+                        { val: 1500, label: "Training support" },
+                        { val: 3000, label: "Boots & kit" },
+                        { val: 8000, label: "Away travel" },
                       ].map((preset) => (
                         <button
                           key={preset.val}
@@ -5929,25 +6275,24 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                             setDonationAmount(preset.val);
                             setCustomDonation("");
                           }}
-                          className={`p-3 rounded-xl font-extrabold text-center transition flex flex-col items-center justify-center border whitespace-pre-line ${
+                          className={`p-3 rounded-xl font-bold text-center transition border ${
                             donationAmount === preset.val && !customDonation
                               ? "bg-slate-950 text-yellow-400 border-slate-950"
                               : "bg-slate-50 text-slate-700 border-slate-100 hover:bg-slate-100"
                           }`}
                         >
-                          <span className="text-sm">Ksh {preset.val.toLocaleString()}</span>
-                          <span className="text-[8px] font-medium text-slate-400 leading-tight mt-1">
-                            {preset.label.split("\n")[1]}
+                          <span className="text-sm block">Ksh {preset.val.toLocaleString()}</span>
+                          <span className="text-[9px] font-medium text-slate-400 mt-1 block">
+                            {preset.label}
                           </span>
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* Custom Amount input */}
                   <div className="space-y-1">
                     <label className="text-[10px] text-slate-400 font-bold uppercase block">
-                      Or Enter Custom Shillings Amount (Ksh)
+                      Custom amount (Ksh)
                     </label>
                     <div className="relative">
                       <span className="absolute left-4 top-3 text-slate-400 font-bold text-sm">Ksh</span>
@@ -5964,14 +6309,21 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     </div>
                   </div>
 
+                  <MpesaDonationPrompt
+                    amount={selectedDonationAmount}
+                    showPhone
+                    phone={donationPhone}
+                    onPhoneChange={setDonationPhone}
+                  />
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className="text-[10px] text-slate-400 font-bold uppercase block">
-                        Your Full Name
+                        Full name
                       </label>
                       <input
                         type="text"
-                        placeholder="e.g. Atanga Fan Club / Sarah Jepchirchir"
+                        placeholder="Your name or organisation"
                         value={donorName}
                         onChange={(e) => setDonorName(e.target.value)}
                         className="w-full text-sm p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -5981,88 +6333,118 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
                     <div className="space-y-1">
                       <label className="text-[10px] text-slate-400 font-bold uppercase block">
-                        Fund Purpose
+                        Donation purpose
                       </label>
                       <select
                         value={donationPurpose}
                         onChange={(e) => setDonationPurpose(e.target.value)}
                         className="w-full text-sm p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
                       >
-                        <option value="Boots & Equipment">Boots & Match Balls</option>
-                        <option value="Academy Support">U-15 Grassroots Academy</option>
-                        <option value="Transport & Meals">Away Game Bus Hire</option>
-                        <option value="General Club Fund">General Operational Support</option>
+                        <option value="Boots & Equipment">Boots & match equipment</option>
+                        <option value="Academy Support">U-15 academy programme</option>
+                        <option value="Transport & Meals">Match travel & meals</option>
+                        <option value="General Club Fund">General club operations</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="space-y-1">
                     <label className="text-[10px] text-slate-400 font-bold uppercase block">
-                      Message of Hope (Optional)
+                      Message (optional)
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Keep pushing hard! Kariobangi is proud of you all!"
+                    <textarea
+                      rows={2}
+                      placeholder="Leave an encouraging message for the team..."
                       value={donationMessage}
                       onChange={(e) => setDonationMessage(e.target.value)}
-                      className="w-full text-sm p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full text-sm p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
                     />
-                  </div>
-
-                  {/* Kenya M-Pesa style warning */}
-                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 flex items-start gap-2 text-emerald-800 text-[11px] leading-relaxed">
-                    <Phone className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                    <span>
-                      <strong>M-Pesa Support:</strong> Simulated Checkout works automatically. 
-                      Your name and donation will be safely logged into our local PostgreSQL database.
-                    </span>
                   </div>
 
                   <button
                     type="submit"
                     disabled={isPending}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs uppercase tracking-wider py-4 rounded-xl transition cursor-pointer flex items-center justify-center gap-2"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs uppercase tracking-wider py-4 rounded-xl transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    <Heart className="w-4 h-4 text-emerald-100 fill-emerald-100" />
-                    {isPending ? "Recording Donation..." : "Confirm & Send Support"}
+                    <HeartHandshake className="w-4 h-4" />
+                    {isPending ? "Submitting..." : "Submit Donation"}
                   </button>
+
+                  <p className="text-[10px] text-center text-slate-400 leading-relaxed">
+                    Questions? Call{" "}
+                    <a
+                      href={toTelHref(CONTACT_CENTER.phones[0].number)}
+                      className="font-bold text-emerald-600 underline underline-offset-2"
+                    >
+                      {CONTACT_CENTER.phones[0].number}
+                    </a>{" "}
+                    or email{" "}
+                    <a
+                      href={`mailto:${CONTACT_CENTER.email}`}
+                      className="font-bold text-emerald-600 underline underline-offset-2 break-all"
+                    >
+                      {CONTACT_CENTER.email}
+                    </a>
+                    .
+                  </p>
                 </form>
               </div>
 
-              {/* Right Side Donors Feed */}
               <div className="space-y-6">
                 <div className="bg-slate-950 text-white p-6 rounded-3xl border border-slate-900 shadow-sm space-y-4">
-                  <h3 className="font-bold text-base text-yellow-400">Past Donors Honor Board</h3>
-                  <p className="text-xs text-slate-300">
-                    A special thank you to all those who have sponsored Kariobangi Legends. You are fueling community dreams.
+                  <h3 className="font-black text-base text-yellow-400">Donors Honor Board</h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    We recognise every donor helping Kariobangi Legends grow on and off the pitch.
                   </p>
 
-                  <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                    {initialData.donations.map((d) => (
-                      <div key={d.id} className="p-3 bg-slate-900 rounded-xl space-y-1.5 border border-slate-800">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="font-bold text-slate-100 truncate max-w-[140px]">{d.donorName}</span>
-                          <span className="text-emerald-400 font-black whitespace-nowrap">Ksh {d.amount.toLocaleString()}</span>
+                  <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                    {initialData.donations.length > 0 ? (
+                      initialData.donations.map((d) => (
+                        <div
+                          key={d.id}
+                          className="p-4 bg-slate-900 rounded-xl border border-slate-800 space-y-1.5"
+                        >
+                          <div className="flex justify-between items-start gap-3 text-xs">
+                            <span className="font-bold text-slate-100">{d.donorName}</span>
+                            <span className="text-emerald-400 font-black whitespace-nowrap">
+                              Ksh {d.amount.toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                            {d.purpose}
+                          </p>
+                          {d.message && (
+                            <p className="text-xs text-slate-300 italic">&ldquo;{d.message}&rdquo;</p>
+                          )}
                         </div>
-                        <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                          Target: {d.purpose}
-                        </p>
-                        {d.message && (
-                          <p className="text-xs text-slate-300 italic">&ldquo;{d.message}&rdquo;</p>
-                        )}
-                      </div>
-                    ))}
+                      ))
+                    ) : (
+                      <p className="text-sm text-slate-500 py-8 text-center">
+                        No recorded donations yet. Your name can be first on the board.
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                <div className="p-5 bg-white rounded-2xl border border-slate-100 space-y-3">
-                  <h4 className="font-extrabold text-sm text-slate-950">Where does the money go?</h4>
-                  <ul className="space-y-2 text-xs text-slate-600 leading-relaxed list-disc list-inside">
-                    <li>FKF Division One registration fees</li>
-                    <li>First-aid kit replenishment</li>
-                    <li>Renting buses to travel across Nairobi County</li>
-                    <li>Purchasing pure black home kits and white away jerseys</li>
-                    <li>Supporting the Under-15 educational scholarship fund</li>
+                <div className="p-6 bg-white rounded-2xl border border-slate-100 space-y-3">
+                  <h4 className="font-black text-sm text-slate-950">Where your donation goes</h4>
+                  <ul className="space-y-2 text-xs text-slate-600 leading-relaxed">
+                    <li className="flex gap-2">
+                      <span className="text-emerald-600 font-black">•</span>
+                      FKF Division One registration and league operations
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-emerald-600 font-black">•</span>
+                      Boots, balls, and training equipment for the squad
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-emerald-600 font-black">•</span>
+                      Transport for away fixtures across Nairobi County
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-emerald-600 font-black">•</span>
+                      U-15 academy meals and educational support
+                    </li>
                   </ul>
                 </div>
               </div>
@@ -7200,10 +7582,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     className="p-4 rounded-2xl border border-emerald-100 bg-emerald-50 hover:bg-emerald-100 transition text-left cursor-pointer"
                   >
                     <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">
-                      Donors
+                      Donations
                     </p>
                     <p className="mt-1 text-sm font-bold text-slate-950">
-                      Make a support donation
+                      Make a club donation
                     </p>
                   </button>
 
@@ -7231,11 +7613,8 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
         {/* ================= TAB: ADMIN PANEL ================= */}
         {activeTab === "admin" && (
           <div className="space-y-8">
-            <div className="max-w-2xl space-y-2">
+            <div className="max-w-2xl">
               <h2 className="text-3xl font-black text-slate-950 tracking-tight">Manager Administration Panel</h2>
-              <p className="text-sm text-slate-600">
-                Are you a club official or Mr. Erick Otieno Atanga? Add players, schedule matches, post news updates, or add photos straight to the PostgreSQL database.
-              </p>
             </div>
 
             {!isAdminAuthenticated ? (
@@ -7284,186 +7663,67 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 </button>
                 </div>
 
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                      <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
-                        <MessageSquare className="w-5 h-5 text-emerald-600" />
-                        Fan Account Inbox
-                      </h3>
-                      <p className="text-sm text-slate-600 mt-1">
-                        Read messages from registered fans and send replies to their accounts.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        loadAdminInboxThreads();
-                        if (selectedInboxCustomerId) {
-                          loadAdminInboxThread(selectedInboxCustomerId);
-                        }
-                      }}
-                      disabled={isLoadingAdminInbox}
-                      className="text-[10px] font-black uppercase tracking-wider text-emerald-700 hover:text-emerald-800 disabled:opacity-50 cursor-pointer"
-                    >
-                      {isLoadingAdminInbox ? "Refreshing..." : "Refresh Inbox"}
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 min-h-[360px]">
-                    <div className="border border-slate-100 rounded-2xl overflow-hidden bg-slate-50/60">
-                      <div className="px-4 py-3 border-b border-slate-100 bg-white">
-                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                          Fan Conversations
-                        </p>
-                      </div>
-                      <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
-                        {isLoadingAdminInbox && adminInboxThreads.length === 0 ? (
-                          <p className="text-sm text-slate-500 p-4">Loading inbox...</p>
-                        ) : adminInboxThreads.length === 0 ? (
-                          <p className="text-sm text-slate-500 p-4">
-                            No fan messages yet. Messages from signed-in accounts will appear here.
-                          </p>
-                        ) : (
-                          adminInboxThreads.map((thread) => {
-                            const isSelected = selectedInboxCustomerId === thread.customerId;
-
-                            return (
-                              <button
-                                type="button"
-                                key={thread.customerId}
-                                onClick={() => loadAdminInboxThread(thread.customerId)}
-                                className={`w-full text-left px-4 py-3 transition cursor-pointer ${
-                                  isSelected
-                                    ? "bg-emerald-50 border-l-4 border-emerald-500"
-                                    : "hover:bg-white"
-                                }`}
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="min-w-0">
-                                    <p className="font-bold text-sm text-slate-900 truncate">
-                                      {thread.fullName}
-                                    </p>
-                                    <p className="text-[10px] text-slate-500 truncate">
-                                      {formatPhoneDisplay(formatStoredPhoneForInput(thread.phoneNumber))}
-                                    </p>
-                                  </div>
-                                  {thread.unreadCount > 0 && (
-                                    <span className="shrink-0 min-w-5 h-5 px-1 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center">
-                                      {thread.unreadCount}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-xs text-slate-600 mt-2 line-clamp-2">
-                                  {thread.lastMessage}
-                                </p>
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="border border-slate-100 rounded-2xl overflow-hidden flex flex-col bg-white">
-                      {!selectedInboxCustomerId ? (
-                        <div className="flex-1 flex items-center justify-center p-8 text-center">
-                          <div className="space-y-2">
-                            <MessageCircle className="w-10 h-10 text-slate-300 mx-auto" />
-                            <p className="font-semibold text-slate-700">Select a fan conversation</p>
-                            <p className="text-sm text-slate-500">
-                              Choose a fan on the left to read their message and send a reply.
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80">
-                            <p className="font-bold text-slate-900">
-                              {selectedInboxCustomer?.fullName || "Fan account"}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {selectedInboxCustomer
-                                ? formatPhoneDisplay(
-                                    formatStoredPhoneForInput(selectedInboxCustomer.phoneNumber)
-                                  )
-                                : ""}
-                              {selectedInboxCustomer?.email
-                                ? ` • ${selectedInboxCustomer.email}`
-                                : ""}
-                            </p>
-                          </div>
-
-                          <div className="flex-1 max-h-72 overflow-y-auto p-4 space-y-3 bg-slate-50/40">
-                            {isLoadingAdminInbox && adminInboxMessages.length === 0 ? (
-                              <p className="text-sm text-slate-500 text-center py-8">
-                                Loading conversation...
-                              </p>
-                            ) : adminInboxMessages.length === 0 ? (
-                              <p className="text-sm text-slate-500 text-center py-8">
-                                No messages in this conversation yet.
-                              </p>
-                            ) : (
-                              adminInboxMessages.map((entry) => {
-                                const isAdmin = entry.senderType === "admin";
-
-                                return (
-                                  <div
-                                    key={entry.id}
-                                    className={`flex ${isAdmin ? "justify-end" : "justify-start"}`}
-                                  >
-                                    <div
-                                      className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
-                                        isAdmin
-                                          ? "bg-slate-950 text-yellow-400"
-                                          : "bg-white border border-slate-200 text-slate-800"
-                                      }`}
-                                    >
-                                      <p className="text-[10px] font-black uppercase tracking-wider opacity-80 mb-1">
-                                        {isAdmin ? "You (Admin)" : "Fan"}
-                                      </p>
-                                      <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                                        {entry.message}
-                                      </p>
-                                      <p className="text-[10px] mt-2 opacity-70">
-                                        {new Date(entry.createdAt).toLocaleString()}
-                                      </p>
-                                    </div>
-                                  </div>
-                                );
-                              })
-                            )}
-                          </div>
-
-                          <form
-                            onSubmit={handleAdminReply}
-                            className="border-t border-slate-100 p-4 space-y-3 bg-white"
-                          >
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                              Reply to fan
-                            </label>
-                            <textarea
-                              rows={3}
-                              placeholder="Type your reply..."
-                              value={adminReplyDraft}
-                              onChange={(e) => setAdminReplyDraft(e.target.value)}
-                              maxLength={2000}
-                              className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none resize-y text-sm"
-                              required
-                            />
-                            <button
-                              type="submit"
-                              disabled={isSendingAdminReply}
-                              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {isSendingAdminReply ? "Sending..." : "Send Reply"}
-                            </button>
-                          </form>
-                        </>
-                      )}
-                    </div>
-                  </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminPanelView("content");
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer ${
+                      adminPanelView === "content"
+                        ? "bg-slate-950 text-yellow-400 shadow-md"
+                        : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    Content
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminPanelView("inbox");
+                      loadAdminInboxThreads();
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-2 ${
+                      adminPanelView === "inbox"
+                        ? "bg-slate-950 text-yellow-400 shadow-md"
+                        : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    Fan Inbox
+                    {adminInboxThreads.some((thread) => thread.unreadCount > 0) && (
+                      <span className="min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center">
+                        {adminInboxThreads.reduce((sum, thread) => sum + thread.unreadCount, 0)}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminPanelView("orders");
+                      loadAdminOrders();
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-2 ${
+                      adminPanelView === "orders"
+                        ? "bg-slate-950 text-yellow-400 shadow-md"
+                        : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <ShoppingBag className="w-4 h-4" />
+                    Orders
+                    {adminOrderStats.totalOrders > 0 && (
+                      <span className="min-w-5 h-5 px-1 rounded-full bg-emerald-600 text-white text-[10px] font-black flex items-center justify-center">
+                        {adminOrderStats.totalOrders}
+                      </span>
+                    )}
+                  </button>
                 </div>
 
+                {adminPanelView === "content" && (
+                  <>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   {/* Action 1: Add Player */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
@@ -7649,7 +7909,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   }
   className="space-y-3 text-xs"
 >
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-3">
                         <div className="space-y-1">
                           <label className="font-bold text-slate-500">Opponent Team</label>
                           <input
@@ -7661,18 +7921,39 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                             required
                           />
                         </div>
-                        <div className="space-y-1">
-                          <label className="font-bold text-slate-500">Date (Readable format)</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 2026-04-12"
-                            value={adminDate}
-                            onChange={(e) => setAdminDate(e.target.value)}
-                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
-                            required
-                          />
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="font-bold text-slate-500">Match Date</label>
+                            <input
+                              type="date"
+                              value={adminMatchDate}
+                              onChange={(e) => setAdminMatchDate(e.target.value)}
+                              className="w-full p-2.5 rounded-lg border border-slate-200 bg-white focus:ring-1 focus:ring-emerald-500"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="font-bold text-slate-500">Kick-off Time (optional)</label>
+                            <input
+                              type="time"
+                              value={adminMatchTime}
+                              onChange={(e) => setAdminMatchTime(e.target.value)}
+                              className="w-full p-2.5 rounded-lg border border-slate-200 bg-white focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </div>
                         </div>
                       </div>
+
+                      {adminMatchDate && (
+                        <p className="text-[10px] text-slate-500">
+                          Scheduled for{" "}
+                          <span className="font-bold text-slate-700">
+                            {formatKickoff(combineFixtureDateTime(adminMatchDate, adminMatchTime))}
+                            {adminMatchTime ? ` at ${adminMatchTime}` : ""}
+                          </span>
+                        </p>
+                      )}
 
                       <div className="space-y-1">
                         <label className="font-bold text-slate-500">
@@ -8139,19 +8420,18 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                           htmlFor="admin-gallery-upload"
                           className={`relative block rounded-2xl border-2 border-dashed transition-all duration-300 cursor-pointer overflow-hidden ${
                             adminGalleryPreview
-                              ? "border-emerald-300 bg-slate-950"
+                              ? "border-emerald-300 bg-white"
                               : "border-slate-200 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 hover:border-emerald-300 hover:bg-emerald-50/30"
                           }`}
                         >
                           {adminGalleryPreview ? (
-                            <div className="relative min-h-[220px] sm:min-h-[280px] flex items-center justify-center p-4">
-                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.12),transparent_70%)] pointer-events-none" />
+                            <div className="relative min-h-[220px] sm:min-h-[280px] flex items-center justify-center p-4 bg-white">
 
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
                                 src={adminGalleryPreview}
                                 alt="Gallery upload preview"
-                                className="relative z-10 max-w-full max-h-[240px] sm:max-h-[300px] w-auto h-auto object-contain rounded-xl shadow-2xl ring-1 ring-white/10"
+                                className="relative z-10 max-w-full max-h-[240px] sm:max-h-[300px] w-auto h-auto object-contain rounded-xl"
                               />
 
                               <div className="absolute top-3 right-3 z-20 px-2.5 py-1 rounded-full bg-emerald-600 text-white text-[9px] font-black uppercase tracking-wider">
@@ -8240,6 +8520,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                             <option value="Training">Pitch Training</option>
                             <option value="Community">Slum Community Event</option>
                             <option value="Academy">U-15 Youth Academy</option>
+                            <option value="Wazee">Wazee</option>
                           </select>
                         </div>
                       </div>
@@ -8415,112 +8696,306 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                   </div>
                 </div>
 
-                {/* ================= ADMIN ORDERS ================= */}
-                {/* ORDER STATISTICS */}
-{(() => {
-  const totalOrders = adminOrders.length;
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <h3 className="font-black text-lg text-slate-950 flex items-center gap-2">
+                      <ShoppingBag className="w-5 h-5 text-emerald-600" />
+                      Customer Merchandise Orders
+                    </h3>
+                    <p className="text-sm text-slate-600 mt-1">
+                      {adminOrderStats.totalOrders} total orders · Ksh{" "}
+                      {adminOrderStats.totalSales.toLocaleString()} in paid sales
+                    </p>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                        {adminOrderStats.paidCount} paid
+                      </span>
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-yellow-50 text-yellow-700">
+                        {adminOrderStats.pendingCount} pending
+                      </span>
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-rose-50 text-rose-700">
+                        {adminOrderStats.failedCount} failed
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminPanelView("orders");
+                      loadAdminOrders();
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    className="shrink-0 bg-slate-950 text-yellow-400 px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer flex items-center gap-2"
+                  >
+                    View All Orders
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+                  </>
+                )}
 
-  const paidOrders = adminOrders.filter(
-    (order) =>
-      String(order.paymentStatus || "").toLowerCase() === "paid"
-  );
+                {adminPanelView === "inbox" && (
+                  <div className="space-y-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminPanelView("content");
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-600 hover:text-emerald-700 transition cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Back to Content
+                    </button>
 
-  const pendingOrders = adminOrders.filter(
-    (order) =>
-      String(order.paymentStatus || "").toLowerCase() === "pending"
-  );
+                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-base font-black text-slate-950 flex items-center gap-2">
+                            <MessageSquare className="w-4 h-4 text-emerald-600" />
+                            Fan Account Inbox
+                          </h3>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Reply to registered fan accounts.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            loadAdminInboxThreads();
+                            if (selectedInboxCustomerId) {
+                              loadAdminInboxThread(selectedInboxCustomerId);
+                            }
+                          }}
+                          disabled={isLoadingAdminInbox}
+                          className="text-[10px] font-black uppercase tracking-wider text-emerald-700 hover:text-emerald-800 disabled:opacity-50 cursor-pointer shrink-0"
+                        >
+                          {isLoadingAdminInbox ? "Refreshing..." : "Refresh"}
+                        </button>
+                      </div>
 
-  const failedOrders = adminOrders.filter(
-    (order) =>
-      String(order.paymentStatus || "").toLowerCase() === "failed"
-  );
+                      <div className="grid grid-cols-1 md:grid-cols-[minmax(180px,220px)_1fr] gap-3">
+                        <div className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/60">
+                          <div className="px-3 py-2 border-b border-slate-100 bg-white">
+                            <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                              Conversations
+                            </p>
+                          </div>
+                          <div className="max-h-44 overflow-y-auto divide-y divide-slate-100">
+                            {isLoadingAdminInbox && adminInboxThreads.length === 0 ? (
+                              <p className="text-xs text-slate-500 p-3">Loading...</p>
+                            ) : adminInboxThreads.length === 0 ? (
+                              <p className="text-xs text-slate-500 p-3">
+                                No fan messages yet.
+                              </p>
+                            ) : (
+                              adminInboxThreads.map((thread) => {
+                                const isSelected = selectedInboxCustomerId === thread.customerId;
 
-  const totalSales = paidOrders.reduce(
-    (total, order) => total + Number(order.totalAmount || 0),
-    0
-  );
+                                return (
+                                  <button
+                                    type="button"
+                                    key={thread.customerId}
+                                    onClick={() => loadAdminInboxThread(thread.customerId)}
+                                    className={`w-full text-left px-3 py-2 transition cursor-pointer ${
+                                      isSelected
+                                        ? "bg-emerald-50 border-l-4 border-emerald-500"
+                                        : "hover:bg-white"
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between gap-1.5">
+                                      <div className="min-w-0">
+                                        <p className="font-bold text-xs text-slate-900 truncate">
+                                          {thread.fullName}
+                                        </p>
+                                        <p className="text-[9px] text-slate-500 truncate">
+                                          {formatPhoneDisplay(formatStoredPhoneForInput(thread.phoneNumber))}
+                                        </p>
+                                      </div>
+                                      {thread.unreadCount > 0 && (
+                                        <span className="shrink-0 min-w-4 h-4 px-1 bg-rose-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+                                          {thread.unreadCount}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] text-slate-600 mt-1 line-clamp-1">
+                                      {thread.lastMessage}
+                                    </p>
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
 
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+                        <div className="border border-slate-100 rounded-xl overflow-hidden flex flex-col bg-white min-h-[220px] max-h-[320px]">
+                          {!selectedInboxCustomerId ? (
+                            <div className="flex-1 flex items-center justify-center p-4 text-center">
+                              <div className="space-y-1">
+                                <MessageCircle className="w-7 h-7 text-slate-300 mx-auto" />
+                                <p className="font-semibold text-xs text-slate-700">Select a conversation</p>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/80">
+                                <p className="font-bold text-sm text-slate-900 truncate">
+                                  {selectedInboxCustomer?.fullName || "Fan account"}
+                                </p>
+                                <p className="text-[10px] text-slate-500 truncate">
+                                  {selectedInboxCustomer
+                                    ? formatPhoneDisplay(
+                                        formatStoredPhoneForInput(selectedInboxCustomer.phoneNumber)
+                                      )
+                                    : ""}
+                                  {selectedInboxCustomer?.email
+                                    ? ` • ${selectedInboxCustomer.email}`
+                                    : ""}
+                                </p>
+                              </div>
 
-      {/* TOTAL ORDERS */}
+                              <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50/40">
+                                {isLoadingAdminInbox && adminInboxMessages.length === 0 ? (
+                                  <p className="text-xs text-slate-500 text-center py-4">
+                                    Loading...
+                                  </p>
+                                ) : adminInboxMessages.length === 0 ? (
+                                  <p className="text-xs text-slate-500 text-center py-4">
+                                    No messages yet.
+                                  </p>
+                                ) : (
+                                  adminInboxMessages.map((entry) => {
+                                    const isAdmin = entry.senderType === "admin";
+
+                                    return (
+                                      <div
+                                        key={entry.id}
+                                        className={`flex ${isAdmin ? "justify-end" : "justify-start"}`}
+                                      >
+                                        <div
+                                          className={`max-w-[90%] rounded-xl px-3 py-2 shadow-sm ${
+                                            isAdmin
+                                              ? "bg-slate-950 text-yellow-400"
+                                              : "bg-white border border-slate-200 text-slate-800"
+                                          }`}
+                                        >
+                                          <p className="text-[9px] font-black uppercase tracking-wider opacity-80 mb-0.5">
+                                            {isAdmin ? "Admin" : "Fan"}
+                                          </p>
+                                          <p className="text-xs leading-relaxed whitespace-pre-wrap">
+                                            {entry.message}
+                                          </p>
+                                          <p className="text-[9px] mt-1 opacity-70">
+                                            {new Date(entry.createdAt).toLocaleString()}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+
+                              <form
+                                onSubmit={handleAdminReply}
+                                className="border-t border-slate-100 p-3 space-y-2 bg-white"
+                              >
+                                <textarea
+                                  rows={2}
+                                  placeholder="Type your reply..."
+                                  value={adminReplyDraft}
+                                  onChange={(e) => setAdminReplyDraft(e.target.value)}
+                                  maxLength={2000}
+                                  className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none resize-none text-xs"
+                                  required
+                                />
+                                <button
+                                  type="submit"
+                                  disabled={isSendingAdminReply}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] uppercase tracking-wider px-4 py-2 rounded-lg transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {isSendingAdminReply ? "Sending..." : "Send Reply"}
+                                </button>
+                              </form>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {adminPanelView === "orders" && (
+                  <div className="space-y-6">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminPanelView("content");
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-600 hover:text-emerald-700 transition cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Back to Admin Panel
+                    </button>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
         <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
           Total Orders
         </p>
-
         <p className="text-3xl font-black text-slate-950 mt-2">
-          {totalOrders}
+          {adminOrderStats.totalOrders}
         </p>
-
         <p className="text-xs text-slate-500 mt-1">
           All merchandise orders
         </p>
       </div>
-
-      {/* PAID ORDERS */}
       <div className="bg-emerald-50 rounded-2xl border border-emerald-100 shadow-sm p-5">
         <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600">
           Paid Orders
         </p>
-
         <p className="text-3xl font-black text-emerald-700 mt-2">
-          {paidOrders.length}
+          {adminOrderStats.paidCount}
         </p>
-
         <p className="text-xs text-emerald-600 mt-1">
           Successfully paid
         </p>
       </div>
-
-      {/* PENDING ORDERS */}
       <div className="bg-yellow-50 rounded-2xl border border-yellow-100 shadow-sm p-5">
         <p className="text-[10px] font-black uppercase tracking-wider text-yellow-600">
           Pending
         </p>
-
         <p className="text-3xl font-black text-yellow-700 mt-2">
-          {pendingOrders.length}
+          {adminOrderStats.pendingCount}
         </p>
-
         <p className="text-xs text-yellow-600 mt-1">
           Awaiting payment
         </p>
       </div>
-
-      {/* FAILED ORDERS */}
       <div className="bg-rose-50 rounded-2xl border border-rose-100 shadow-sm p-5">
         <p className="text-[10px] font-black uppercase tracking-wider text-rose-600">
           Failed
         </p>
-
         <p className="text-3xl font-black text-rose-700 mt-2">
-          {failedOrders.length}
+          {adminOrderStats.failedCount}
         </p>
-
         <p className="text-xs text-rose-600 mt-1">
           Unsuccessful payments
         </p>
       </div>
-
-      {/* TOTAL SALES */}
       <div className="bg-slate-950 rounded-2xl shadow-sm p-5">
         <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
           Total Sales
         </p>
-
         <p className="text-2xl font-black text-yellow-400 mt-2">
-          Ksh {totalSales.toLocaleString()}
+          Ksh {adminOrderStats.totalSales.toLocaleString()}
         </p>
-
         <p className="text-xs text-slate-400 mt-1">
           Paid orders only
         </p>
       </div>
-
     </div>
-  );
-})()}
+
 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
   <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
     <div>
@@ -8853,6 +9328,9 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
     </div>
   )}
 </div>
+                  </div>
+                )}
+
               </div>
               
             )}
@@ -9088,7 +9566,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
             </p>
 
             <p className="text-xl font-black text-yellow-400 mt-1">
-              4004975
+              {MPESA_PAYBILL.paybill}
             </p>
           </div>
 
@@ -9098,9 +9576,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
             </p>
 
             <p className="text-xs font-black text-white mt-2">
-              KARIOBANGI
-              <br />
-              LEGENDS
+              {MPESA_PAYBILL.account}
             </p>
           </div>
 
@@ -9148,10 +9624,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
           <li>2. Select <strong>Lipa na M-Pesa</strong>.</li>
           <li>3. Select <strong>PayBill</strong>.</li>
           <li>
-            4. Enter PayBill <strong>4004975</strong>.
+            4. Enter PayBill <strong>{MPESA_PAYBILL.paybill}</strong>.
           </li>
           <li>
-            5. Enter Account <strong>KARIOBANGI LEGENDS</strong>.
+            5. Enter Account <strong>{MPESA_PAYBILL.account}</strong>.
           </li>
           <li>
             6. Enter the order amount and confirm.
@@ -9381,9 +9857,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
           { label: "Our Story", tab: "history" },
           { label: "Matches & Fixtures", tab: "fixtures" },
           { label: "Team Photo Gallery", tab: "gallery" },
+          { label: "Fan Zone", tab: "fanzone" },
           { label: "Merchandise Shop", tab: "shop" },
           { label: "My Account", tab: "account" },
-          { label: "Donors & Supporters", tab: "donors" },
+          { label: "Donations", tab: "donors" },
           { label: "Contact Centre", tab: "contact" },
         ].map((item, idx) => (
 
