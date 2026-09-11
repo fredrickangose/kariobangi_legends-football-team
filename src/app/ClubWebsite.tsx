@@ -3816,25 +3816,20 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
   {/* Hero background image */}
   <div
-    className="absolute inset-0 bg-cover bg-center"
-    style={{ backgroundImage: "url('/assets/background.jpeg')" }}
+    className="absolute inset-0 bg-cover bg-[center_40%] brightness-105"
+    style={{ backgroundImage: "url('/assets/hero-team.jpg')" }}
   />
 
-  {/* Light overlays — keep text readable while showing more of the photo */}
-  <div className="absolute inset-0 bg-slate-950/30" />
-  <div className="absolute inset-0 bg-gradient-to-r from-slate-950/75 via-slate-950/40 to-slate-950/5" />
-  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/45 via-transparent to-slate-950/10" />
-
-  {/* Decorative glow */}
-  <div className="absolute -top-24 -right-24 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-  <div className="absolute -bottom-24 -left-20 w-80 h-80 bg-yellow-400/5 rounded-full blur-3xl pointer-events-none" />
+  {/* Overlays — darken only the left where text sits; keep the team photo clear on the right */}
+  <div className="absolute inset-0 bg-gradient-to-r from-slate-950/65 via-slate-950/20 to-transparent" />
+  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/25 via-transparent to-transparent" />
 
   {/* Hero content */}
   <div className="relative z-10 min-h-[500px] sm:min-h-[580px] flex items-center">
 
     <div className="w-full p-6 sm:p-10 md:p-14 lg:p-16">
 
-      <div className="max-w-4xl space-y-4 sm:space-y-5">
+      <div className="max-w-4xl space-y-4 sm:space-y-5 drop-shadow-[0_2px_12px_rgba(0,0,0,0.85)]">
 
         {/* Club status */}
         <div className="flex flex-wrap items-center gap-2">
