@@ -1232,19 +1232,6 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
     [initialData.gallery]
   );
 
-  const donationSummary = useMemo(() => {
-    const totalRaised = initialData.donations.reduce(
-      (sum, donation) => sum + Number(donation.amount || 0),
-      0
-    );
-
-    return {
-      totalRaised,
-      donorCount: initialData.donations.length,
-      recentDonors: initialData.donations.slice(0, 4),
-    };
-  }, [initialData.donations]);
-
   const safeGalleryCarouselIndex =
     carouselGallery.length === 0
       ? 0
@@ -1384,7 +1371,6 @@ useEffect(() => {
   const [customerOrders, setCustomerOrders] = useState<any[]>([]);
   const [isLoadingCustomerOrders, setIsLoadingCustomerOrders] = useState(false);
   const [accountView, setAccountView] = useState<"login" | "register">("register");
-  const [signInPortal, setSignInPortal] = useState<"choose" | "fan" | "admin">("choose");
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
   const [resetStep, setResetStep] = useState<"request" | "confirm">("request");
   const [showFanPasswordReset, setShowFanPasswordReset] = useState(false);
@@ -2180,7 +2166,6 @@ const handleCustomerRegister = async (e: React.FormEvent) => {
       setCheckoutName(data.customer.fullName);
       setCheckoutPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
       setRegisterPassword("");
-      setSignInPortal("choose");
       showToast("Account created successfully.");
       resumeCheckoutIfPending();
     } else {
@@ -2218,7 +2203,6 @@ const handleCustomerLogin = async (e: React.FormEvent) => {
       setCheckoutName(data.customer.fullName);
       setCheckoutPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
       setLoginPassword("");
-      setSignInPortal("choose");
       showToast("Welcome back!");
       resumeCheckoutIfPending();
     } else {
@@ -2235,7 +2219,7 @@ const handleCustomerLogout = async () => {
     await fetch("/api/customer/logout", { method: "POST", credentials: "include" });
   } finally {
     clearCustomerState();
-    setSignInPortal("choose");
+    setAccountView("login");
     setPendingCheckoutAfterAuth(false);
     showToast("Signed out successfully. You can now sign in to another account.");
   }
@@ -2463,9 +2447,13 @@ const handleSessionIdleLock = useCallback(async () => {
 
     clearCustomerState();
     showToast(
-      "Session locked after 3 minutes of inactivity. Please sign in again.",
+      "Your session ended after inactivity. Please sign in again.",
       "error"
     );
+    setAccountView("login");
+    setActiveTab("account");
+    setMobileMenuOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
     return;
   }
 
@@ -2478,9 +2466,12 @@ const handleSessionIdleLock = useCallback(async () => {
 
     clearAdminState();
     showToast(
-      "Session locked after 3 minutes of inactivity. Please sign in again.",
+      "Your session ended after inactivity. Please sign in again.",
       "error"
     );
+    setActiveTab("account");
+    setMobileMenuOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 }, [customerProfile, isAdminAuthenticated]);
 
@@ -2527,7 +2518,6 @@ useIdleSessionLock({
   clearCustomerState();
   setIsAdminAuthenticated(true);
   setAdminPassword("");
-  setSignInPortal("choose");
 
   await loadAdminOrders();
 
@@ -3338,6 +3328,13 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const openAccountTab = (preferRegister = false) => {
+    if (!customerProfile) {
+      setAccountView(preferRegister ? "register" : "login");
+    }
+    goToTab("account");
+  };
+
   const resumeCheckoutIfPending = () => {
     if (pendingCheckoutAfterAuth && cart.length > 0) {
       setPendingCheckoutAfterAuth(false);
@@ -3349,9 +3346,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   const redirectToCheckoutAuth = (preferRegister: boolean) => {
     setPendingCheckoutAfterAuth(true);
     setIsCartOpen(false);
-    setSignInPortal("fan");
-    setAccountView(preferRegister ? "register" : "login");
-    goToTab("account");
+    openAccountTab(preferRegister);
     showToast(
       preferRegister
         ? "Create a free account to complete your purchase."
@@ -3605,8 +3600,8 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => goToTab("account")}
-                className={`hidden md:flex items-center gap-2 border font-bold text-[10px] uppercase tracking-wider px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer ${
+                onClick={() => openAccountTab()}
+                className={`flex items-center gap-2 border font-bold text-[10px] uppercase tracking-wider px-2.5 sm:px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer shrink-0 ${
                   activeTab === "account"
                     ? "border-emerald-300 bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
                     : customerProfile
@@ -3615,8 +3610,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 }`}
                 title={customerProfile ? "View your orders" : "Sign in to your account"}
               >
-                <User className="w-4 h-4" />
-                {customerProfile ? "My Orders" : "Sign In"}
+                <User className="w-4 h-4 shrink-0" />
+                <span className="max-[380px]:sr-only">
+                  {customerProfile ? "My Orders" : "Sign In"}
+                </span>
               </button>
 
               <button
@@ -3671,6 +3668,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {[
                         { id: "home", label: "Home", icon: Home },
+                        { id: "account", label: customerProfile ? "My Orders" : "Sign In", icon: User },
                         { id: "news", label: "Club News", icon: Newspaper },
                         { id: "shop", label: "Merchandise Shop", icon: ShoppingBag },
                         { id: "donors", label: "Donations", icon: HeartHandshake },
@@ -3682,7 +3680,9 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                           <button
                             type="button"
                             key={tab.id}
-                            onClick={() => goToTab(tab.id)}
+                            onClick={() =>
+                              tab.id === "account" ? openAccountTab() : goToTab(tab.id)
+                            }
                             className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
                               isActive
                                 ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
@@ -3765,36 +3765,6 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {[
                         { id: "fanzone", label: "Supporter Board", icon: MessageCircle },
-                      ].map((tab) => {
-                        const Icon = tab.icon;
-                        const isActive = activeTab === tab.id;
-                        return (
-                          <button
-                            type="button"
-                            key={tab.id}
-                            onClick={() => goToTab(tab.id)}
-                            className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
-                              isActive
-                                ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
-                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
-                            }`}
-                          >
-                            <Icon className="w-4 h-4 shrink-0" />
-                            <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
-                      Fans
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {[
-                        { id: "account", label: customerProfile ? "My Orders" : "Sign In", icon: User },
-                        { id: "donors", label: "Donations", icon: HeartHandshake },
                       ].map((tab) => {
                         const Icon = tab.icon;
                         const isActive = activeTab === tab.id;
@@ -4400,8 +4370,11 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   </button>
 
 </div>
-           {/* ================= LATEST CLUB NEWS ================= */}
-<div className="space-y-6">
+           {/* ================= NEWS & FAN SUPPORT ================= */}
+<div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+  {/* ================= LATEST CLUB NEWS ================= */}
+  <div className="lg:col-span-2 space-y-6">
 
     {/* Heading */}
     <div className="flex items-end justify-between gap-4">
@@ -4555,10 +4528,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
       <ArrowRight className="w-4 h-4" />
     </button>
 
-</div>
+  </div>
 
 
-           {/* ================= FAN ZONE ================= */}
+  {/* ================= FAN SUPPORT BOARD ================= */}
   <div className="space-y-6">
 
     {/* Heading */}
@@ -4568,13 +4541,12 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
         <span className="w-2 h-2 rounded-full bg-yellow-400" />
 
         <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-yellow-600">
-          Fan Zone
+          The Fans
         </span>
       </div>
 
       <h3 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight flex items-center gap-2">
-        <MessageCircle className="w-6 h-6 text-emerald-600" />
-        Supporter Board
+        Fan Support
       </h3>
 
       <p className="text-sm text-slate-500 mt-2">
@@ -4725,134 +4697,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
   </div>
 
-           {/* ================= DONATIONS ================= */}
-<section className="space-y-6">
-
-  <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-    <div>
-      <div className="flex items-center gap-2 mb-2">
-        <span className="w-2 h-2 rounded-full bg-yellow-400" />
-        <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
-          Club Donations
-        </span>
-      </div>
-
-      <h3 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight flex items-center gap-2">
-        <HeartHandshake className="w-6 h-6 text-emerald-600" />
-        Donate to Kariobangi Legends
-      </h3>
-
-      <p className="text-sm text-slate-500 mt-2 max-w-2xl">
-        Partner with us to provide boots, academy meals, match travel, and training
-        equipment for young footballers in Kariobangi North. Donate in KES, USD, GBP, or EUR.
-      </p>
-    </div>
-
-    <button
-      type="button"
-      onClick={() => {
-        setActiveTab("donors");
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }}
-      className="hidden sm:inline-flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-700 transition cursor-pointer"
-    >
-      Full Donation Form
-      <ArrowRight className="w-4 h-4" />
-    </button>
-  </div>
-
-  <div className="relative overflow-hidden rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl">
-    <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
-    <div className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-yellow-400/5 blur-3xl pointer-events-none" />
-
-    <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-0">
-      <div className="p-6 sm:p-8 space-y-6">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { amount: "500", label: "Academy lunch" },
-            { amount: "1,500", label: "Training support" },
-            { amount: "3,000", label: "Boots & kit" },
-            { amount: "8,000", label: "Away travel" },
-          ].map((tier) => (
-            <div
-              key={tier.amount}
-              className="rounded-2xl bg-white/5 border border-white/10 p-4 text-center"
-            >
-              <p className="text-yellow-400 font-black text-sm">Ksh {tier.amount}</p>
-              <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-2">
-                {tier.label}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        <MpesaDonationPrompt />
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab("donors");
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-          className="w-full sm:w-auto bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-xs uppercase tracking-wider px-6 py-3.5 rounded-xl transition cursor-pointer inline-flex items-center justify-center gap-2"
-        >
-          <HeartHandshake className="w-4 h-4" />
-          Complete Donation Form
-          <ArrowRight className="w-4 h-4" />
-        </button>
-      </div>
-
-      <div className="border-t lg:border-t-0 lg:border-l border-white/10 bg-slate-900/50 p-6 sm:p-8">
-        <p className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
-          Recent Donors
-        </p>
-        <p className="text-sm text-slate-400 mt-1 mb-4">
-          Thank you to everyone investing in the Legends.
-        </p>
-
-        <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
-          {donationSummary.recentDonors.length > 0 ? (
-            donationSummary.recentDonors.map((donation) => (
-              <div
-                key={donation.id}
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-3"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-bold text-sm text-white truncate">
-                    {donation.donorName}
-                  </p>
-                  <p className="text-emerald-400 font-black text-xs shrink-0">
-                    {formatDonationAmount(Number(donation.amount), donation.currency)}
-                  </p>
-                </div>
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">
-                  {donation.purpose}
-                </p>
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-slate-500 py-6 text-center">
-              Be the first donor on our honor board.
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <button
-    type="button"
-    onClick={() => {
-      setActiveTab("donors");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }}
-    className="sm:hidden w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-wider text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-50 transition cursor-pointer"
-  >
-    Complete Donation Form
-    <ArrowRight className="w-4 h-4" />
-  </button>
-
-</section>
+</div>
 
            {/* ================= CLUB STORY / FOUNDER ================= */}
 <section className="space-y-6">
@@ -6101,10 +5946,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveTab("account");
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
+                  onClick={() => openAccountTab()}
                   className="shrink-0 inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer"
                 >
                   <User className="w-4 h-4" />
@@ -6643,15 +6485,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
               <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/20 via-transparent to-yellow-400/10" />
               <div className="relative z-10 p-6 sm:p-10 space-y-4">
                 <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-600/90 text-white text-[9px] font-black uppercase tracking-widest">
-                  {customerProfile || signInPortal === "fan" ? (
+                  {customerProfile ? (
                     <>
                       <User className="w-3.5 h-3.5" />
                       Fan Account
-                    </>
-                  ) : signInPortal === "admin" ? (
-                    <>
-                      <Settings className="w-3.5 h-3.5" />
-                      Club Admin
                     </>
                   ) : (
                     <>
@@ -6669,167 +6506,22 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                           {customerProfile.fullName.split(" ")[0]}
                         </span>
                       </>
-                    ) : signInPortal === "admin" ? (
-                      <>
-                        Club <span className="text-yellow-400">Admin</span>
-                      </>
-                    ) : signInPortal === "fan" ? (
-                      <>
-                        Fan <span className="text-yellow-400">Account</span>
-                      </>
                     ) : (
                       <>
-                        Choose Your <span className="text-yellow-400">Sign In</span>
+                        Fan & Club <span className="text-yellow-400">Admin</span> Sign In
                       </>
                     )}
                   </h2>
                   <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
                     {customerProfile
                       ? "Track your orders, message the club admin, and read replies here in your account."
-                      : pendingCheckoutAfterAuth && signInPortal === "fan"
-                        ? "Create a free account or sign in to pay for the items in your cart and follow your order here."
-                        : signInPortal === "admin"
-                          ? "Club officials sign in here to manage squad, gallery, news, and fan orders."
-                          : signInPortal === "fan"
-                            ? "Fans register to shop official kits, pay with M-Pesa, and track every order."
-                            : "Are you a supporter or club admin? Choose below to sign in or create an account."}
+                      : pendingCheckoutAfterAuth
+                        ? "Create a free fan account or sign in to pay for the items in your cart. Club officials can sign in on the right."
+                        : "Fans register to shop official kits, pay with M-Pesa, and track orders. Club officials sign in on the right to manage content and orders."}
                   </p>
                 </div>
               </div>
             </div>
-
-            {!customerProfile && signInPortal === "fan" && (
-              <div className="space-y-4">
-                <div className="flex justify-center">
-                  <button
-                    type="button"
-                    aria-expanded={showFanPasswordReset}
-                    onClick={() => {
-                      setShowFanPasswordReset((open) => {
-                        if (open) {
-                          setResetStep("request");
-                        }
-                        return !open;
-                      });
-                    }}
-                    className={`inline-flex items-center gap-2 font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer shadow-md active:scale-[0.98] ${
-                      showFanPasswordReset
-                        ? "bg-emerald-700 text-white ring-2 ring-emerald-300 ring-offset-2"
-                        : "bg-emerald-600 hover:bg-emerald-700 text-white"
-                    }`}
-                  >
-                    <Shield className="w-3.5 h-3.5" />
-                    {showFanPasswordReset ? "Hide Password Reset" : "Reset Password"}
-                  </button>
-                </div>
-
-                {showFanPasswordReset && (
-                  <div className="bg-white rounded-3xl border border-emerald-100 shadow-sm p-6 sm:p-8 space-y-5">
-                    <div className="space-y-1">
-                      <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
-                        <Shield className="w-5 h-5 text-emerald-600" />
-                        Reset Fan Account Password
-                      </h3>
-                      <p className="text-sm text-slate-600">
-                        Enter your M-PESA phone number to receive a 6-digit SMS code.
-                      </p>
-                    </div>
-
-                    {resetStep === "request" ? (
-                      <form onSubmit={handleCustomerRequestReset} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            M-PESA Phone
-                          </label>
-                          <input
-                            type="tel"
-                            placeholder="e.g. 0712345678"
-                            value={resetPhone}
-                            onChange={(e) => setResetPhone(e.target.value)}
-                            className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                            required
-                          />
-                        </div>
-                        <div className="flex items-end">
-                          <button
-                            type="submit"
-                            disabled={isFanResetPending}
-                            className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {isFanResetPending ? "Sending..." : "Send Reset Code"}
-                          </button>
-                        </div>
-                      </form>
-                    ) : (
-                      <form onSubmit={handleCustomerCompleteReset} className="space-y-4">
-                        <p className="text-xs text-slate-500">
-                          Check SMS on {resetPhone || "your phone"} and choose a new password.
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                              Reset Code
-                            </label>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              placeholder="6-digit code"
-                              value={resetCode}
-                              onChange={(e) => setResetCode(e.target.value)}
-                              className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                              required
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                              New Password
-                            </label>
-                            <PasswordInput
-                              value={resetNewPassword}
-                              onChange={setResetNewPassword}
-                              placeholder="At least 6 characters"
-                              required
-                              minLength={6}
-                              autoComplete="new-password"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                              Confirm Password
-                            </label>
-                            <PasswordInput
-                              value={resetConfirmPassword}
-                              onChange={setResetConfirmPassword}
-                              placeholder="Confirm new password"
-                              required
-                              minLength={6}
-                              autoComplete="new-password"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-3">
-                          <button
-                            type="submit"
-                            disabled={isFanResetPending}
-                            className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {isFanResetPending ? "Updating..." : "Reset Password"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleCustomerRequestReset()}
-                            disabled={isFanResetPending}
-                            className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 hover:text-emerald-800 cursor-pointer px-2 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {isFanResetPending ? "Sending..." : "Resend Code"}
-                          </button>
-                        </div>
-                      </form>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
             {customerProfile ? (
               <div className="space-y-6">
@@ -7052,66 +6744,24 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
               </div>
             ) : (
               <div className="space-y-6">
-
-                {signInPortal === "choose" && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <button
-                      type="button"
-                      onClick={() => setSignInPortal("fan")}
-                      className="text-left bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-lg hover:border-emerald-200 p-6 sm:p-8 transition-all cursor-pointer group"
-                    >
-                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4 group-hover:bg-emerald-100 transition">
-                        <User className="w-6 h-6" />
-                      </div>
-                      <h3 className="text-xl font-black text-slate-950">I&apos;m a Fan</h3>
-                      <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                        Register to buy official kits, pay with M-Pesa, track orders, and message the club.
-                      </p>
-                      <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600 mt-4">
-                        Sign in or create account →
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setSignInPortal("admin")}
-                      className="text-left bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-lg hover:border-yellow-200 p-6 sm:p-8 transition-all cursor-pointer group"
-                    >
-                      <div className="w-12 h-12 rounded-2xl bg-slate-950 text-yellow-400 flex items-center justify-center mb-4 group-hover:bg-slate-900 transition">
-                        <Settings className="w-6 h-6" />
-                      </div>
-                      <h3 className="text-xl font-black text-slate-950">I&apos;m Club Admin</h3>
-                      <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                        Officials sign in here to manage squad, gallery, news, merchandise, and fan orders.
-                      </p>
-                      <p className="text-[10px] font-black uppercase tracking-wider text-yellow-600 mt-4">
-                        Admin sign in →
-                      </p>
-                    </button>
+                {pendingCheckoutAfterAuth && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    <strong>Checkout waiting:</strong> create an account or sign in to pay for the items in your cart.
                   </div>
                 )}
 
-                {signInPortal === "fan" && (
-                  <>
-                    {pendingCheckoutAfterAuth && (
-                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                        <strong>Checkout waiting:</strong> create an account or sign in to pay for the items in your cart.
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSignInPortal("choose");
-                        setShowFanPasswordReset(false);
-                      }}
-                      className="text-[10px] font-black uppercase tracking-wider text-slate-500 hover:text-emerald-700 cursor-pointer"
-                    >
-                      ← Back to sign-in options
-                    </button>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                  <div className="space-y-6">
                 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
+                  <div className="space-y-1 pb-1 border-b border-slate-100">
+                    <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                      <User className="w-5 h-5 text-emerald-600" />
+                      Fan Account
+                    </h3>
+                    <p className="text-sm text-slate-600">
+                      Register to shop official kits, pay with M-Pesa, and track orders.
+                    </p>
+                  </div>
                   <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
                     <button
                       type="button"
@@ -7238,7 +6888,127 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                       </button>
                     </form>
                   )}
+
+                  <button
+                    type="button"
+                    aria-expanded={showFanPasswordReset}
+                    onClick={() => {
+                      setShowFanPasswordReset((open) => {
+                        if (open) setResetStep("request");
+                        return !open;
+                      });
+                    }}
+                    className="w-full text-[10px] font-bold uppercase tracking-wider text-emerald-700 hover:text-emerald-800 cursor-pointer pt-1"
+                  >
+                    {showFanPasswordReset ? "Hide password reset" : "Forgot your password?"}
+                  </button>
                 </div>
+
+                {showFanPasswordReset && (
+                  <div className="bg-white rounded-3xl border border-emerald-100 shadow-sm p-6 sm:p-8 space-y-5">
+                    <div className="space-y-1">
+                      <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
+                        <Shield className="w-5 h-5 text-emerald-600" />
+                        Reset Fan Password
+                      </h3>
+                      <p className="text-sm text-slate-600">
+                        Enter your M-PESA phone number to receive a 6-digit SMS code.
+                      </p>
+                    </div>
+
+                    {resetStep === "request" ? (
+                      <form onSubmit={handleCustomerRequestReset} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            M-PESA Phone
+                          </label>
+                          <input
+                            type="tel"
+                            placeholder="e.g. 0712345678"
+                            value={resetPhone}
+                            onChange={(e) => setResetPhone(e.target.value)}
+                            className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                            required
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            type="submit"
+                            disabled={isFanResetPending}
+                            className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+                          >
+                            {isFanResetPending ? "Sending..." : "Send Reset Code"}
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleCustomerCompleteReset} className="space-y-4">
+                        <p className="text-xs text-slate-500">
+                          Check SMS on {resetPhone || "your phone"} and choose a new password.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Reset Code
+                            </label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="6-digit code"
+                              value={resetCode}
+                              onChange={(e) => setResetCode(e.target.value)}
+                              className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              New Password
+                            </label>
+                            <PasswordInput
+                              value={resetNewPassword}
+                              onChange={setResetNewPassword}
+                              placeholder="At least 6 characters"
+                              required
+                              minLength={6}
+                              autoComplete="new-password"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Confirm Password
+                            </label>
+                            <PasswordInput
+                              value={resetConfirmPassword}
+                              onChange={setResetConfirmPassword}
+                              placeholder="Confirm new password"
+                              required
+                              minLength={6}
+                              autoComplete="new-password"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            type="submit"
+                            disabled={isFanResetPending}
+                            className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+                          >
+                            {isFanResetPending ? "Updating..." : "Reset Password"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCustomerRequestReset()}
+                            disabled={isFanResetPending}
+                            className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 hover:text-emerald-800 cursor-pointer px-2 py-3 disabled:opacity-50"
+                          >
+                            {isFanResetPending ? "Sending..." : "Resend Code"}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                )}
 
                 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
                   <div className="space-y-1">
@@ -7316,24 +7086,42 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     </div>
                   )}
                 </div>
-              </div>
-                  </>
-                )}
+                  </div>
 
-                {signInPortal === "admin" && (
-                  <div className="space-y-6 max-w-lg mx-auto w-full">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSignInPortal("choose");
-                        setShowAdminPasswordReset(false);
-                      }}
-                      className="text-[10px] font-black uppercase tracking-wider text-slate-500 hover:text-slate-800 cursor-pointer"
-                    >
-                      ← Back to sign-in options
-                    </button>
+                  <div className="space-y-6">
+                    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
+                      <div className="space-y-1 pb-1 border-b border-slate-100">
+                        <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                          <Settings className="w-5 h-5 text-yellow-600" />
+                          Club Admin
+                        </h3>
+                        <p className="text-sm text-slate-600">
+                          Officials sign in to manage squad, gallery, news, merchandise, and fan orders.
+                        </p>
+                      </div>
 
-                    <div className="flex justify-center">
+                      <form onSubmit={handleAdminLogin} className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Manager Password
+                          </label>
+                          <PasswordInput
+                            value={adminPassword}
+                            onChange={setAdminPassword}
+                            placeholder="Enter admin password"
+                            required
+                            className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
+                            autoComplete="current-password"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                        >
+                          Sign In as Admin
+                        </button>
+                      </form>
+
                       <button
                         type="button"
                         aria-expanded={showAdminPasswordReset}
@@ -7343,14 +7131,9 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                             return !open;
                           });
                         }}
-                        className={`inline-flex items-center gap-2 font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer shadow-md ${
-                          showAdminPasswordReset
-                            ? "bg-slate-800 text-yellow-400 ring-2 ring-yellow-300 ring-offset-2"
-                            : "bg-slate-950 hover:bg-slate-900 text-yellow-400"
-                        }`}
+                        className="w-full text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 cursor-pointer pt-1"
                       >
-                        <Shield className="w-3.5 h-3.5" />
-                        {showAdminPasswordReset ? "Hide Password Reset" : "Reset Admin Password"}
+                        {showAdminPasswordReset ? "Hide admin password reset" : "Reset admin password"}
                       </button>
                     </div>
 
@@ -7446,36 +7229,8 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                         )}
                       </div>
                     )}
-
-                    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
-                      <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-950 mx-auto">
-                        <Settings className="w-6 h-6" />
-                      </div>
-                      <div className="text-center space-y-1">
-                        <h3 className="font-bold text-slate-950">Enter Manager Password</h3>
-                        <p className="text-xs text-slate-500">
-                          Sign in to manage players, orders, news, and gallery content.
-                        </p>
-                      </div>
-                      <form onSubmit={handleAdminLogin} className="space-y-3">
-                        <PasswordInput
-                          value={adminPassword}
-                          onChange={setAdminPassword}
-                          placeholder="Enter admin password"
-                          required
-                          className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center text-slate-900 pr-11"
-                          autoComplete="current-password"
-                        />
-                        <button
-                          type="submit"
-                          className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                        >
-                          Sign In as Admin
-                        </button>
-                      </form>
-                    </div>
                   </div>
-                )}
+                </div>
               </div>
             )}
           </div>
@@ -7724,14 +7479,11 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                   Admin Sign In Required
                 </h4>
                 <p className="text-sm text-slate-500 mt-2">
-                  Club officials sign in from the Sign In page and choose <strong>Club Admin</strong>.
+                  Club officials sign in from the Sign In page using the admin panel on the right.
                 </p>
                 <button
                   type="button"
-                  onClick={() => {
-                    setSignInPortal("admin");
-                    goToTab("account");
-                  }}
+                  onClick={() => goToTab("account")}
                   className="mt-6 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer"
                 >
                   Go to Admin Sign In
@@ -7751,7 +7503,6 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
       });
     } finally {
       clearAdminState();
-      setSignInPortal("choose");
       showToast("Admin signed out. You can now sign in to your fan account.");
     }
   }}
