@@ -9,6 +9,7 @@ import {
   donations,
   fanMessages,
   gallery,
+  teamHighlights,
   management,
   orders,
   orderItems,
@@ -18,49 +19,49 @@ import { seedDatabaseIfNeeded } from "@/db/seed";
 import { desc, asc, eq, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import crypto from "crypto";
 import { normalizeKenyaPhone } from "@/lib/order-tracking";
 import { notifyBuyerOrderUpdate } from "@/lib/notifications";
 import { getNotificationConfigSummary } from "@/lib/notifications/config";
 import { verifyCustomerToken } from "@/lib/customer-auth";
 import { getPhoneLookupVariants } from "@/lib/link-customer-orders";
+import {
+  ensurePressAccount,
+  parseAdminSession,
+  verifyFullAdminToken,
+  verifyNewsEditorToken,
+} from "@/lib/admin-auth";
 
-function verifyAdminToken(token: string | undefined) {
-  if (!token) return false;
+async function requireFullAdmin() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("kariobangi_admin")?.value;
 
-  const secret = process.env.ADMIN_SESSION_SECRET;
-
-  if (!secret) {
-    console.error("ADMIN_SESSION_SECRET is not configured.");
-    return false;
+  if (!verifyFullAdminToken(token)) {
+    return {
+      ok: false as const,
+      error: "Unauthorized. Admin authentication required.",
+    };
   }
 
-  const separatorIndex = token.lastIndexOf(".");
+  return { ok: true as const, role: parseAdminSession(token)! };
+}
 
-  if (separatorIndex === -1) {
-    return false;
+async function requireNewsEditor() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("kariobangi_admin")?.value;
+
+  if (!verifyNewsEditorToken(token)) {
+    return {
+      ok: false as const,
+      error: "Unauthorized. Press account required.",
+    };
   }
 
-  const payload = token.slice(0, separatorIndex);
-  const providedSignature = token.slice(separatorIndex + 1);
-
-  const expectedSignature = crypto
-    .createHmac("sha256", secret)
-    .update(payload)
-    .digest("hex");
-
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(providedSignature, "utf8"),
-      Buffer.from(expectedSignature, "utf8")
-    );
-  } catch {
-    return false;
-  }
+  return { ok: true as const, role: parseAdminSession(token)! };
 }
 
 export async function getClubData() {
   await ensureDatabaseSchema();
+  await ensurePressAccount();
   // Ensure the database has seed data on first load
   await seedDatabaseIfNeeded();
 
@@ -72,6 +73,10 @@ export async function getClubData() {
     const allDonations = await db.select().from(donations).orderBy(desc(donations.createdAt));
     const allFanMessages = await db.select().from(fanMessages).orderBy(desc(fanMessages.createdAt));
     const allGallery = await db.select().from(gallery).orderBy(desc(gallery.createdAt));
+    const allHighlights = await db
+      .select()
+      .from(teamHighlights)
+      .orderBy(desc(teamHighlights.createdAt));
 
     const allManagement = await db
   .select()
@@ -86,6 +91,7 @@ export async function getClubData() {
       donations: allDonations,
       fanMessages: allFanMessages,
       gallery: allGallery,
+      highlights: allHighlights,
       management: allManagement,
       success: true,
     };
@@ -99,6 +105,7 @@ export async function getClubData() {
       donations: [],
       fanMessages: [],
       gallery: [],
+      highlights: [],
       management: [],
       success: false,
       error: String(error),
@@ -179,16 +186,11 @@ export async function addPlayer(data: {
   imageUrl?: string;
 }) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
-
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
-    await db.insert(players).values({
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+    const [player] = await db.insert(players).values({
       name: data.name,
       position: data.position,
       jerseyNumber: Number(data.jerseyNumber),
@@ -197,12 +199,12 @@ if (!verifyAdminToken(adminCookie?.value)) {
       appearances: Number(data.appearances || 0),
       goals: Number(data.goals || 0),
       assists: Number(data.assists || 0),
-    });
+    }).returning();
 
-    revalidatePath("/");
     return {
       success: true,
       message: "Player added successfully!",
+      player,
     };
   } catch (error) {
     return {
@@ -217,14 +219,9 @@ export async function updatePlayerPosition(
   position: string
 ) {
   try {
-    const cookieStore = await cookies();
-    const adminCookie = cookieStore.get("kariobangi_admin");
-
-    if (!verifyAdminToken(adminCookie?.value)) {
-      return {
-        success: false,
-        error: "Unauthorized. Admin authentication required.",
-      };
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
     }
 
     const trimmed = position.trim();
@@ -232,16 +229,20 @@ export async function updatePlayerPosition(
       return { success: false, error: "Position is required." };
     }
 
-    await db
+    const [player] = await db
       .update(players)
       .set({ position: trimmed })
-      .where(eq(players.id, playerId));
+      .where(eq(players.id, playerId))
+      .returning();
 
-    revalidatePath("/");
+    if (!player) {
+      return { success: false, error: "Player not found." };
+    }
 
     return {
       success: true,
       message: "Player position updated.",
+      player,
     };
   } catch (error) {
     return {
@@ -256,26 +257,25 @@ export async function updatePlayerImage(
   imageUrl: string
 ) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
-
-    await db
+    const [player] = await db
       .update(players)
       .set({ imageUrl })
-      .where(eq(players.id, playerId));
+      .where(eq(players.id, playerId))
+      .returning();
 
-    revalidatePath("/");
+    if (!player) {
+      return { success: false, error: "Player not found." };
+    }
 
     return {
       success: true,
       message: "Player photo replaced successfully!",
+      player,
     };
   } catch (error) {
     return {
@@ -287,25 +287,19 @@ if (!verifyAdminToken(adminCookie?.value)) {
 
 export async function deletePlayer(playerId: number) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
-
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
     await db
       .delete(players)
       .where(eq(players.id, playerId));
 
-    revalidatePath("/");
-
     return {
       success: true,
       message: "Player removed from squad.",
+      playerId,
     };
   } catch (error) {
     return {
@@ -327,17 +321,12 @@ export async function addFixture(data: {
   awayScore?: number;
 }) {
   try {
-    const cookieStore = await cookies();
-    const adminCookie = cookieStore.get("kariobangi_admin");
-
-    if (!verifyAdminToken(adminCookie?.value)) {
-      return {
-        success: false,
-        error: "Unauthorized. Admin authentication required.",
-      };
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
     }
 
-    await db.insert(fixtures).values({
+    const [fixture] = await db.insert(fixtures).values({
       opponent: data.opponent,
       opponentLogoUrl: data.opponentLogoUrl || null,
       date: data.date,
@@ -349,13 +338,12 @@ export async function addFixture(data: {
         data.homeScore !== undefined ? Number(data.homeScore) : null,
       awayScore:
         data.awayScore !== undefined ? Number(data.awayScore) : null,
-    });
-
-    revalidatePath("/");
+    }).returning();
 
     return {
       success: true,
       message: "Fixture added successfully!",
+      fixture,
     };
   } catch (error) {
     return {
@@ -379,17 +367,12 @@ export async function updateFixture(
   }
 ) {
   try {
-    const cookieStore = await cookies();
-    const adminCookie = cookieStore.get("kariobangi_admin");
-
-    if (!verifyAdminToken(adminCookie?.value)) {
-      return {
-        success: false,
-        error: "Unauthorized. Admin authentication required.",
-      };
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
     }
 
-    await db
+    const [fixture] = await db
       .update(fixtures)
       .set({
         opponent: data.opponent,
@@ -405,13 +388,17 @@ export async function updateFixture(
         awayScore:
           data.awayScore !== undefined ? Number(data.awayScore) : null,
       })
-      .where(eq(fixtures.id, fixtureId));
+      .where(eq(fixtures.id, fixtureId))
+      .returning();
 
-    revalidatePath("/");
+    if (!fixture) {
+      return { success: false, error: "Fixture not found." };
+    }
 
     return {
       success: true,
       message: "Fixture updated successfully!",
+      fixture,
     };
   } catch (error) {
     return {
@@ -424,25 +411,19 @@ export async function updateFixture(
 
 export async function deleteFixture(fixtureId: number) {
   try {
-    const cookieStore = await cookies();
-    const adminCookie = cookieStore.get("kariobangi_admin");
-
-    if (!verifyAdminToken(adminCookie?.value)) {
-      return {
-        success: false,
-        error: "Unauthorized. Admin authentication required.",
-      };
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
     }
 
     await db
       .delete(fixtures)
       .where(eq(fixtures.id, fixtureId));
 
-    revalidatePath("/");
-
     return {
       success: true,
       message: "Fixture deleted successfully!",
+      fixtureId,
     };
   } catch (error) {
     return {
@@ -460,29 +441,23 @@ export async function addNews(data: {
   imageUrl?: string;
 }) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
+    const auth = await requireNewsEditor();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
-
-    await db.insert(news).values({
+    const [article] = await db.insert(news).values({
       title: data.title,
       summary: data.summary,
       content: data.content,
       imageUrl: data.imageUrl || "/images/coaches-discussion.jpg",
       createdAt: new Date(),
-    });
-
-    revalidatePath("/");
+    }).returning();
 
     return {
       success: true,
       message: "News article published successfully!",
+      article,
     };
   } catch (error) {
     return {
@@ -497,26 +472,25 @@ export async function updateNewsImage(
   imageUrl: string
 ) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
+    const auth = await requireNewsEditor();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
-
-    await db
+    const [article] = await db
       .update(news)
       .set({ imageUrl })
-      .where(eq(news.id, newsId));
+      .where(eq(news.id, newsId))
+      .returning();
 
-    revalidatePath("/");
+    if (!article) {
+      return { success: false, error: "News article not found." };
+    }
 
     return {
       success: true,
       message: "News article photo replaced successfully!",
+      article,
     };
   } catch (error) {
     return {
@@ -528,25 +502,19 @@ if (!verifyAdminToken(adminCookie?.value)) {
 
 export async function deleteNews(newsId: number) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
-
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
+    const auth = await requireNewsEditor();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
     await db
       .delete(news)
       .where(eq(news.id, newsId));
 
-    revalidatePath("/");
-
     return {
       success: true,
       message: "News article removed.",
+      newsId,
     };
   } catch (error) {
     return {
@@ -563,32 +531,27 @@ export async function addGalleryImage(data: {
   caption: string;
   category: string;
 }) {
-  try {const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
-
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
     if (!data.imageUrl || !data.caption) {
       throw new Error("Image URL and caption are required.");
     }
 
-    await db.insert(gallery).values({
+    const [item] = await db.insert(gallery).values({
       imageUrl: data.imageUrl,
       caption: data.caption,
       category: data.category || "Training",
       createdAt: new Date(),
-    });
-
-    revalidatePath("/");
+    }).returning();
 
     return {
       success: true,
       message: "New photo published to the media gallery!",
+      item,
     };
   } catch (error) {
     return {
@@ -603,29 +566,28 @@ export async function updateGalleryImage(
   caption: string
 ) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
-
-    await db
+    const [item] = await db
       .update(gallery)
       .set({
         imageUrl,
         caption,
       })
-      .where(eq(gallery.id, galleryId));
+      .where(eq(gallery.id, galleryId))
+      .returning();
 
-    revalidatePath("/");
+    if (!item) {
+      return { success: false, error: "Gallery photo not found." };
+    }
 
     return {
       success: true,
       message: "Gallery photo updated successfully!",
+      item,
     };
   } catch (error) {
     console.error("Update gallery photo failed:", error);
@@ -639,28 +601,92 @@ if (!verifyAdminToken(adminCookie?.value)) {
 
 export async function deleteGalleryImage(galleryId: number) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
-
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
     await db
       .delete(gallery)
       .where(eq(gallery.id, galleryId));
 
-    revalidatePath("/");
-
     return {
       success: true,
       message: "Photo removed from gallery.",
+      galleryId,
     };
   } catch (error) {
     console.error("Delete gallery photo failed:", error);
+
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
+// ========== TEAM HIGHLIGHTS ==========
+
+export async function addTeamHighlight(data: {
+  title: string;
+  description?: string;
+  videoUrl: string;
+  thumbnailUrl?: string;
+  category?: string;
+}) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    if (!data.title?.trim() || !data.videoUrl?.trim()) {
+      throw new Error("Title and video are required.");
+    }
+
+    const [item] = await db
+      .insert(teamHighlights)
+      .values({
+        title: data.title.trim(),
+        description: data.description?.trim() || "",
+        videoUrl: data.videoUrl.trim(),
+        thumbnailUrl: data.thumbnailUrl?.trim() || null,
+        category: data.category?.trim() || "Match Highlights",
+        createdAt: new Date(),
+      })
+      .returning();
+
+    return {
+      success: true,
+      message: "Team highlight video published successfully!",
+      item,
+    };
+  } catch (error) {
+    console.error("Add team highlight failed:", error);
+
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
+export async function deleteTeamHighlight(highlightId: number) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    await db.delete(teamHighlights).where(eq(teamHighlights.id, highlightId));
+
+    return {
+      success: true,
+      message: "Highlight video removed.",
+      highlightId,
+    };
+  } catch (error) {
+    console.error("Delete team highlight failed:", error);
 
     return {
       success: false,
@@ -680,20 +706,15 @@ export async function addMerchandise(data: {
   kitType: string;
 }) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
-
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
     if (!data.name || !data.price) {
       throw new Error("Name and price are required.");
     }
 
-    await db.insert(merchandise).values({
+    const [item] = await db.insert(merchandise).values({
       name: data.name,
       description:
         data.description || "Official Kariobangi Legends merchandise.",
@@ -701,13 +722,12 @@ if (!verifyAdminToken(adminCookie?.value)) {
       imageUrl: data.imageUrl || "/images/shop-home-jersey.jpg",
       sizes: data.sizes || "S, M, L, XL",
       kitType: data.kitType || "jersey",
-    });
-
-    revalidatePath("/");
+    }).returning();
 
     return {
       success: true,
       message: "Merchandise item added to shop!",
+      item,
     };
   } catch (error) {
     console.error("Add merchandise failed:", error);
@@ -723,26 +743,25 @@ export async function updateMerchandiseImage(
   imageUrl: string
 ) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
-
-    await db
+    const [item] = await db
       .update(merchandise)
       .set({ imageUrl })
-      .where(eq(merchandise.id, merchId));
+      .where(eq(merchandise.id, merchId))
+      .returning();
 
-    revalidatePath("/");
+    if (!item) {
+      return { success: false, error: "Merchandise item not found." };
+    }
 
     return {
       success: true,
       message: "Product photo replaced successfully!",
+      item,
     };
   } catch (error) {
     console.error("Update merchandise photo failed:", error);
@@ -756,25 +775,19 @@ if (!verifyAdminToken(adminCookie?.value)) {
 
 export async function deleteMerchandise(merchId: number) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
-
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
     await db
       .delete(merchandise)
       .where(eq(merchandise.id, merchId));
 
-    revalidatePath("/");
-
     return {
       success: true,
       message: "Merchandise item removed from shop.",
+      merchId,
     };
   } catch (error) {
     console.error("Delete merchandise failed:", error);
@@ -796,17 +809,12 @@ export async function addManagement(data: {
   displayOrder?: number;
 }) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
-
-    await db.insert(management).values({
+    const [member] = await db.insert(management).values({
       name: data.name,
       position: data.position,
       category: data.category,
@@ -814,13 +822,12 @@ if (!verifyAdminToken(adminCookie?.value)) {
       responsibilities: data.responsibilities || "",
       imageUrl: data.imageUrl || "",
       displayOrder: Number(data.displayOrder || 0),
-    });
-
-    revalidatePath("/");
+    }).returning();
 
     return {
       success: true,
       message: "Management official added successfully!",
+      member,
     };
   } catch (error) {
     console.error("Add management official failed:", error);
@@ -844,17 +851,12 @@ export async function updateManagement(
   }
 ) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
-
-    await db
+    const [member] = await db
       .update(management)
       .set({
         name: data.name,
@@ -865,13 +867,17 @@ if (!verifyAdminToken(adminCookie?.value)) {
         imageUrl: data.imageUrl || "",
         displayOrder: Number(data.displayOrder || 0),
       })
-      .where(eq(management.id, managementId));
+      .where(eq(management.id, managementId))
+      .returning();
 
-    revalidatePath("/");
+    if (!member) {
+      return { success: false, error: "Management official not found." };
+    }
 
     return {
       success: true,
       message: "Management official updated successfully!",
+      member,
     };
   } catch (error) {
     console.error("Update management official failed:", error);
@@ -891,14 +897,9 @@ export async function updateManagementRole(
   }
 ) {
   try {
-    const cookieStore = await cookies();
-    const adminCookie = cookieStore.get("kariobangi_admin");
-
-    if (!verifyAdminToken(adminCookie?.value)) {
-      return {
-        success: false,
-        error: "Unauthorized. Admin authentication required.",
-      };
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
     }
 
     const category = data.category.trim();
@@ -908,16 +909,20 @@ export async function updateManagementRole(
       return { success: false, error: "Category and position are required." };
     }
 
-    await db
+    const [member] = await db
       .update(management)
       .set({ category, position })
-      .where(eq(management.id, managementId));
+      .where(eq(management.id, managementId))
+      .returning();
 
-    revalidatePath("/");
+    if (!member) {
+      return { success: false, error: "Management official not found." };
+    }
 
     return {
       success: true,
       message: "Management role updated.",
+      member,
     };
   } catch (error) {
     console.error("Update management role failed:", error);
@@ -931,25 +936,19 @@ export async function updateManagementRole(
 
 export async function deleteManagement(managementId: number) {
   try {
-    const cookieStore = await cookies();
-const adminCookie = cookieStore.get("kariobangi_admin");
-
-if (!verifyAdminToken(adminCookie?.value)) {
-  return {
-    success: false,
-    error: "Unauthorized. Admin authentication required.",
-  };
-}
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
 
     await db
       .delete(management)
       .where(eq(management.id, managementId));
 
-    revalidatePath("/");
-
     return {
       success: true,
       message: "Management official deleted successfully!",
+      managementId,
     };
   } catch (error) {
     console.error("Delete management official failed:", error);
@@ -965,13 +964,11 @@ if (!verifyAdminToken(adminCookie?.value)) {
 
 export async function getOrders() {
   try {
-    const cookieStore = await cookies();
-    const adminCookie = cookieStore.get("kariobangi_admin");
-
-    if (!verifyAdminToken(adminCookie?.value)) {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
       return {
         success: false,
-        error: "Unauthorized. Admin authentication required.",
+        error: auth.error,
         orders: [],
       };
     }
@@ -1086,14 +1083,9 @@ export async function updateOrderStatus(
   orderStatus: "processing" | "shipped" | "delivered" | "cancelled"
 ) {
   try {
-    const cookieStore = await cookies();
-    const adminCookie = cookieStore.get("kariobangi_admin");
-
-    if (!verifyAdminToken(adminCookie?.value)) {
-      return {
-        success: false,
-        error: "Unauthorized. Admin authentication required.",
-      };
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
     }
 
     if (!Number.isInteger(orderId) || orderId <= 0) {

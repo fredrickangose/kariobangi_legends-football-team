@@ -24,8 +24,8 @@ export const LEADERSHIP_ROLE_GROUPS = [
     badge: "EXEC",
     values: [
       "Chairman",
-      "Vice Chairman",
       "CEO / President",
+      "Vice Chairman",
       "Senior Team Manager",
     ],
   },
@@ -34,6 +34,12 @@ export const LEADERSHIP_ROLE_GROUPS = [
     heading: "Governance",
     badge: "GOV",
     values: ["Club Secretary", "Club Treasurer", "Board Member"],
+  },
+  {
+    id: "discipline",
+    heading: "Club Discipline",
+    badge: "DISC",
+    values: ["Disciplinarian"],
   },
   {
     id: "community",
@@ -48,19 +54,25 @@ export const TECHNICAL_ROLE_GROUPS = [
     id: "coaching",
     heading: "Coaching Staff",
     badge: "COACH",
-    values: ["Head Coach", "Assistant Coach", "Goalkeeping Coach"],
+    values: [
+      "Head Coach",
+      "1st Assistant Coach",
+      "2nd Assistant Coach",
+      "Goalkeeping Trainer",
+      "Fitness Trainer",
+    ],
   },
   {
-    id: "performance",
-    heading: "Performance & Analysis",
-    badge: "PERF",
-    values: ["Fitness Coach", "Team Analyst"],
+    id: "management",
+    heading: "Team Management",
+    badge: "MGMT",
+    values: ["Team Manager", "Administrator"],
   },
   {
     id: "medical",
     heading: "Medical Team",
     badge: "MED",
-    values: ["Team Doctor / Physiotherapist"],
+    values: ["Team Doctor"],
   },
   {
     id: "operations",
@@ -68,26 +80,35 @@ export const TECHNICAL_ROLE_GROUPS = [
     badge: "OPS",
     values: [
       "Kit Manager",
-      "Disciplinarian",
-      "Photographer",
-      "Equipment & Matchday Assistant",
+      "Assistant Kit Manager",
+      "Grounds Official",
+      "Team Driver",
     ],
   },
 ] as const;
 
 const FEATURED_POSITIONS = new Set(["Chairman", "Head Coach"]);
 
+/** Maps retired technical titles to their current slot for grouping and sort order. */
+const LEGACY_TECHNICAL_POSITION_ALIASES: Record<string, string> = {
+  "Assistant Coach": "1st Assistant Coach",
+  "Goalkeeping Coach": "Goalkeeping Trainer",
+  "Fitness Coach": "Fitness Trainer",
+  "Team Doctor / Physiotherapist": "Team Doctor",
+  "Team Analyst": "Administrator",
+  Photographer: "Administrator",
+  "Equipment & Matchday Assistant": "Team Driver",
+};
+
 const LEGACY_TECHNICAL_POSITIONS = [
-  "Assistant Coach",
-  "Goalkeeping Coach",
-  "Fitness Coach",
-  "Team Doctor / Physiotherapist",
-  "Team Analyst",
-  "Kit Manager",
+  ...Object.keys(LEGACY_TECHNICAL_POSITION_ALIASES),
   "Disciplinarian",
-  "Photographer",
-  "Equipment & Matchday Assistant",
 ] as const;
+
+function normalizeManagementPosition(position: string): string {
+  const trimmed = position.trim();
+  return LEGACY_TECHNICAL_POSITION_ALIASES[trimmed] ?? trimmed;
+}
 
 function roleGroupsForCategory(dbValue: string) {
   return dbValue === "Club Leadership"
@@ -114,20 +135,81 @@ export function isFeaturedManagementRole(position: string): boolean {
 }
 
 export function getManagementRoleBadge(position: string, category: string): string {
+  const normalized = normalizeManagementPosition(position);
+
+  if (position.trim() === "Disciplinarian" && category === "Technical Team") {
+    return "OPS";
+  }
+
   const groups = roleGroupsForCategory(category);
   for (const group of groups) {
-    if ((group.values as readonly string[]).includes(position.trim())) {
+    if ((group.values as readonly string[]).includes(normalized)) {
       return group.badge;
     }
   }
-  return position.slice(0, 4).toUpperCase();
+  return normalized.slice(0, 4).toUpperCase();
+}
+
+/** Lower rank = higher in hierarchy (displayed first). */
+export function getManagementPositionRank(
+  position: string,
+  category: string
+): number {
+  const normalized = normalizeManagementPosition(position);
+  let rank = 0;
+
+  for (const group of roleGroupsForCategory(category)) {
+    const index = (group.values as readonly string[]).indexOf(normalized);
+    if (index >= 0) {
+      return rank + index;
+    }
+    rank += group.values.length;
+  }
+
+  return rank + 1000;
+}
+
+function compareManagementMembers<
+  T extends {
+    name: string;
+    position: string;
+    category: string;
+    displayOrder: number;
+  },
+>(a: T, b: T) {
+  const rankDiff =
+    getManagementPositionRank(a.position, a.category) -
+    getManagementPositionRank(b.position, b.category);
+
+  if (rankDiff !== 0) {
+    return rankDiff;
+  }
+
+  return a.displayOrder - b.displayOrder || a.name.localeCompare(b.name);
+}
+
+export function sortManagementMembers<
+  T extends {
+    name: string;
+    position: string;
+    category: string;
+    displayOrder: number;
+  },
+>(members: T[]): T[] {
+  return [...members].sort(compareManagementMembers);
 }
 
 export function getManagementRoleGroupId(
   position: string,
   category: string
 ): string {
-  const normalized = position.trim();
+  const raw = position.trim();
+
+  if (raw === "Disciplinarian" && category === "Technical Team") {
+    return "operations";
+  }
+
+  const normalized = normalizeManagementPosition(position);
   const groups = roleGroupsForCategory(category);
 
   for (const group of groups) {
@@ -156,13 +238,16 @@ export function groupManagementByCategoryAndRole<T extends ManagementMemberLike>
   return MANAGEMENT_CATEGORIES.map((category) => {
     const categoryMembers = members
       .filter((member) => member.category === category.dbValue)
-      .sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name));
+      .sort(compareManagementMembers);
 
     const roleGroups = roleGroupsForCategory(category.dbValue).map((group) => ({
       ...group,
-      members: categoryMembers.filter(
-        (member) => getManagementRoleGroupId(member.position, member.category) === group.id
-      ),
+      members: categoryMembers
+        .filter(
+          (member) =>
+            getManagementRoleGroupId(member.position, member.category) === group.id
+        )
+        .sort(compareManagementMembers),
     }));
 
     const otherMembers = categoryMembers.filter(

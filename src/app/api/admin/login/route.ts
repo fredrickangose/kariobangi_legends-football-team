@@ -4,7 +4,6 @@ import { db } from "@/db";
 import { adminSettings } from "@/db/schema";
 import { createAdminToken, verifyAdminPassword } from "@/lib/admin-auth";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
-import { clearCustomerSessionCookie } from "@/lib/session-exclusive";
 
 export async function POST(request: Request) {
   try {
@@ -52,6 +51,7 @@ export async function POST(request: Request) {
 
     const response = NextResponse.json({
       success: true,
+      role: "admin",
       message: "Successfully authenticated as Admin Manager.",
     });
 
@@ -62,8 +62,6 @@ export async function POST(request: Request) {
       path: "/",
       maxAge: SESSION_MAX_AGE_SECONDS,
     });
-
-    clearCustomerSessionCookie(response);
 
     return response;
   } catch (error) {

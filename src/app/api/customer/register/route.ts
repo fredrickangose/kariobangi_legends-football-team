@@ -9,7 +9,6 @@ import {
 } from "@/lib/customer-auth";
 import { linkOrdersToCustomer } from "@/lib/link-customer-orders";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
-import { clearAdminSessionCookie } from "@/lib/session-exclusive";
 import { isValidKenyaPhone } from "@/lib/order-tracking";
 
 function getSessionSecret() {
@@ -122,8 +121,6 @@ export async function POST(request: Request) {
       path: "/",
       maxAge: SESSION_MAX_AGE_SECONDS,
     });
-
-    clearAdminSessionCookie(response);
 
     return response;
   } catch (error) {

@@ -104,6 +104,14 @@ export const adminSettings = pgTable("admin_settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const pressAccounts = pgTable("press_accounts", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  displayName: text("display_name").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const passwordResetCodes = pgTable("password_reset_codes", {
   id: serial("id").primaryKey(),
   accountType: text("account_type").notNull(),
@@ -168,5 +176,15 @@ export const accountMessages = pgTable("account_messages", {
   message: text("message").notNull(),
   isReadByCustomer: boolean("is_read_by_customer").default(false).notNull(),
   isReadByAdmin: boolean("is_read_by_admin").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const teamHighlights = pgTable("team_highlights", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").default(""),
+  videoUrl: text("video_url").notNull(),
+  thumbnailUrl: text("thumbnail_url"),
+  category: text("category").default("Match Highlights").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

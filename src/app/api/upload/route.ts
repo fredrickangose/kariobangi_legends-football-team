@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
-import { MEDIA_UPLOAD_RULES } from "@/lib/uploaded-media";
+import {
+  verifyFullAdminToken,
+  verifyNewsEditorToken,
+} from "@/lib/admin-auth";
+import { MEDIA_UPLOAD_RULES, VIDEO_UPLOAD_RULES } from "@/lib/uploaded-media";
 
 export const runtime = "nodejs";
 
@@ -33,38 +38,85 @@ export async function POST(request: Request) {
 
     const file = formData.get("file");
     const folder = String(formData.get("folder") || "gallery");
+    const cookieStore = await cookies();
+    const adminToken = cookieStore.get("kariobangi_admin")?.value;
+
+    if (folder === "news") {
+      if (!verifyNewsEditorToken(adminToken)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Unauthorized. Sign in with a press or admin account to upload news images.",
+          },
+          { status: 401 }
+        );
+      }
+    } else if (!verifyFullAdminToken(adminToken)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized. Admin sign-in is required for this upload.",
+        },
+        { status: 401 }
+      );
+    }
 
     if (!(file instanceof File)) {
       return NextResponse.json(
         {
           success: false,
-          error: "No image file was received.",
+          error: "No file was received.",
         },
         { status: 400 }
       );
     }
 
-    if (!file.type.startsWith("image/")) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Only image files are allowed.",
-        },
-        { status: 400 }
-      );
+    const isVideoUpload =
+      folder === "highlights" || String(formData.get("mediaType") || "") === "video";
+
+    if (isVideoUpload) {
+      if (!file.type.startsWith("video/")) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Only video files are allowed for highlights (MP4, MOV, or WEBM).",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (file.size > VIDEO_UPLOAD_RULES.maxFileSizeBytes) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Video is too large. Maximum size is ${VIDEO_UPLOAD_RULES.maxFileSizeLabel}.`,
+          },
+          { status: 400 }
+        );
+      }
+    } else {
+      if (!file.type.startsWith("image/")) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Only image files are allowed.",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (file.size > MEDIA_UPLOAD_RULES.maxFileSizeBytes) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Image is too large. Maximum size is ${MEDIA_UPLOAD_RULES.maxFileSizeLabel}.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
-    if (file.size > MEDIA_UPLOAD_RULES.maxFileSizeBytes) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Image is too large. Maximum size is ${MEDIA_UPLOAD_RULES.maxFileSizeLabel}.`,
-        },
-        { status: 400 }
-      );
-    }
-
-    const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+    const extension = file.name.split(".").pop()?.toLowerCase() || (isVideoUpload ? "mp4" : "jpg");
 
     const safeFolder = folder.replace(/[^a-zA-Z0-9_-]/g, "");
 

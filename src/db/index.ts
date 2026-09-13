@@ -72,6 +72,28 @@ export async function ensureDatabaseSchema() {
         ALTER COLUMN currency SET DEFAULT 'KES';
       `);
 
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS press_accounts (
+          id serial PRIMARY KEY,
+          username text NOT NULL UNIQUE,
+          password_hash text NOT NULL,
+          display_name text NOT NULL,
+          updated_at timestamp DEFAULT now() NOT NULL
+        );
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS team_highlights (
+          id serial PRIMARY KEY,
+          title text NOT NULL,
+          description text DEFAULT '',
+          video_url text NOT NULL,
+          thumbnail_url text,
+          category text DEFAULT 'Match Highlights' NOT NULL,
+          created_at timestamp DEFAULT now() NOT NULL
+        );
+      `);
+
       schemaEnsured = true;
     })().catch((error) => {
       schemaEnsurePromise = null;

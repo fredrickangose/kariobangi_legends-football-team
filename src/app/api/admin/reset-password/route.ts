@@ -4,7 +4,7 @@ import {
   isAuthorizedAdminResetPhone,
   updateAdminPassword,
   verifyAdminPassword,
-  verifyAdminToken,
+  verifyFullAdminToken,
 } from "@/lib/admin-auth";
 import {
   consumeResetCode,
@@ -132,7 +132,7 @@ export async function PUT(request: Request) {
     const cookieStore = await cookies();
     const adminCookie = cookieStore.get("kariobangi_admin");
 
-    if (!verifyAdminToken(adminCookie?.value)) {
+    if (!verifyFullAdminToken(adminCookie?.value)) {
       return NextResponse.json(
         { success: false, error: "Admin authentication required." },
         { status: 401 }

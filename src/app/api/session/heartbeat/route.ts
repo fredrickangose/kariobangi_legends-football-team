@@ -4,7 +4,11 @@ import {
   createCustomerToken,
   verifyCustomerToken,
 } from "@/lib/customer-auth";
-import { createAdminToken, verifyAdminToken } from "@/lib/admin-auth";
+import {
+  parseAdminSession,
+  refreshAdminToken,
+  verifyAdminToken,
+} from "@/lib/admin-auth";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
 
 export async function GET() {
@@ -13,7 +17,7 @@ export async function GET() {
     const customerId = verifyCustomerToken(
       cookieStore.get("kariobangi_customer")?.value
     );
-    const adminAuthenticated = verifyAdminToken(
+    const adminRole = parseAdminSession(
       cookieStore.get("kariobangi_admin")?.value
     );
 
@@ -24,7 +28,8 @@ export async function GET() {
         id: customerId,
       },
       admin: {
-        authenticated: adminAuthenticated,
+        authenticated: Boolean(adminRole),
+        role: adminRole,
       },
     });
   } catch (error) {
@@ -73,13 +78,16 @@ export async function POST() {
     }
 
     if (adminValid) {
-      response.cookies.set("kariobangi_admin", createAdminToken(), {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: SESSION_MAX_AGE_SECONDS,
-      });
+      const refreshedToken = refreshAdminToken(adminCookie);
+      if (refreshedToken) {
+        response.cookies.set("kariobangi_admin", refreshedToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: SESSION_MAX_AGE_SECONDS,
+        });
+      }
     }
 
     return response;

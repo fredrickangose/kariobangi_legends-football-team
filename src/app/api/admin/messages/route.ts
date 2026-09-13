@@ -3,13 +3,13 @@ import { cookies } from "next/headers";
 import { asc, and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { accountMessages, customers } from "@/db/schema";
-import { verifyAdminToken } from "@/lib/admin-auth";
+import { verifyFullAdminToken } from "@/lib/admin-auth";
 
 async function requireAdmin() {
   const cookieStore = await cookies();
   const adminCookie = cookieStore.get("kariobangi_admin");
 
-  if (!verifyAdminToken(adminCookie?.value)) {
+  if (!verifyFullAdminToken(adminCookie?.value)) {
     return null;
   }
 

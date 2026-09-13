@@ -40,6 +40,8 @@ import {
   User,
   LogOut,
   Navigation,
+  Play,
+  Film,
 } from "lucide-react";
 import {
   OrderProgressTimeline,
@@ -51,8 +53,13 @@ import {
   useIdleSessionLock,
 } from "@/hooks/useIdleSessionLock";
 import {
+  ADMIN_SESSION_IDLE_TIMEOUT_MS,
+} from "@/lib/session-config";
+import {
   isUploadedMediaUrl,
+  isVideoMediaUrl,
   MEDIA_UPLOAD_RULES,
+  VIDEO_UPLOAD_RULES,
 } from "@/lib/uploaded-media";
 import {
   groupPlayersBySquadPosition,
@@ -67,6 +74,7 @@ import {
   groupManagementByCategoryAndRole,
   isFeaturedManagementRole,
   MANAGEMENT_CATEGORIES,
+  sortManagementMembers,
 } from "@/lib/management-roles";
 import {
   COMPETITION_NAME,
@@ -101,9 +109,11 @@ import {
   addPlayer,
   addNews,
   addGalleryImage,
+  addTeamHighlight,
   deletePlayer,
   deleteNews,
   deleteGalleryImage,
+  deleteTeamHighlight,
   updatePlayerPosition,
   updatePlayerImage,
   updateNewsImage,
@@ -204,6 +214,16 @@ interface GalleryItem {
   createdAt: Date;
 }
 
+interface TeamHighlight {
+  id: number;
+  title: string;
+  description: string | null;
+  videoUrl: string;
+  thumbnailUrl: string | null;
+  category: string;
+  createdAt: Date;
+}
+
 interface ManagementMember {
   id: number;
   name: string;
@@ -225,8 +245,101 @@ interface ClubWebsiteProps {
     donations: Donation[];
     fanMessages: FanMessage[];
     gallery: GalleryItem[];
+    highlights: TeamHighlight[];
     management: ManagementMember[];
   };
+}
+
+const HIGHLIGHT_CATEGORIES = [
+  "Match Highlights",
+  "Goals & Skills",
+  "Training",
+  "Community",
+  "Academy",
+] as const;
+
+function HighlightVideoCard({
+  highlight,
+  onPlay,
+  showAdminControls,
+  onDelete,
+}: {
+  highlight: TeamHighlight;
+  onPlay: (highlight: TeamHighlight) => void;
+  showAdminControls: boolean;
+  onDelete: (id: number, title: string) => void;
+}) {
+  const hasThumbnail = isUploadedMediaUrl(highlight.thumbnailUrl);
+
+  return (
+    <div className="group bg-white rounded-2xl overflow-hidden border border-slate-200/80 shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 flex flex-col">
+      <button
+        type="button"
+        onClick={() => onPlay(highlight)}
+        className="relative aspect-video w-full overflow-hidden bg-slate-950 cursor-pointer"
+      >
+        {hasThumbnail ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={highlight.thumbnailUrl as string}
+            alt={highlight.title}
+            className="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:scale-[1.02] transition-transform duration-500"
+          />
+        ) : isVideoMediaUrl(highlight.videoUrl) ? (
+          <video
+            src={highlight.videoUrl}
+            muted
+            playsInline
+            preload="metadata"
+            className="absolute inset-0 w-full h-full object-cover opacity-80"
+          />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950" />
+        )}
+
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
+
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="w-14 h-14 rounded-full bg-yellow-400 text-slate-950 flex items-center justify-center shadow-lg shadow-yellow-400/30 group-hover:scale-110 transition-transform">
+            <Play className="w-6 h-6 ml-0.5 fill-current" />
+          </span>
+        </div>
+
+        <span className="absolute top-3 left-3 inline-flex items-center px-2 py-1 rounded-md bg-slate-950/85 text-yellow-400 text-[9px] font-black uppercase tracking-wider border border-yellow-400/20">
+          {highlight.category}
+        </span>
+      </button>
+
+      <div className="p-4 space-y-2 flex-1 flex flex-col">
+        <h3 className="font-black text-sm text-slate-950 leading-snug line-clamp-2">
+          {highlight.title}
+        </h3>
+        {highlight.description && (
+          <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
+            {highlight.description}
+          </p>
+        )}
+        <p className="text-[10px] text-slate-400 font-semibold mt-auto">
+          {new Date(highlight.createdAt).toLocaleDateString("en-KE", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </p>
+
+        {showAdminControls && (
+          <button
+            type="button"
+            onClick={() => onDelete(highlight.id, highlight.title)}
+            className="mt-2 w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-2 rounded-lg text-[10px] uppercase tracking-wider cursor-pointer flex items-center justify-center gap-1"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete Video
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 const HOME_CAROUSEL_PHOTO_LIMIT = 5;
@@ -591,31 +704,42 @@ function SocialMediaLinks() {
   );
 }
 
-function PersonPhoto({
+function PassportPhoto({
   imageUrl,
   alt,
-  maxHeightClass = "max-h-[136px] sm:max-h-[152px]",
+  size = "md",
 }: {
   imageUrl: string | null | undefined;
   alt: string;
-  maxHeightClass?: string;
+  size?: "sm" | "md";
 }) {
+  const frameClass =
+    size === "sm"
+      ? "aspect-[3/4] rounded-lg"
+      : "aspect-[3/4] rounded-xl";
+
   if (isUploadedMediaUrl(imageUrl)) {
     return (
-      /* eslint-disable-next-line @next/next/no-img-element */
-      <img
-        src={imageUrl as string}
-        alt={alt}
-        className={`max-w-full ${maxHeightClass} w-auto h-auto object-contain drop-shadow-md`}
-      />
+      <div
+        className={`relative w-full overflow-hidden bg-slate-100 border border-slate-200/90 shadow-inner ${frameClass}`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageUrl as string}
+          alt={alt}
+          className="absolute inset-0 w-full h-full object-cover object-[center_15%]"
+        />
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-col items-center justify-center text-slate-400 py-4 px-3 text-center">
-      <User className="w-9 h-9" />
-      <p className="text-[9px] font-bold uppercase tracking-wider mt-2">
-        Photo pending upload
+    <div
+      className={`flex flex-col items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100 border border-dashed border-slate-200 text-slate-400 ${frameClass}`}
+    >
+      <User className={size === "sm" ? "w-5 h-5" : "w-6 h-6"} />
+      <p className="text-[8px] font-bold uppercase tracking-wider mt-1.5 px-2 text-center">
+        Passport photo
       </p>
     </div>
   );
@@ -623,7 +747,7 @@ function PersonPhoto({
 
 function SquadPlayerCard({
   player,
-  isAdminAuthenticated,
+  showAdminControls,
   isUpdatingPosition,
   onReplaceImage,
   onDelete,
@@ -631,7 +755,7 @@ function SquadPlayerCard({
   onShopClick,
 }: {
   player: Player;
-  isAdminAuthenticated: boolean;
+  showAdminControls: boolean;
   isUpdatingPosition: boolean;
   onReplaceImage: (id: number, imageUrl: string) => void;
   onDelete: (id: number, name: string) => void;
@@ -643,63 +767,59 @@ function SquadPlayerCard({
   );
 
   return (
-    <div className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-md transition flex flex-col justify-between">
-      <div className="p-3.5 sm:p-4 space-y-3">
-        <div className="flex justify-between items-start gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 shrink-0 rounded-full bg-slate-100 text-slate-950 font-black text-[11px] flex items-center justify-center border border-slate-200">
-              #{player.jerseyNumber}
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-extrabold text-sm text-slate-900 leading-tight">
-                {player.name}
-              </h3>
-              <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mt-0.5 line-clamp-1">
-                {getSquadPositionBadge(player.position)}
-              </p>
-            </div>
-          </div>
-          <span className="shrink-0 bg-slate-100 px-1.5 py-0.5 rounded text-[8px] font-bold text-slate-500 uppercase">
-            Senior
-          </span>
+    <div className="group bg-white rounded-xl overflow-hidden border border-slate-200/80 shadow-sm hover:shadow-md hover:border-emerald-200/80 transition-all duration-200 flex flex-col">
+      <div className="relative p-2 pb-0">
+        <PassportPhoto
+          imageUrl={player.imageUrl}
+          alt={`${player.name} - Kariobangi Legends`}
+          size="sm"
+        />
+        <span className="absolute top-3 left-3 inline-flex items-center justify-center min-w-[1.65rem] h-6 px-1.5 rounded-md bg-slate-950/90 text-yellow-400 text-[9px] font-black border border-slate-800">
+          #{player.jerseyNumber}
+        </span>
+      </div>
+
+      <div className="p-2.5 space-y-2 flex-1 flex flex-col">
+        <div className="min-w-0">
+          <h3 className="font-bold text-[11px] sm:text-xs text-slate-950 leading-snug line-clamp-2">
+            {player.name}
+          </h3>
+          <p className="text-[8px] text-emerald-700 font-bold uppercase tracking-wider mt-0.5 line-clamp-1">
+            {getSquadPositionBadge(player.position)}
+          </p>
         </div>
 
-        <div className="w-full h-40 sm:h-44 rounded-xl overflow-hidden bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 border border-slate-100 flex items-center justify-center p-2">
-          <PersonPhoto
-            imageUrl={player.imageUrl}
-            alt={`${player.name} - Kariobangi Legends`}
-          />
-        </div>
-
-        <div className="grid grid-cols-3 gap-1.5 bg-slate-50 p-2.5 rounded-xl text-center">
+        <div className="grid grid-cols-3 gap-1 rounded-lg bg-slate-50 border border-slate-100 py-1.5 text-center">
           <div>
-            <p className="text-[9px] text-slate-400 font-bold uppercase">Apps</p>
-            <p className="text-xs font-black text-slate-900">{player.appearances}</p>
+            <p className="text-[7px] text-slate-400 font-bold uppercase">Apps</p>
+            <p className="text-[11px] font-black text-slate-900">{player.appearances}</p>
           </div>
           <div>
-            <p className="text-[9px] text-slate-400 font-bold uppercase">Goals</p>
-            <p className="text-xs font-black text-slate-900">{player.goals}</p>
+            <p className="text-[7px] text-slate-400 font-bold uppercase">Gls</p>
+            <p className="text-[11px] font-black text-slate-900">{player.goals}</p>
           </div>
           <div>
-            <p className="text-[9px] text-slate-400 font-bold uppercase">Assists</p>
-            <p className="text-xs font-black text-slate-900">{player.assists}</p>
+            <p className="text-[7px] text-slate-400 font-bold uppercase">Ast</p>
+            <p className="text-[11px] font-black text-slate-900">{player.assists}</p>
           </div>
         </div>
 
-        <p className="text-[11px] text-slate-600 leading-relaxed bg-amber-50/50 p-2.5 rounded-xl border border-amber-100/30">
-          <strong>Scout Notes:</strong> {player.bio}
-        </p>
+        {player.bio && (
+          <p className="text-[9px] text-slate-500 leading-relaxed line-clamp-2">
+            {player.bio}
+          </p>
+        )}
 
-        {isAdminAuthenticated && (
-          <div className="space-y-1">
-            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-              Squad section
+        {showAdminControls && (
+          <div className="space-y-1.5 pt-1 border-t border-dashed border-slate-200">
+            <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">
+              Admin · Squad section
             </label>
             <select
               value={player.position}
               onChange={(e) => onPositionChange(player.id, e.target.value)}
               disabled={isUpdatingPosition}
-              className="w-full p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+              className="w-full p-1.5 rounded-md border border-slate-200 bg-white text-[10px] font-semibold text-slate-700 disabled:opacity-50"
             >
               {!positionInOptions && (
                 <option value={player.position}>
@@ -712,38 +832,35 @@ function SquadPlayerCard({
                 </option>
               ))}
             </select>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => onReplaceImage(player.id, player.imageUrl)}
+                className="flex-1 bg-slate-950 text-yellow-400 font-bold py-1.5 rounded-md text-[8px] uppercase tracking-wider hover:bg-slate-900 cursor-pointer flex items-center justify-center gap-1"
+              >
+                <Camera className="w-3 h-3" /> Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(player.id, player.name)}
+                className="flex-1 bg-rose-600 text-white font-bold py-1.5 rounded-md text-[8px] uppercase tracking-wider hover:bg-rose-700 cursor-pointer flex items-center justify-center gap-1"
+              >
+                <Trash2 className="w-3 h-3" /> Remove
+              </button>
+            </div>
           </div>
         )}
       </div>
 
-      <div className="bg-slate-950 text-white px-3.5 py-2.5 flex justify-between items-center text-xs border-t border-slate-900 gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
-          {isAdminAuthenticated && (
-            <>
-              <button
-                onClick={() => onReplaceImage(player.id, player.imageUrl)}
-                className="text-blue-400 hover:text-blue-300 font-bold uppercase tracking-wider text-[9px] flex items-center gap-0.5 cursor-pointer shrink-0"
-                title="Replace this player's photo"
-              >
-                <Camera className="w-3 h-3" /> Swap
-              </button>
-              <button
-                onClick={() => onDelete(player.id, player.name)}
-                className="text-rose-400 hover:text-rose-300 font-bold uppercase tracking-wider text-[9px] flex items-center gap-0.5 cursor-pointer shrink-0"
-                title="Remove player from squad"
-              >
-                <Trash2 className="w-3 h-3" /> Remove
-              </button>
-            </>
-          )}
-        </div>
+      {!showAdminControls && (
         <button
+          type="button"
           onClick={onShopClick}
-          className="text-yellow-400 hover:text-yellow-500 font-bold uppercase tracking-wider text-[9px] flex items-center gap-0.5 cursor-pointer shrink-0"
+          className="mt-auto border-t border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[8px] py-2 flex items-center justify-center gap-1 cursor-pointer"
         >
-          Jersey <ChevronRight className="w-3 h-3" />
+          Official Jersey <ChevronRight className="w-3 h-3" />
         </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -751,7 +868,7 @@ function SquadPlayerCard({
 function ManagementMemberCard({
   member,
   featured = false,
-  isAdminAuthenticated,
+  showAdminControls,
   isUpdatingRole,
   onEdit,
   onDelete,
@@ -759,7 +876,7 @@ function ManagementMemberCard({
 }: {
   member: ManagementMember;
   featured?: boolean;
-  isAdminAuthenticated: boolean;
+  showAdminControls: boolean;
   isUpdatingRole: boolean;
   onEdit: (member: ManagementMember) => void;
   onDelete: (id: number) => void;
@@ -773,149 +890,108 @@ function ManagementMemberCard({
 
   return (
     <div
-      className={`group bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 ${
-        featured ? "md:col-span-2" : ""
+      className={`group bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-md transition-all duration-200 flex flex-col ${
+        featured
+          ? "border-emerald-200 ring-1 ring-emerald-100"
+          : "border-slate-200/80 hover:border-emerald-200/80"
       }`}
     >
-      <div
-        className={`relative bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 flex items-center justify-center p-3 border-b border-slate-100 ${
-          featured ? "h-52 sm:h-56" : "h-44 sm:h-48"
-        }`}
-      >
-        <PersonPhoto
+      <div className="relative p-2 pb-0">
+        <PassportPhoto
           imageUrl={member.imageUrl}
           alt={`${member.name} - ${member.position}`}
-          maxHeightClass={
-            featured
-              ? "max-h-[168px] sm:max-h-[184px]"
-              : "max-h-[132px] sm:max-h-[148px]"
-          }
+          size="sm"
         />
-
-        <div className="absolute top-2 left-2 flex items-center gap-1.5">
-          <span className="inline-flex items-center justify-center min-w-8 h-7 px-2 rounded-lg bg-slate-950/90 text-yellow-400 text-[8px] font-black tracking-wider">
+        <div className="absolute top-3 left-3 flex flex-wrap gap-1 max-w-[calc(100%-1.5rem)]">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-slate-950/90 text-yellow-400 text-[7px] font-black tracking-wider border border-slate-800">
             {roleBadge}
           </span>
           {featured && (
-            <span className="inline-flex items-center px-2 py-1 rounded-lg bg-emerald-600/95 text-white text-[8px] font-black uppercase tracking-wider">
-              Club Figurehead
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-emerald-600/95 text-white text-[7px] font-black uppercase tracking-wider">
+              Lead
             </span>
           )}
         </div>
-
-        <div className="absolute bottom-2 left-2 right-2">
-          <span className="inline-flex max-w-full bg-slate-950/90 text-yellow-400 text-[8px] sm:text-[9px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg shadow-md truncate">
-            {member.position}
-          </span>
-        </div>
       </div>
 
-      <div className={`space-y-2.5 ${featured ? "p-4 sm:p-5" : "p-3.5 sm:p-4"}`}>
-        <div>
-          <h4
-            className={`font-black text-slate-950 leading-tight ${
-              featured ? "text-base sm:text-lg" : "text-sm sm:text-base"
-            }`}
-          >
+      <div className="p-2.5 space-y-1.5 flex-1 flex flex-col">
+        <div className="min-w-0">
+          <h4 className="font-bold text-[11px] sm:text-xs text-slate-950 leading-snug line-clamp-2">
             {member.name}
           </h4>
-          <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mt-0.5 line-clamp-1">
+          <p className="text-[8px] font-bold text-emerald-700 uppercase tracking-wider mt-0.5 line-clamp-2">
             {member.position}
           </p>
         </div>
 
-        {member.responsibilities && (
-          <div className="space-y-1">
-            <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
-              Key Responsibilities
-            </p>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
-              {member.responsibilities}
-            </p>
-          </div>
+        {(member.responsibilities || member.bio) && (
+          <p className="text-[9px] text-slate-500 leading-relaxed line-clamp-2">
+            {member.responsibilities || member.bio}
+          </p>
         )}
 
-        {member.bio && (
-          <div className="space-y-1">
-            <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
-              Profile
+        {showAdminControls && (
+          <div className="space-y-1.5 pt-1.5 mt-auto border-t border-dashed border-amber-200 bg-amber-50/40 -mx-2.5 px-2.5 pb-0.5">
+            <p className="text-[7px] font-black uppercase tracking-wider text-amber-700">
+              Admin only
             </p>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
-              {member.bio}
-            </p>
-          </div>
-        )}
-
-        {isAdminAuthenticated && (
-          <>
-            <div className="grid grid-cols-1 gap-2 pt-1">
-              <div className="space-y-1">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                  Department
-                </label>
-                <select
-                  value={member.category}
-                  onChange={(e) =>
-                    onRoleChange(
-                      member.id,
-                      e.target.value,
-                      getDefaultManagementPosition(e.target.value)
-                    )
-                  }
-                  disabled={isUpdatingRole}
-                  className="w-full p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
-                >
-                  {MANAGEMENT_CATEGORIES.map((category) => (
-                    <option key={category.id} value={category.dbValue}>
-                      {category.heading}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                  Role
-                </label>
-                <select
-                  value={member.position}
-                  onChange={(e) =>
-                    onRoleChange(member.id, member.category, e.target.value)
-                  }
-                  disabled={isUpdatingRole}
-                  className="w-full p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
-                >
-                  {!positionInOptions && (
-                    <option value={member.position}>
-                      {member.position} (assign role)
-                    </option>
-                  )}
-                  {positionOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.groupHeading} · {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="grid grid-cols-1 gap-1">
+              <select
+                value={member.category}
+                onChange={(e) =>
+                  onRoleChange(
+                    member.id,
+                    e.target.value,
+                    getDefaultManagementPosition(e.target.value)
+                  )
+                }
+                disabled={isUpdatingRole}
+                className="w-full p-1.5 rounded-md border border-slate-200 bg-white text-[10px] font-semibold text-slate-700 disabled:opacity-50"
+              >
+                {MANAGEMENT_CATEGORIES.map((category) => (
+                  <option key={category.id} value={category.dbValue}>
+                    {category.heading}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={member.position}
+                onChange={(e) =>
+                  onRoleChange(member.id, member.category, e.target.value)
+                }
+                disabled={isUpdatingRole}
+                className="w-full p-1.5 rounded-md border border-slate-200 bg-white text-[10px] font-semibold text-slate-700 disabled:opacity-50"
+              >
+                {!positionInOptions && (
+                  <option value={member.position}>
+                    {member.position} (assign role)
+                  </option>
+                )}
+                {positionOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.groupHeading} · {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
-
-            <div className="flex gap-1.5 pt-1">
+            <div className="flex gap-1">
               <button
                 type="button"
                 onClick={() => onEdit(member)}
-                className="flex-1 bg-slate-950 text-yellow-400 font-bold py-2 rounded-lg text-[10px] uppercase tracking-wider hover:bg-slate-900 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                className="flex-1 bg-slate-950 text-yellow-400 font-bold py-1.5 rounded-md text-[8px] uppercase tracking-wider hover:bg-slate-900 cursor-pointer flex items-center justify-center gap-1"
               >
-                <Camera className="w-3.5 h-3.5" />
+                <Camera className="w-3 h-3" />
                 Edit
               </button>
               <button
                 type="button"
                 onClick={() => onDelete(member.id)}
-                className="flex-1 bg-red-600 text-white font-bold py-2 rounded-lg text-[10px] uppercase tracking-wider hover:bg-red-700 transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="flex-1 bg-rose-600 text-white font-bold py-1.5 rounded-md text-[8px] uppercase tracking-wider hover:bg-rose-700 cursor-pointer"
               >
                 Delete
               </button>
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>
@@ -1211,7 +1287,20 @@ function MatchFixtureCard({
   );
 }
 
+type AdminBusyAction =
+  | "player"
+  | "management"
+  | "fixture"
+  | "news"
+  | "gallery"
+  | "highlights"
+  | "merch"
+  | "replace-image"
+  | null;
+
 export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
+  const [clubData, setClubData] = useState(initialData);
+  const [adminBusy, setAdminBusy] = useState<AdminBusyAction>(null);
   const [selectedSizes, setSelectedSizes] = useState<Record<number, string>>({});
   const [activeTab, setActiveTab] = useState<string>(() => {
     if (typeof window === "undefined") return "home";
@@ -1224,12 +1313,16 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [galleryCarouselIndex, setGalleryCarouselIndex] = useState(0);
 
+  useEffect(() => {
+    setClubData(initialData);
+  }, [initialData]);
+
   const carouselGallery = useMemo(
     () =>
-      initialData.gallery
+      clubData.gallery
         .filter((item) => isUploadedMediaUrl(item.imageUrl))
         .slice(0, HOME_CAROUSEL_PHOTO_LIMIT),
-    [initialData.gallery]
+    [clubData.gallery]
   );
 
   const safeGalleryCarouselIndex =
@@ -1237,29 +1330,33 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
       ? 0
       : Math.min(galleryCarouselIndex, carouselGallery.length - 1);
 
+  const homeHighlights = useMemo(
+    () =>
+      (clubData.highlights ?? [])
+        .filter((item) => isVideoMediaUrl(item.videoUrl))
+        .slice(0, 3),
+    [clubData.highlights]
+  );
+
   const squadByPosition = useMemo(
-    () => groupPlayersBySquadPosition(initialData.players),
-    [initialData.players]
+    () => groupPlayersBySquadPosition(clubData.players),
+    [clubData.players]
   );
 
   const squadPlayersSorted = useMemo(
     () =>
-      [...initialData.players].sort((a, b) => a.jerseyNumber - b.jerseyNumber),
-    [initialData.players]
+      [...clubData.players].sort((a, b) => a.jerseyNumber - b.jerseyNumber),
+    [clubData.players]
   );
 
   const managementGrouped = useMemo(
-    () => groupManagementByCategoryAndRole(initialData.management),
-    [initialData.management]
+    () => groupManagementByCategoryAndRole(clubData.management),
+    [clubData.management]
   );
 
   const managementMembersSorted = useMemo(
-    () =>
-      [...initialData.management].sort(
-        (a, b) =>
-          a.displayOrder - b.displayOrder || a.name.localeCompare(b.name)
-      ),
-    [initialData.management]
+    () => sortManagementMembers(clubData.management),
+    [clubData.management]
   );
 
   const todayString = useMemo(() => {
@@ -1268,13 +1365,13 @@ export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
   }, []);
 
   const fixtureGroups = useMemo(
-    () => partitionFixtures(initialData.fixtures, todayString),
-    [initialData.fixtures, todayString]
+    () => partitionFixtures(clubData.fixtures, todayString),
+    [clubData.fixtures, todayString]
   );
 
   const seasonStats = useMemo(
-    () => getSeasonStats(initialData.fixtures),
-    [initialData.fixtures]
+    () => getSeasonStats(clubData.fixtures),
+    [clubData.fixtures]
   );
 
   const recentForm = useMemo(
@@ -1387,6 +1484,7 @@ useEffect(() => {
   const [loginPassword, setLoginPassword] = useState("");
   const [expandedAccountOrderId, setExpandedAccountOrderId] = useState<number | null>(null);
   const customerOrdersLoadRef = useRef(false);
+  const skipInitialTabScrollRef = useRef(true);
   const [customerMessages, setCustomerMessages] = useState<
     Array<{
       id: number;
@@ -1408,7 +1506,16 @@ useEffect(() => {
   const [adminResetCode, setAdminResetCode] = useState("");
   const [adminResetNewPassword, setAdminResetNewPassword] = useState("");
   const [adminResetConfirmPassword, setAdminResetConfirmPassword] = useState("");
+  const [showNewspaperPasswordReset, setShowNewspaperPasswordReset] = useState(false);
+  const [newspaperResetAdminPassword, setNewspaperResetAdminPassword] = useState("");
+  const [newspaperResetNewPassword, setNewspaperResetNewPassword] = useState("");
+  const [newspaperResetConfirmPassword, setNewspaperResetConfirmPassword] = useState("");
+  const [isNewspaperResetPending, setIsNewspaperResetPending] = useState(false);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const [adminRole, setAdminRole] = useState<"admin" | "news_editor" | null>(null);
+  const [newspaperUsername, setNewspaperUsername] = useState("newspaper");
+  const [newspaperPassword, setNewspaperPassword] = useState("");
+  const canManageClubContent = adminRole === "admin";
   const [adminOrders, setAdminOrders] = useState<any[]>([]);
 const [isLoadingOrders, setIsLoadingOrders] = useState<boolean>(false);
 const [adminInboxThreads, setAdminInboxThreads] = useState<
@@ -1510,6 +1617,16 @@ const [notificationConfig, setNotificationConfig] = useState<{
   const [adminGalleryCaption, setAdminGalleryCaption] = useState<string>("");
   const [adminGalleryCategory, setAdminGalleryCategory] =
     useState<string>("Training");
+  const [adminHighlightVideoFile, setAdminHighlightVideoFile] = useState<File | null>(null);
+  const [adminHighlightVideoPreview, setAdminHighlightVideoPreview] = useState<string | null>(null);
+  const [adminHighlightThumbFile, setAdminHighlightThumbFile] = useState<File | null>(null);
+  const [adminHighlightThumbPreview, setAdminHighlightThumbPreview] = useState<string | null>(null);
+  const [adminHighlightTitle, setAdminHighlightTitle] = useState("");
+  const [adminHighlightDescription, setAdminHighlightDescription] = useState("");
+  const [adminHighlightCategory, setAdminHighlightCategory] =
+    useState<string>("Match Highlights");
+  const [selectedHighlightCategory, setSelectedHighlightCategory] = useState("All");
+  const [activeHighlight, setActiveHighlight] = useState<TeamHighlight | null>(null);
 
 useEffect(() => {
   return () => {
@@ -1518,6 +1635,17 @@ useEffect(() => {
     }
   };
 }, [adminGalleryPreview]);
+
+useEffect(() => {
+  return () => {
+    if (adminHighlightVideoPreview) {
+      URL.revokeObjectURL(adminHighlightVideoPreview);
+    }
+    if (adminHighlightThumbPreview) {
+      URL.revokeObjectURL(adminHighlightThumbPreview);
+    }
+  };
+}, [adminHighlightVideoPreview, adminHighlightThumbPreview]);
 
     // Management admin states
 const [adminManagementName, setAdminManagementName] = useState<string>("");
@@ -1573,6 +1701,32 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
     const result = await response.json();
     if (!response.ok || !result.success) {
       throw new Error(result.error || "Image upload failed.");
+    }
+
+    return result.url as string;
+  };
+
+  const uploadSelectedVideo = async (file: File) => {
+    if (!file.type.startsWith("video/")) {
+      throw new Error("Please select a video file (MP4, MOV, or WEBM).");
+    }
+    if (file.size > VIDEO_UPLOAD_RULES.maxFileSizeBytes) {
+      throw new Error(`Video is too large. Maximum size is ${VIDEO_UPLOAD_RULES.maxFileSizeLabel}.`);
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("folder", "highlights");
+    formData.append("mediaType", "video");
+
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || "Video upload failed.");
     }
 
     return result.url as string;
@@ -1894,6 +2048,13 @@ const clearCustomerState = () => {
 
 const clearAdminState = () => {
   setIsAdminAuthenticated(false);
+  setAdminRole(null);
+  setAdminPassword("");
+  setNewspaperPassword("");
+  setShowNewspaperPasswordReset(false);
+  setNewspaperResetAdminPassword("");
+  setNewspaperResetNewPassword("");
+  setNewspaperResetConfirmPassword("");
   setAdminInboxThreads([]);
   setSelectedInboxCustomerId(null);
   setSelectedInboxCustomer(null);
@@ -1901,24 +2062,63 @@ const clearAdminState = () => {
   setAdminReplyDraft("");
 };
 
+const returnToSignIn = () => {
+  setAccountView("login");
+  setActiveTab("account");
+  setMobileMenuOpen(false);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+const refreshAdminSession = async () => {
+  try {
+    const adminRes = await fetch("/api/admin/me", {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const adminData = await adminRes.json();
+
+    if (
+      adminData.success &&
+      adminData.authenticated &&
+      (adminData.role === "admin" || adminData.role === "news_editor")
+    ) {
+      setIsAdminAuthenticated(true);
+      setAdminRole(adminData.role);
+      return adminData.role as "admin" | "news_editor";
+    }
+
+    clearAdminState();
+    return null;
+  } catch (error) {
+    console.error("Refresh admin session failed:", error);
+    clearAdminState();
+    return null;
+  }
+};
+
+const logoutAdminSession = async () => {
+  clearAdminState();
+
+  try {
+    await fetch("/api/admin/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (error) {
+    console.error("Admin logout failed:", error);
+  }
+};
+
 const loadAppSessions = async () => {
   try {
-    const [customerRes, adminRes] = await Promise.all([
-      fetch("/api/customer/me", { credentials: "include", cache: "no-store" }),
-      fetch("/api/admin/me", { credentials: "include", cache: "no-store" }),
-    ]);
-
+    const customerRes = await fetch("/api/customer/me", {
+      credentials: "include",
+      cache: "no-store",
+    });
     const customerData = await customerRes.json();
-    const adminData = await adminRes.json();
 
     const customerAuth =
       customerData.success && customerData.authenticated && customerData.customer;
-    let adminAuth = adminData.success && adminData.authenticated;
-
-    if (customerAuth && adminAuth) {
-      await fetch("/api/admin/logout", { method: "POST", credentials: "include" });
-      adminAuth = false;
-    }
 
     clearCustomerState();
     clearAdminState();
@@ -1929,9 +2129,7 @@ const loadAppSessions = async () => {
       setCheckoutPhone(formatStoredPhoneForInput(customerData.customer.phoneNumber));
     }
 
-    if (adminAuth) {
-      setIsAdminAuthenticated(true);
-    }
+    await refreshAdminSession();
   } catch (error) {
     console.error("Load app sessions failed:", error);
   }
@@ -2141,11 +2339,6 @@ const handleAdminReply = async (e: React.FormEvent) => {
 const handleCustomerRegister = async (e: React.FormEvent) => {
   e.preventDefault();
 
-  if (isAdminAuthenticated) {
-    showToast("Please sign out of the admin dashboard before creating a fan account.", "error");
-    return;
-  }
-
   try {
     const response = await fetch("/api/customer/register", {
       method: "POST",
@@ -2161,11 +2354,11 @@ const handleCustomerRegister = async (e: React.FormEvent) => {
     const data = await response.json();
 
     if (response.ok && data.success) {
-      clearAdminState();
       setCustomerProfile(data.customer);
       setCheckoutName(data.customer.fullName);
       setCheckoutPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
       setRegisterPassword("");
+      await refreshAdminSession();
       showToast("Account created successfully.");
       resumeCheckoutIfPending();
     } else {
@@ -2180,11 +2373,6 @@ const handleCustomerRegister = async (e: React.FormEvent) => {
 const handleCustomerLogin = async (e: React.FormEvent) => {
   e.preventDefault();
 
-  if (isAdminAuthenticated) {
-    showToast("Please sign out of the admin dashboard before signing in to your fan account.", "error");
-    return;
-  }
-
   try {
     const response = await fetch("/api/customer/login", {
       method: "POST",
@@ -2198,11 +2386,11 @@ const handleCustomerLogin = async (e: React.FormEvent) => {
     const data = await response.json();
 
     if (response.ok && data.success) {
-      clearAdminState();
       setCustomerProfile(data.customer);
       setCheckoutName(data.customer.fullName);
       setCheckoutPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
       setLoginPassword("");
+      await refreshAdminSession();
       showToast("Welcome back!");
       resumeCheckoutIfPending();
     } else {
@@ -2219,8 +2407,8 @@ const handleCustomerLogout = async () => {
     await fetch("/api/customer/logout", { method: "POST", credentials: "include" });
   } finally {
     clearCustomerState();
-    setAccountView("login");
     setPendingCheckoutAfterAuth(false);
+    returnToSignIn();
     showToast("Signed out successfully. You can now sign in to another account.");
   }
 };
@@ -2378,6 +2566,47 @@ const handleAdminCompleteReset = async (e: React.FormEvent) => {
   }
 };
 
+const handleNewspaperPasswordReset = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (adminRole !== "admin") {
+    showToast("Only a club admin can reset the newspaper password.", "error");
+    return;
+  }
+
+  setIsNewspaperResetPending(true);
+
+  try {
+    const response = await fetch("/api/admin/newspaper/reset-password", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        adminPassword: newspaperResetAdminPassword,
+        newPassword: newspaperResetNewPassword,
+        confirmPassword: newspaperResetConfirmPassword,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      setNewspaperResetAdminPassword("");
+      setNewspaperResetNewPassword("");
+      setNewspaperResetConfirmPassword("");
+      setShowNewspaperPasswordReset(false);
+      showToast("Newspaper / press password updated successfully.");
+    } else {
+      showToast(data.error || "Unable to reset newspaper password.", "error");
+    }
+  } catch (error) {
+    console.error("Newspaper password reset failed:", error);
+    showToast("Unable to reset newspaper password right now.", "error");
+  } finally {
+    setIsNewspaperResetPending(false);
+  }
+};
+
 const handleTrackOrder = (e: React.FormEvent) => {
   e.preventDefault();
   setTrackError("");
@@ -2418,6 +2647,27 @@ useEffect(() => {
 }, []);
 
 useEffect(() => {
+  if (skipInitialTabScrollRef.current) {
+    skipInitialTabScrollRef.current = false;
+    return;
+  }
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}, [activeTab]);
+
+useEffect(() => {
+  if (
+    activeTab === "management" ||
+    activeTab === "squad" ||
+    activeTab === "account" ||
+    activeTab === "gallery" ||
+    activeTab === "news"
+  ) {
+    refreshAdminSession();
+  }
+}, [activeTab]);
+
+useEffect(() => {
   if (activeTab === "account" && customerProfile?.id) {
     loadCustomerOrders();
     loadCustomerMessages();
@@ -2425,11 +2675,17 @@ useEffect(() => {
 }, [activeTab, customerProfile?.id]);
 
 useEffect(() => {
-  if (activeTab === "admin" && isAdminAuthenticated) {
+  if (activeTab === "admin" && isAdminAuthenticated && adminRole !== "news_editor") {
     loadAdminOrders();
     loadAdminInboxThreads();
   }
-}, [activeTab, isAdminAuthenticated]);
+}, [activeTab, isAdminAuthenticated, adminRole]);
+
+useEffect(() => {
+  if (adminRole === "news_editor") {
+    setAdminPanelView("content");
+  }
+}, [adminRole]);
 
 useEffect(() => {
   if (activeTab !== "admin") {
@@ -2437,43 +2693,41 @@ useEffect(() => {
   }
 }, [activeTab]);
 
-const handleSessionIdleLock = useCallback(async () => {
-  if (customerProfile) {
-    try {
-      await fetch("/api/customer/logout", { method: "POST", credentials: "include" });
-    } catch (error) {
-      console.error("Customer idle lock logout failed:", error);
-    }
-
-    clearCustomerState();
-    showToast(
-      "Your session ended after inactivity. Please sign in again.",
-      "error"
-    );
-    setAccountView("login");
-    setActiveTab("account");
-    setMobileMenuOpen(false);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+const handleCustomerIdleLock = useCallback(async () => {
+  if (!customerProfile) {
     return;
   }
 
-  if (isAdminAuthenticated) {
-    try {
-      await fetch("/api/admin/logout", { method: "POST", credentials: "include" });
-    } catch (error) {
-      console.error("Admin idle lock logout failed:", error);
-    }
-
-    clearAdminState();
-    showToast(
-      "Your session ended after inactivity. Please sign in again.",
-      "error"
-    );
-    setActiveTab("account");
-    setMobileMenuOpen(false);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  try {
+    await fetch("/api/customer/logout", { method: "POST", credentials: "include" });
+  } catch (error) {
+    console.error("Customer idle lock logout failed:", error);
   }
-}, [customerProfile, isAdminAuthenticated]);
+
+  clearCustomerState();
+  if (activeTab === "account") {
+    returnToSignIn();
+  }
+  showToast(
+    "Your fan account signed out after inactivity. Please sign in again.",
+    "error"
+  );
+}, [customerProfile, activeTab]);
+
+const handleAdminIdleLock = useCallback(async () => {
+  if (!isAdminAuthenticated) {
+    return;
+  }
+
+  await logoutAdminSession();
+  if (activeTab === "admin") {
+    returnToSignIn();
+  }
+  showToast(
+    "Admin signed out automatically after 5 minutes with no activity.",
+    "error"
+  );
+}, [isAdminAuthenticated, activeTab]);
 
 const pingSession = useCallback(async () => {
   try {
@@ -2487,19 +2741,55 @@ const pingSession = useCallback(async () => {
 }, []);
 
 useIdleSessionLock({
-  enabled: Boolean(customerProfile || isAdminAuthenticated),
-  onIdle: handleSessionIdleLock,
+  enabled: Boolean(customerProfile),
+  onIdle: handleCustomerIdleLock,
   onActivity: pingSession,
   timeoutMs: SESSION_IDLE_TIMEOUT_MS,
 });
 
+useIdleSessionLock({
+  enabled: isAdminAuthenticated,
+  onIdle: handleAdminIdleLock,
+  onActivity: pingSession,
+  timeoutMs: ADMIN_SESSION_IDLE_TIMEOUT_MS,
+});
+
+  const handleNewspaperLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    try {
+      const response = await fetch("/api/newspaper/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: newspaperUsername,
+          password: newspaperPassword,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setIsAdminAuthenticated(true);
+        setAdminRole("news_editor");
+        setNewspaperPassword("");
+        setAdminPanelView("content");
+        setActiveTab("admin");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        showToast("Newspaper account signed in. You can publish team news only.");
+      } else {
+        showToast(result.error || "Incorrect newspaper username or password.", "error");
+      }
+    } catch (error) {
+      console.error("Newspaper login failed:", error);
+      showToast("Unable to connect to the authentication server.", "error");
+    }
+  };
+
   const handleAdminLogin = async (e: React.FormEvent) => {
   e.preventDefault();
-
-  if (customerProfile) {
-    showToast("Please sign out of your fan account before signing in to admin.", "error");
-    return;
-  }
 
   try {
     const response = await fetch("/api/admin/login", {
@@ -2515,8 +2805,8 @@ useIdleSessionLock({
     const result = await response.json();
 
    if (response.ok && result.success) {
-  clearCustomerState();
   setIsAdminAuthenticated(true);
+  setAdminRole("admin");
   setAdminPassword("");
 
   await loadAdminOrders();
@@ -2535,32 +2825,36 @@ useIdleSessionLock({
 };
 
   // Admin Add Player
-  const handleAdminAddPlayer = (e: React.FormEvent) => {
+  const handleAdminAddPlayer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adminPlayerName || !adminPlayerJersey) {
       showToast("Player name and jersey number are required", "error");
       return;
     }
 
-    startTransition(async () => {
-      try {
-        const imageUrl = adminPlayerFile
-          ? await uploadSelectedImage(adminPlayerFile, "players")
-          : undefined;
+    setAdminBusy("player");
+    try {
+      const imageUrl = adminPlayerFile
+        ? await uploadSelectedImage(adminPlayerFile, "players")
+        : undefined;
 
-        const res = await addPlayer({
-          name: adminPlayerName,
-          position: adminPlayerPos,
-          jerseyNumber: parseInt(adminPlayerJersey),
-          bio: adminPlayerBio,
-          appearances: parseInt(adminPlayerApps) || 0,
-          goals: parseInt(adminPlayerGoals) || 0,
-          assists: parseInt(adminPlayerAssists) || 0,
-          imageUrl,
-        });
+      const res = await addPlayer({
+        name: adminPlayerName,
+        position: adminPlayerPos,
+        jerseyNumber: parseInt(adminPlayerJersey),
+        bio: adminPlayerBio,
+        appearances: parseInt(adminPlayerApps) || 0,
+        goals: parseInt(adminPlayerGoals) || 0,
+        assists: parseInt(adminPlayerAssists) || 0,
+        imageUrl,
+      });
 
-      if (res.success) {
-        showToast("Player added directly to PostgreSQL database!");
+      if (res.success && res.player) {
+        setClubData((prev) => ({
+          ...prev,
+          players: [...prev.players, res.player],
+        }));
+        showToast("Player added successfully!");
         setAdminPlayerName("");
         setAdminPlayerJersey("");
         setAdminPlayerBio("");
@@ -2571,14 +2865,15 @@ useIdleSessionLock({
       } else {
         showToast(res.error || "Error adding player", "error");
       }
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : "Error uploading player photo", "error");
-      }
-    });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Error uploading player photo", "error");
+    } finally {
+      setAdminBusy(null);
+    }
   };
 
   // Admin Add Management Official
-const handleAdminAddManagement = (e: React.FormEvent) => {
+const handleAdminAddManagement = async (e: React.FormEvent) => {
   e.preventDefault();
 
   if (!adminManagementName || !adminManagementPosition) {
@@ -2586,48 +2881,52 @@ const handleAdminAddManagement = (e: React.FormEvent) => {
     return;
   }
 
-  startTransition(async () => {
-    try {
-      const imageUrl = adminManagementFile
-        ? await uploadSelectedImage(adminManagementFile, "management")
-        : undefined;
+  setAdminBusy("management");
+  try {
+    const imageUrl = adminManagementFile
+      ? await uploadSelectedImage(adminManagementFile, "management")
+      : undefined;
 
-      const res = await addManagement({
-        name: adminManagementName,
-        position: adminManagementPosition,
-        category: adminManagementCategory,
-        bio: adminManagementBio,
-        responsibilities: adminManagementResponsibilities,
-        displayOrder: parseInt(adminManagementOrder) || 0,
-        imageUrl,
-      });
+    const res = await addManagement({
+      name: adminManagementName,
+      position: adminManagementPosition,
+      category: adminManagementCategory,
+      bio: adminManagementBio,
+      responsibilities: adminManagementResponsibilities,
+      displayOrder: parseInt(adminManagementOrder) || 0,
+      imageUrl,
+    });
 
-      if (res.success) {
-        showToast("Management official added successfully!");
-
-        setAdminManagementName("");
-        setAdminManagementPosition("Chairman");
-        setAdminManagementCategory("Club Leadership");
-        setAdminManagementBio("");
-        setAdminManagementResponsibilities("");
-        setAdminManagementOrder("0");
-        setAdminManagementFile(null);
-      } else {
-        showToast(res.error || "Error adding management official", "error");
-      }
-    } catch (error) {
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "Error uploading management photo",
-        "error"
-      );
+    if (res.success && res.member) {
+      setClubData((prev) => ({
+        ...prev,
+        management: [...prev.management, res.member],
+      }));
+      showToast("Management official added successfully!");
+      setAdminManagementName("");
+      setAdminManagementPosition("Chairman");
+      setAdminManagementCategory("Club Leadership");
+      setAdminManagementBio("");
+      setAdminManagementResponsibilities("");
+      setAdminManagementOrder("0");
+      setAdminManagementFile(null);
+    } else {
+      showToast(res.error || "Error adding management official", "error");
     }
-  });
+  } catch (error) {
+    showToast(
+      error instanceof Error
+        ? error.message
+        : "Error uploading management photo",
+      "error"
+    );
+  } finally {
+    setAdminBusy(null);
+  }
 };
 
  // Admin Add Fixture
-const handleAdminAddFixture = (e: React.FormEvent) => {
+const handleAdminAddFixture = async (e: React.FormEvent) => {
   e.preventDefault();
 
   if (!adminOpponent || !adminMatchDate) {
@@ -2637,53 +2936,55 @@ const handleAdminAddFixture = (e: React.FormEvent) => {
 
   const fixtureDate = combineFixtureDateTime(adminMatchDate, adminMatchTime);
 
-  startTransition(async () => {
-    try {
-      const opponentLogoUrl = adminOpponentLogoFile
-        ? await uploadSelectedImage(adminOpponentLogoFile, "fixtures")
-        : adminOpponentLogoUrl || undefined;
+  setAdminBusy("fixture");
+  try {
+    const opponentLogoUrl = adminOpponentLogoFile
+      ? await uploadSelectedImage(adminOpponentLogoFile, "fixtures")
+      : adminOpponentLogoUrl || undefined;
 
-      const res = await addFixture({
-        opponent: adminOpponent,
-        opponentLogoUrl,
-        date: fixtureDate,
-        isHome: adminIsHome,
-        status: adminStatus,
-        venue: adminVenue,
-        matchType: adminMatchType,
-        homeScore:
-          adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
-        awayScore:
-          adminAwayScore !== "" ? parseInt(adminAwayScore) : undefined,
-      });
+    const res = await addFixture({
+      opponent: adminOpponent,
+      opponentLogoUrl,
+      date: fixtureDate,
+      isHome: adminIsHome,
+      status: adminStatus,
+      venue: adminVenue,
+      matchType: adminMatchType,
+      homeScore:
+        adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
+      awayScore:
+        adminAwayScore !== "" ? parseInt(adminAwayScore) : undefined,
+    });
 
-      if (res.success) {
-        showToast(
-          "Fixture registered in system! The upcoming match has been updated."
-        );
-
-        setAdminOpponent("");
-        setAdminMatchDate("");
-        setAdminMatchTime("");
-        setAdminHomeScore("");
-        setAdminAwayScore("");
-        setAdminOpponentLogoFile(null);
-        setAdminOpponentLogoUrl("");
-      } else {
-        showToast(res.error || "Error adding fixture", "error");
-      }
-    } catch (error) {
-      showToast(
-        error instanceof Error ? error.message : "Error uploading opponent logo",
-        "error"
-      );
+    if (res.success && res.fixture) {
+      setClubData((prev) => ({
+        ...prev,
+        fixtures: [...prev.fixtures, res.fixture],
+      }));
+      showToast("Fixture registered successfully!");
+      setAdminOpponent("");
+      setAdminMatchDate("");
+      setAdminMatchTime("");
+      setAdminHomeScore("");
+      setAdminAwayScore("");
+      setAdminOpponentLogoFile(null);
+      setAdminOpponentLogoUrl("");
+    } else {
+      showToast(res.error || "Error adding fixture", "error");
     }
-  });
+  } catch (error) {
+    showToast(
+      error instanceof Error ? error.message : "Error uploading opponent logo",
+      "error"
+    );
+  } finally {
+    setAdminBusy(null);
+  }
 };
 
 
 // Admin Update Fixture / Match Result
-const handleAdminUpdateFixture = (e: React.FormEvent) => {
+const handleAdminUpdateFixture = async (e: React.FormEvent) => {
   e.preventDefault();
 
   if (!editingFixtureId) {
@@ -2698,62 +2999,63 @@ const handleAdminUpdateFixture = (e: React.FormEvent) => {
 
   const fixtureDate = combineFixtureDateTime(adminMatchDate, adminMatchTime);
 
-  startTransition(async () => {
-    try {
-      let opponentLogoUrl: string | null | undefined = adminOpponentLogoUrl || null;
+  setAdminBusy("fixture");
+  try {
+    let opponentLogoUrl: string | null | undefined = adminOpponentLogoUrl || null;
 
-      if (adminOpponentLogoFile) {
-        opponentLogoUrl = await uploadSelectedImage(adminOpponentLogoFile, "fixtures");
-      }
-
-      const res = await updateFixture(editingFixtureId, {
-        opponent: adminOpponent,
-        opponentLogoUrl,
-        date: fixtureDate,
-        isHome: adminIsHome,
-        status: adminStatus,
-        venue: adminVenue,
-        matchType: adminMatchType,
-        homeScore:
-          adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
-        awayScore:
-          adminAwayScore !== "" ? parseInt(adminAwayScore) : undefined,
-      });
-
-      if (res.success) {
-        showToast("Match result updated successfully!");
-
-        setEditingFixtureId(null);
-        setAdminOpponent("");
-        setAdminMatchDate("");
-        setAdminMatchTime("");
-        setAdminHomeScore("");
-        setAdminAwayScore("");
-        setAdminStatus("upcoming");
-        setAdminMatchType("league");
-        setAdminIsHome(true);
-        setAdminVenue(HOME_GROUND.fullAddress);
-        setAdminOpponentLogoFile(null);
-        setAdminOpponentLogoUrl("");
-      } else {
-        showToast(
-          res.error || "Error updating fixture",
-          "error"
-        );
-      }
-    } catch (error) {
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "Error updating fixture",
-        "error"
-      );
+    if (adminOpponentLogoFile) {
+      opponentLogoUrl = await uploadSelectedImage(adminOpponentLogoFile, "fixtures");
     }
-  });
+
+    const res = await updateFixture(editingFixtureId, {
+      opponent: adminOpponent,
+      opponentLogoUrl,
+      date: fixtureDate,
+      isHome: adminIsHome,
+      status: adminStatus,
+      venue: adminVenue,
+      matchType: adminMatchType,
+      homeScore:
+        adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
+      awayScore:
+        adminAwayScore !== "" ? parseInt(adminAwayScore) : undefined,
+    });
+
+    if (res.success && res.fixture) {
+      setClubData((prev) => ({
+        ...prev,
+        fixtures: prev.fixtures.map((fixture) =>
+          fixture.id === res.fixture.id ? res.fixture : fixture
+        ),
+      }));
+      showToast("Match result updated successfully!");
+      setEditingFixtureId(null);
+      setAdminOpponent("");
+      setAdminMatchDate("");
+      setAdminMatchTime("");
+      setAdminHomeScore("");
+      setAdminAwayScore("");
+      setAdminStatus("upcoming");
+      setAdminMatchType("league");
+      setAdminIsHome(true);
+      setAdminVenue(HOME_GROUND.fullAddress);
+      setAdminOpponentLogoFile(null);
+      setAdminOpponentLogoUrl("");
+    } else {
+      showToast(res.error || "Error updating fixture", "error");
+    }
+  } catch (error) {
+    showToast(
+      error instanceof Error ? error.message : "Error updating fixture",
+      "error"
+    );
+  } finally {
+    setAdminBusy(null);
+  }
 };
 // Load an existing fixture into the admin form for editing
 const handleEditFixture = (
-  fixture: (typeof initialData.fixtures)[number]
+  fixture: (typeof clubData.fixtures)[number]
 ) => {
   setEditingFixtureId(fixture.id);
 
@@ -2784,27 +3086,31 @@ const handleEditFixture = (
   window.scrollTo({ top: 0, behavior: "smooth" });
 };
   // Admin Add News
-  const handleAdminAddNews = (e: React.FormEvent) => {
+  const handleAdminAddNews = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adminNewsTitle || !adminNewsSummary || !adminNewsContent) {
       showToast("All news fields are required", "error");
       return;
     }
 
-    startTransition(async () => {
-      try {
-        const imageUrl = adminNewsFile
-          ? await uploadSelectedImage(adminNewsFile, "news")
-          : undefined;
+    setAdminBusy("news");
+    try {
+      const imageUrl = adminNewsFile
+        ? await uploadSelectedImage(adminNewsFile, "news")
+        : undefined;
 
-        const res = await addNews({
-          title: adminNewsTitle,
-          summary: adminNewsSummary,
-          content: adminNewsContent,
-          imageUrl,
-        });
+      const res = await addNews({
+        title: adminNewsTitle,
+        summary: adminNewsSummary,
+        content: adminNewsContent,
+        imageUrl,
+      });
 
-      if (res.success) {
+      if (res.success && res.article) {
+        setClubData((prev) => ({
+          ...prev,
+          news: [res.article, ...prev.news],
+        }));
         showToast("News published successfully!");
         setAdminNewsTitle("");
         setAdminNewsSummary("");
@@ -2813,14 +3119,15 @@ const handleEditFixture = (
       } else {
         showToast(res.error || "Error publishing news", "error");
       }
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : "Error uploading news photo", "error");
-      }
-    });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Error uploading news photo", "error");
+    } finally {
+      setAdminBusy(null);
+    }
   };
 
   // Admin Add Gallery
-  const handleAdminAddGallery = (e: React.FormEvent) => {
+  const handleAdminAddGallery = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!adminGalleryFile) {
@@ -2833,31 +3140,114 @@ const handleEditFixture = (
       return;
     }
 
-    startTransition(async () => {
-      try {
-        const imageUrl = await uploadSelectedImage(adminGalleryFile, "gallery");
-        const res = await addGalleryImage({
-          imageUrl,
-          caption: adminGalleryCaption.trim(),
-          category: adminGalleryCategory,
-        });
+    setAdminBusy("gallery");
+    try {
+      const imageUrl = await uploadSelectedImage(adminGalleryFile, "gallery");
+      const res = await addGalleryImage({
+        imageUrl,
+        caption: adminGalleryCaption.trim(),
+        category: adminGalleryCategory,
+      });
 
-        if (res.success) {
-          showToast("Photo uploaded to the gallery successfully!");
-          setAdminGalleryFile(null);
-          setAdminGalleryCaption("");
-          setAdminGalleryCategory("Training");
-          if (adminGalleryPreview) {
-            URL.revokeObjectURL(adminGalleryPreview);
-            setAdminGalleryPreview(null);
-          }
-        } else {
-          showToast(res.error || "Error adding photo", "error");
+      if (res.success && res.item) {
+        setClubData((prev) => ({
+          ...prev,
+          gallery: [res.item, ...prev.gallery],
+        }));
+        showToast("Photo uploaded to the gallery successfully!");
+        setAdminGalleryFile(null);
+        setAdminGalleryCaption("");
+        setAdminGalleryCategory("Training");
+        if (adminGalleryPreview) {
+          URL.revokeObjectURL(adminGalleryPreview);
+          setAdminGalleryPreview(null);
         }
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : "Error uploading gallery photo", "error");
+      } else {
+        showToast(res.error || "Error adding photo", "error");
       }
-    });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Error uploading gallery photo", "error");
+    } finally {
+      setAdminBusy(null);
+    }
+  };
+
+  const handleAdminAddHighlight = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!adminHighlightVideoFile) {
+      showToast("Please choose a highlight video first.", "error");
+      return;
+    }
+
+    if (!adminHighlightTitle.trim()) {
+      showToast("Please enter a title for this highlight.", "error");
+      return;
+    }
+
+    setAdminBusy("highlights");
+    try {
+      const videoUrl = await uploadSelectedVideo(adminHighlightVideoFile);
+      const thumbnailUrl = adminHighlightThumbFile
+        ? await uploadSelectedImage(adminHighlightThumbFile, "gallery")
+        : undefined;
+
+      const res = await addTeamHighlight({
+        title: adminHighlightTitle.trim(),
+        description: adminHighlightDescription.trim(),
+        videoUrl,
+        thumbnailUrl,
+        category: adminHighlightCategory,
+      });
+
+      if (res.success && res.item) {
+        setClubData((prev) => ({
+          ...prev,
+          highlights: [res.item, ...prev.highlights],
+        }));
+        showToast("Team highlight video published successfully!");
+        setAdminHighlightVideoFile(null);
+        setAdminHighlightThumbFile(null);
+        setAdminHighlightTitle("");
+        setAdminHighlightDescription("");
+        setAdminHighlightCategory("Match Highlights");
+        if (adminHighlightVideoPreview) {
+          URL.revokeObjectURL(adminHighlightVideoPreview);
+          setAdminHighlightVideoPreview(null);
+        }
+        if (adminHighlightThumbPreview) {
+          URL.revokeObjectURL(adminHighlightThumbPreview);
+          setAdminHighlightThumbPreview(null);
+        }
+      } else {
+        showToast(res.error || "Error publishing highlight video", "error");
+      }
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Error uploading highlight video",
+        "error"
+      );
+    } finally {
+      setAdminBusy(null);
+    }
+  };
+
+  const handleDeleteHighlight = async (id: number, title: string) => {
+    if (!confirm(`Remove highlight video "${title}"?`)) return;
+
+    const res = await deleteTeamHighlight(id);
+    if (res.success) {
+      setClubData((prev) => ({
+        ...prev,
+        highlights: prev.highlights.filter((item) => item.id !== id),
+      }));
+      if (activeHighlight?.id === id) {
+        setActiveHighlight(null);
+      }
+      showToast("Highlight video removed.");
+    } else {
+      showToast(res.error || "Unable to remove highlight video.", "error");
+    }
   };
 
   const handleAdminEditManagement = (
@@ -2896,7 +3286,7 @@ const handleCancelManagementEdit = () => {
   setAdminManagementFile(null);
 };
 
-const handleAdminDeleteManagement = (managementId: number) => {
+const handleAdminDeleteManagement = async (managementId: number) => {
   const confirmed = window.confirm(
     "Are you sure you want to delete this management official?"
   );
@@ -2905,54 +3295,57 @@ const handleAdminDeleteManagement = (managementId: number) => {
     return;
   }
 
-  startTransition(async () => {
-    try {
-      const res = await deleteManagement(managementId);
+  try {
+    const res = await deleteManagement(managementId);
 
-      if (res.success) {
-        showToast("Management official deleted successfully!");
+    if (res.success) {
+      setClubData((prev) => ({
+        ...prev,
+        management: prev.management.filter((member) => member.id !== managementId),
+      }));
+      showToast("Management official deleted successfully!");
 
-        if (editingManagementId === managementId) {
-          handleCancelManagementEdit();
-        }
-      } else {
-        showToast(
-          res.error || "Error deleting management official",
-          "error"
-        );
+      if (editingManagementId === managementId) {
+        handleCancelManagementEdit();
       }
-    } catch (error) {
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "Error deleting management official",
-        "error"
-      );
+    } else {
+      showToast(res.error || "Error deleting management official", "error");
     }
-  });
+  } catch (error) {
+    showToast(
+      error instanceof Error
+        ? error.message
+        : "Error deleting management official",
+      "error"
+    );
+  }
 };
 
-const handleUpdateManagementRole = (
+const handleUpdateManagementRole = async (
   managementId: number,
   category: string,
   position: string
 ) => {
   setUpdatingManagementRoleId(managementId);
-  startTransition(async () => {
-    try {
-      const res = await updateManagementRole(managementId, { category, position });
-      if (res.success) {
-        showToast(res.message || "Management role updated.");
-      } else {
-        showToast(res.error || "Failed to update role.", "error");
-      }
-    } finally {
-      setUpdatingManagementRoleId(null);
+  try {
+    const res = await updateManagementRole(managementId, { category, position });
+    if (res.success && res.member) {
+      setClubData((prev) => ({
+        ...prev,
+        management: prev.management.map((member) =>
+          member.id === res.member.id ? res.member : member
+        ),
+      }));
+      showToast(res.message || "Management role updated.");
+    } else {
+      showToast(res.error || "Failed to update role.", "error");
     }
-  });
+  } finally {
+    setUpdatingManagementRoleId(null);
+  }
 };
 
-const handleAdminUpdateManagement = (e: React.FormEvent) => {
+const handleAdminUpdateManagement = async (e: React.FormEvent) => {
   e.preventDefault();
 
   if (!editingManagementId) {
@@ -2965,90 +3358,91 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
     return;
   }
 
-  startTransition(async () => {
-    try {
-      const imageUrl = adminManagementFile
-        ? await uploadSelectedImage(adminManagementFile, "management")
-        : undefined;
+  setAdminBusy("management");
+  try {
+    const imageUrl = adminManagementFile
+      ? await uploadSelectedImage(adminManagementFile, "management")
+      : undefined;
 
-      const currentMember = initialData.management.find(
-        (member) => member.id === editingManagementId
-      );
+    const currentMember = clubData.management.find(
+      (member) => member.id === editingManagementId
+    );
 
-      const res = await updateManagement(
-        editingManagementId,
-        {
-          name: adminManagementName,
-          position: adminManagementPosition,
-          category: adminManagementCategory,
-          bio: adminManagementBio,
-          responsibilities: adminManagementResponsibilities,
-          displayOrder: parseInt(adminManagementOrder) || 0,
-          imageUrl:
-            imageUrl ||
-            currentMember?.imageUrl ||
-            "",
-        }
-      );
+    const res = await updateManagement(editingManagementId, {
+      name: adminManagementName,
+      position: adminManagementPosition,
+      category: adminManagementCategory,
+      bio: adminManagementBio,
+      responsibilities: adminManagementResponsibilities,
+      displayOrder: parseInt(adminManagementOrder) || 0,
+      imageUrl: imageUrl || currentMember?.imageUrl || "",
+    });
 
-      if (res.success) {
-        showToast("Management official updated successfully!");
-
-        setEditingManagementId(null);
-        setAdminManagementName("");
-        setAdminManagementPosition("Chairman");
-        setAdminManagementCategory("Club Leadership");
-        setAdminManagementBio("");
-        setAdminManagementResponsibilities("");
-        setAdminManagementOrder("0");
-        setAdminManagementFile(null);
-
-        setActiveTab("management");
-
-        window.scrollTo({
-          top: 0,
-          behavior: "smooth",
-        });
-      } else {
-        showToast(
-          res.error || "Error updating management official",
-          "error"
-        );
-      }
-    } catch (error) {
-      showToast(
-        error instanceof Error
-          ? error.message
-          : "Error updating management official",
-        "error"
-      );
+    if (res.success && res.member) {
+      setClubData((prev) => ({
+        ...prev,
+        management: prev.management.map((member) =>
+          member.id === res.member.id ? res.member : member
+        ),
+      }));
+      showToast("Management official updated successfully!");
+      setEditingManagementId(null);
+      setAdminManagementName("");
+      setAdminManagementPosition("Chairman");
+      setAdminManagementCategory("Club Leadership");
+      setAdminManagementBio("");
+      setAdminManagementResponsibilities("");
+      setAdminManagementOrder("0");
+      setAdminManagementFile(null);
+      setActiveTab("management");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      showToast(res.error || "Error updating management official", "error");
     }
-  });
+  } catch (error) {
+    showToast(
+      error instanceof Error
+        ? error.message
+        : "Error updating management official",
+      "error"
+    );
+  } finally {
+    setAdminBusy(null);
+  }
 };
   // ========== DELETE HANDLERS ==========
-  const handleDeletePlayer = (id: number, name: string) => {
+  const handleDeletePlayer = async (id: number, name: string) => {
     if (!confirm(`Are you sure you want to remove "${name}" from the squad?`)) return;
-    startTransition(async () => {
-      const res = await deletePlayer(id);
-      if (res.success) showToast(res.message || "Player deleted.");
-      else showToast(res.error || "Failed to delete.", "error");
-    });
+    const res = await deletePlayer(id);
+    if (res.success) {
+      setClubData((prev) => ({
+        ...prev,
+        players: prev.players.filter((player) => player.id !== id),
+      }));
+      showToast(res.message || "Player deleted.");
+    } else {
+      showToast(res.error || "Failed to delete.", "error");
+    }
   };
 
-  const handleUpdatePlayerPosition = (playerId: number, position: string) => {
+  const handleUpdatePlayerPosition = async (playerId: number, position: string) => {
     setUpdatingPlayerPositionId(playerId);
-    startTransition(async () => {
-      try {
-        const res = await updatePlayerPosition(playerId, position);
-        if (res.success) {
-          showToast(res.message || "Player position updated.");
-        } else {
-          showToast(res.error || "Failed to update position.", "error");
-        }
-      } finally {
-        setUpdatingPlayerPositionId(null);
+    try {
+      const res = await updatePlayerPosition(playerId, position);
+      if (res.success && res.player) {
+        setClubData((prev) => ({
+          ...prev,
+          players: prev.players.map((player) =>
+            player.id === res.player.id ? res.player : player
+          ),
+        }));
+        showToast(res.message || "Player position updated.");
+      } else {
+        showToast(res.error || "Failed to update position.", "error");
       }
-    });
+    } finally {
+      setUpdatingPlayerPositionId(null);
+    }
   };
 
   const openSquadPlayerShop = () => {
@@ -3056,31 +3450,46 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleDeleteFixture = (id: number, opponent: string) => {
+  const handleDeleteFixture = async (id: number, opponent: string) => {
     if (!confirm(`Remove the fixture against "${opponent}"?`)) return;
-    startTransition(async () => {
-      const res = await deleteFixture(id);
-      if (res.success) showToast(res.message || "Fixture deleted.");
-      else showToast(res.error || "Failed to delete.", "error");
-    });
+    const res = await deleteFixture(id);
+    if (res.success) {
+      setClubData((prev) => ({
+        ...prev,
+        fixtures: prev.fixtures.filter((fixture) => fixture.id !== id),
+      }));
+      showToast(res.message || "Fixture deleted.");
+    } else {
+      showToast(res.error || "Failed to delete.", "error");
+    }
   };
 
-  const handleDeleteNews = (id: number, title: string) => {
+  const handleDeleteNews = async (id: number, title: string) => {
     if (!confirm(`Delete the news article "${title}"?`)) return;
-    startTransition(async () => {
-      const res = await deleteNews(id);
-      if (res.success) showToast(res.message || "News deleted.");
-      else showToast(res.error || "Failed to delete.", "error");
-    });
+    const res = await deleteNews(id);
+    if (res.success) {
+      setClubData((prev) => ({
+        ...prev,
+        news: prev.news.filter((item) => item.id !== id),
+      }));
+      showToast(res.message || "News deleted.");
+    } else {
+      showToast(res.error || "Failed to delete.", "error");
+    }
   };
 
-  const handleDeleteGallery = (id: number) => {
+  const handleDeleteGallery = async (id: number) => {
     if (!confirm("Remove this photo from the gallery?")) return;
-    startTransition(async () => {
-      const res = await deleteGalleryImage(id);
-      if (res.success) showToast(res.message || "Photo deleted.");
-      else showToast(res.error || "Failed to delete.", "error");
-    });
+    const res = await deleteGalleryImage(id);
+    if (res.success) {
+      setClubData((prev) => ({
+        ...prev,
+        gallery: prev.gallery.filter((item) => item.id !== id),
+      }));
+      showToast(res.message || "Photo deleted.");
+    } else {
+      showToast(res.error || "Failed to delete.", "error");
+    }
   };
 
   // ========== IMAGE REPLACE HANDLERS ==========
@@ -3091,72 +3500,127 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
     setReplaceImageNewCaption(currentCaption || "");
   };
 
-  const handleReplaceImage = () => {
+  const handleReplaceImage = async () => {
     if (!replaceImageFile || replaceImageId === null) {
       showToast("Please choose a new photo first.", "error");
       return;
     }
 
-    startTransition(async () => {
-      try {
-        const folder = replaceImageType === "player"
-          ? "players"
-          : replaceImageType === "gallery"
-          ? "gallery"
-          : replaceImageType === "news"
-          ? "news"
-          : "merch";
-        const imageUrl = await uploadSelectedImage(replaceImageFile, folder);
-        let res;
+    setAdminBusy("replace-image");
+    try {
+      const folder = replaceImageType === "player"
+        ? "players"
+        : replaceImageType === "gallery"
+        ? "gallery"
+        : replaceImageType === "news"
+        ? "news"
+        : "merch";
+      const imageUrl = await uploadSelectedImage(replaceImageFile, folder);
+      let success = false;
+      let message = "Image replaced successfully!";
+      let errorMessage = "Failed to replace image.";
 
-        if (replaceImageType === "player") {
-          res = await updatePlayerImage(replaceImageId, imageUrl);
-        } else if (replaceImageType === "gallery") {
-          res = await updateGalleryImage(replaceImageId, imageUrl, replaceImageNewCaption);
-        } else if (replaceImageType === "merch") {
-          res = await updateMerchandiseImage(replaceImageId, imageUrl);
-        } else {
-          res = await updateNewsImage(replaceImageId, imageUrl);
+      if (replaceImageType === "player") {
+        const res = await updatePlayerImage(replaceImageId, imageUrl);
+        success = Boolean(res.success);
+        message = res.message || message;
+        errorMessage = res.error || errorMessage;
+        if (res.success && res.player) {
+          const updatedPlayer = res.player;
+          setClubData((prev) => ({
+            ...prev,
+            players: prev.players.map((player) =>
+              player.id === updatedPlayer.id ? updatedPlayer : player
+            ),
+          }));
         }
-
-        if (res?.success) {
-          showToast(res.message || "Image replaced successfully!");
-          setReplaceImageId(null);
-          setReplaceImageFile(null);
-          setReplaceImageNewCaption("");
-        } else {
-          showToast(res?.error || "Failed to replace image.", "error");
+      } else if (replaceImageType === "gallery") {
+        const res = await updateGalleryImage(replaceImageId, imageUrl, replaceImageNewCaption);
+        success = Boolean(res.success);
+        message = res.message || message;
+        errorMessage = res.error || errorMessage;
+        if (res.success && res.item) {
+          const updatedItem = res.item;
+          setClubData((prev) => ({
+            ...prev,
+            gallery: prev.gallery.map((item) =>
+              item.id === updatedItem.id ? updatedItem : item
+            ),
+          }));
         }
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : "Image replacement failed", "error");
+      } else if (replaceImageType === "merch") {
+        const res = await updateMerchandiseImage(replaceImageId, imageUrl);
+        success = Boolean(res.success);
+        message = res.message || message;
+        errorMessage = res.error || errorMessage;
+        if (res.success && res.item) {
+          const updatedItem = res.item;
+          setClubData((prev) => ({
+            ...prev,
+            merchandise: prev.merchandise.map((item) =>
+              item.id === updatedItem.id ? updatedItem : item
+            ),
+          }));
+        }
+      } else {
+        const res = await updateNewsImage(replaceImageId, imageUrl);
+        success = Boolean(res.success);
+        message = res.message || message;
+        errorMessage = res.error || errorMessage;
+        if (res.success && res.article) {
+          const updatedArticle = res.article;
+          setClubData((prev) => ({
+            ...prev,
+            news: prev.news.map((item) =>
+              item.id === updatedArticle.id ? updatedArticle : item
+            ),
+          }));
+        }
       }
-    });
+
+      if (success) {
+        showToast(message);
+        setReplaceImageId(null);
+        setReplaceImageFile(null);
+        setReplaceImageNewCaption("");
+      } else {
+        showToast(errorMessage, "error");
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Image replacement failed", "error");
+    } finally {
+      setAdminBusy(null);
+    }
   };
 
   // ========== MERCHANDISE HANDLERS ==========
-  const handleAddMerchandise = (e: React.FormEvent) => {
+  const handleAddMerchandise = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adminMerchName || !adminMerchPrice) {
       showToast("Name and price are required", "error");
       return;
     }
 
-    startTransition(async () => {
-      try {
-        const imageUrl = adminMerchFile
-          ? await uploadSelectedImage(adminMerchFile, "merch")
-          : "/images/shop-home-jersey.jpg";
+    setAdminBusy("merch");
+    try {
+      const imageUrl = adminMerchFile
+        ? await uploadSelectedImage(adminMerchFile, "merch")
+        : "/images/shop-home-jersey.jpg";
 
-        const res = await addMerchandise({
-          name: adminMerchName,
-          description: adminMerchDesc || "Official Kariobangi Legends merchandise.",
-          price: parseInt(adminMerchPrice),
-          imageUrl,
-          sizes: adminMerchSizes,
-          kitType: adminMerchType,
-        });
+      const res = await addMerchandise({
+        name: adminMerchName,
+        description: adminMerchDesc || "Official Kariobangi Legends merchandise.",
+        price: parseInt(adminMerchPrice),
+        imageUrl,
+        sizes: adminMerchSizes,
+        kitType: adminMerchType,
+      });
 
-      if (res.success) {
+      if (res.success && res.item) {
+        setClubData((prev) => ({
+          ...prev,
+          merchandise: [...prev.merchandise, res.item],
+        }));
         showToast(res.message || "Merchandise added to shop!");
         setAdminMerchName("");
         setAdminMerchDesc("");
@@ -3165,19 +3629,25 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
       } else {
         showToast(res.error || "Failed to add item.", "error");
       }
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : "Error uploading product photo", "error");
-      }
-    });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Error uploading product photo", "error");
+    } finally {
+      setAdminBusy(null);
+    }
   };
 
-  const handleDeleteMerchandise = (id: number, name: string) => {
+  const handleDeleteMerchandise = async (id: number, name: string) => {
     if (!confirm(`Remove "${name}" from the shop?`)) return;
-    startTransition(async () => {
-      const res = await deleteMerchandise(id);
-      if (res.success) showToast(res.message || "Item removed.");
-      else showToast(res.error || "Failed to delete.", "error");
-    });
+    const res = await deleteMerchandise(id);
+    if (res.success) {
+      setClubData((prev) => ({
+        ...prev,
+        merchandise: prev.merchandise.filter((item) => item.id !== id),
+      }));
+      showToast(res.message || "Item removed.");
+    } else {
+      showToast(res.error || "Failed to delete.", "error");
+    }
   };
 
   // Product photo display — shows real photo or a styled fallback
@@ -3276,14 +3746,22 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
   const categoryGallery =
     selectedGalleryCategory === "All"
-      ? initialData.gallery
-      : initialData.gallery.filter(
+      ? clubData.gallery
+      : clubData.gallery.filter(
           (item) => item.category === selectedGalleryCategory
         );
 
   const filteredGallery = categoryGallery.filter(
-    (item) => isAdminAuthenticated || isUploadedMediaUrl(item.imageUrl)
+    (item) => canManageClubContent || isUploadedMediaUrl(item.imageUrl)
   );
+
+  const filteredHighlights = useMemo(() => {
+    const highlights = clubData.highlights ?? [];
+    return selectedHighlightCategory === "All"
+      ? highlights
+      : highlights.filter((item) => item.category === selectedHighlightCategory);
+  }, [clubData.highlights, selectedHighlightCategory]);
+
     useEffect(() => {
   if (!selectedGalleryImage) return;
 
@@ -3555,13 +4033,54 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 News
               </button>
 
-              <button
-                type="button"
-                onClick={() => goToTab("gallery")}
-                className={desktopNavLinkClass(activeTab === "gallery")}
-              >
-                Gallery
-              </button>
+              <div className="relative group">
+                <button
+                  type="button"
+                  className={desktopNavTriggerClass(["gallery", "highlights"].includes(activeTab))}
+                >
+                  Media
+                  <ChevronDown className="w-3 h-3 transition-transform duration-300 group-hover:rotate-180" />
+                </button>
+
+                <div className="absolute left-0 top-full pt-2 opacity-0 invisible translate-y-1 group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 transition-all duration-200 z-50">
+                  <div className="w-64 bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200/80 shadow-2xl shadow-slate-950/10 p-2">
+                    <button
+                      type="button"
+                      onClick={() => goToTab("gallery")}
+                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
+                    >
+                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
+                        <Images className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
+                      </span>
+                      <span>
+                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
+                          Gallery
+                        </span>
+                        <span className="block text-[10px] text-slate-500 mt-0.5">
+                          Matchday, training, and community photos
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => goToTab("highlights")}
+                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
+                    >
+                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
+                        <Film className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
+                      </span>
+                      <span>
+                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
+                          Highlights
+                        </span>
+                        <span className="block text-[10px] text-slate-500 mt-0.5">
+                          Goals, skills, and official video clips
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
 
               <button
                 type="button"
@@ -3735,7 +4254,8 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {[
-                        { id: "gallery", label: "Photo Gallery", icon: Images },
+                        { id: "gallery", label: "Gallery", icon: Images },
+                        { id: "highlights", label: "Highlights", icon: Film },
                       ].map((tab) => {
                         const Icon = tab.icon;
                         const isActive = activeTab === tab.id;
@@ -4365,6 +4885,61 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   </button>
 
 </div>
+
+    {homeHighlights.length > 0 && (
+      <div className="space-y-6">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-2 h-2 rounded-full bg-yellow-400" />
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+                Club Media
+              </span>
+            </div>
+
+            <h3 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight flex items-center gap-2">
+              <Film className="w-6 h-6 text-yellow-500" />
+              Team Highlights
+            </h3>
+
+            <p className="text-sm text-slate-500 mt-2 max-w-2xl">
+              Fresh goals, skills, and matchday clips uploaded by club officials.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => goToTab("highlights")}
+            className="hidden sm:flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-700 transition cursor-pointer"
+          >
+            All Highlights
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {homeHighlights.map((highlight) => (
+            <HighlightVideoCard
+              key={highlight.id}
+              highlight={highlight}
+              onPlay={setActiveHighlight}
+              showAdminControls={false}
+              onDelete={handleDeleteHighlight}
+            />
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => goToTab("highlights")}
+          className="sm:hidden w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-wider text-emerald-600 border border-emerald-100 rounded-xl hover:bg-emerald-50 transition cursor-pointer"
+        >
+          All Highlights
+          <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
+    )}
+
            {/* ================= NEWS & FAN SUPPORT ================= */}
 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
@@ -4404,11 +4979,11 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
 
     {/* News cards */}
-    {initialData.news.length > 0 ? (
+    {clubData.news.length > 0 ? (
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-        {initialData.news.slice(0, 2).map((item, index) => (
+        {clubData.news.slice(0, 2).map((item, index) => (
 
           <article
             key={item.id}
@@ -4631,9 +5206,9 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
         {/* Fan messages */}
         <div className="space-y-3 max-h-52 overflow-y-auto pr-1">
 
-          {initialData.fanMessages.length > 0 ? (
+          {clubData.fanMessages.length > 0 ? (
 
-            initialData.fanMessages.slice(0, 3).map((msg) => (
+            clubData.fanMessages.slice(0, 3).map((msg) => (
 
               <div
                 key={msg.id}
@@ -4835,7 +5410,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                   Showcasing real team moments in Kariobangi North: matchday action, training, academy work, and community events.
                 </p>
               </div>
-              {isAdminAuthenticated && (
+              {canManageClubContent && (
                 <button
                   onClick={() => {
                     setActiveTab("admin");
@@ -4913,7 +5488,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                       <p className="text-[10px] text-slate-400 font-bold">
                         Published: {new Date(item.createdAt).toLocaleDateString()}
                       </p>
-                      {isAdminAuthenticated && (
+                      {canManageClubContent && (
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => openReplaceImage(item.id, "gallery", item.imageUrl, item.caption)}
@@ -4939,13 +5514,87 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
               <div className="text-center py-16 bg-white rounded-3xl border border-slate-100 shadow-sm">
                 <ImageIcon className="w-12 h-12 text-slate-300 mx-auto" />
                 <p className="font-bold text-slate-500 text-sm mt-3">No photos in this category yet</p>
-                {isAdminAuthenticated && (
+                {canManageClubContent && (
                   <p className="text-xs text-slate-400 mt-1">Go to the Admin Panel to post pictures of this event.</p>
                 )}
               </div>
             )}
           </div>
         )}
+
+        {/* ================= TAB: TEAM HIGHLIGHTS ================= */}
+        {activeTab === "highlights" && (
+          <div className="space-y-8">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="max-w-2xl space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-yellow-400" />
+                  <span className="text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+                    Matchday Film Room
+                  </span>
+                </div>
+                <h2 className="text-3xl font-black text-slate-950 tracking-tight">
+                  Team Highlights
+                </h2>
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  Watch official Kariobangi Legends clips — goals, skills, training, and community moments uploaded directly from pitch-side phones and cameras.
+                </p>
+              </div>
+              {canManageClubContent && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("admin");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs px-4 py-2.5 rounded-xl uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Film className="w-4 h-4" /> Upload Highlight
+                </button>
+              )}
+            </div>
+
+            <div className="flex gap-2 flex-wrap bg-white p-2.5 rounded-2xl border border-slate-100 shadow-sm">
+              {["All", ...HIGHLIGHT_CATEGORIES].map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSelectedHighlightCategory(cat)}
+                  className={`px-4 py-2 rounded-xl text-xs font-extrabold transition ${
+                    selectedHighlightCategory === cat
+                      ? "bg-slate-950 text-yellow-400 shadow-md shadow-slate-950/10"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {filteredHighlights.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+                {filteredHighlights.map((highlight) => (
+                  <HighlightVideoCard
+                    key={highlight.id}
+                    highlight={highlight}
+                    onPlay={setActiveHighlight}
+                    showAdminControls={canManageClubContent}
+                    onDelete={handleDeleteHighlight}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center space-y-3">
+                <Film className="w-12 h-12 text-slate-300 mx-auto" />
+                <h4 className="font-black text-slate-800 text-lg">Highlight Videos Coming Soon</h4>
+                <p className="text-sm text-slate-500 max-w-md mx-auto">
+                  Club officials can upload MP4, MOV, or WEBM clips from a phone or computer in the Admin Panel.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
                     {selectedGalleryImage && (
               <div
                 className="fixed inset-0 z-[100] bg-white/95 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300"
@@ -5396,6 +6045,25 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
        {/* ================= TAB: MANAGEMENT ================= */}
 {activeTab === "management" && (
   <div className="space-y-12">
+    {canManageClubContent && (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <p className="text-xs font-semibold text-amber-900">
+          Admin mode is active — edit and delete controls are visible on this page.
+        </p>
+        <button
+          type="button"
+          onClick={async () => {
+            await logoutAdminSession();
+            showToast("Admin signed out. Edit controls are now hidden.");
+          }}
+          className="inline-flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-[10px] uppercase tracking-wider px-4 py-2 rounded-lg transition cursor-pointer shrink-0"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          Sign Out Admin
+        </button>
+      </div>
+    )}
+
     <div className="max-w-3xl space-y-4">
       <div className="flex items-center gap-2">
         <span className="w-2 h-2 rounded-full bg-yellow-400" />
@@ -5448,13 +6116,13 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 </h4>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
                 {roleGroup.members.map((member) => (
                   <ManagementMemberCard
                     key={member.id}
                     member={member}
                     featured={isFeaturedManagementRole(member.position)}
-                    isAdminAuthenticated={isAdminAuthenticated}
+                    showAdminControls={canManageClubContent}
                     isUpdatingRole={updatingManagementRoleId === member.id}
                     onEdit={handleAdminEditManagement}
                     onDelete={handleAdminDeleteManagement}
@@ -5476,12 +6144,12 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                 Other Roles
               </h4>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
               {section.otherMembers.map((member) => (
                 <ManagementMemberCard
                   key={member.id}
                   member={member}
-                  isAdminAuthenticated={isAdminAuthenticated}
+                  showAdminControls={canManageClubContent}
                   isUpdatingRole={updatingManagementRoleId === member.id}
                   onEdit={handleAdminEditManagement}
                   onDelete={handleAdminDeleteManagement}
@@ -5494,7 +6162,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
       </section>
     ))}
 
-    {initialData.management.length === 0 && (
+    {clubData.management.length === 0 && (
       <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
         <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4">
           <Users className="w-8 h-8 text-slate-300" />
@@ -5522,7 +6190,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
               </p>
             </div>
 
-            {initialData.players.length > 0 ? (
+            {clubData.players.length > 0 ? (
             <div className="space-y-10">
               {SQUAD_POSITION_GROUPS.map((group) => {
                 const groupPlayers = squadByPosition.get(group.id) ?? [];
@@ -5546,12 +6214,12 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
                       {groupPlayers.map((player) => (
                         <SquadPlayerCard
                           key={player.id}
                           player={player}
-                          isAdminAuthenticated={isAdminAuthenticated}
+                          showAdminControls={canManageClubContent}
                           isUpdatingPosition={updatingPlayerPositionId === player.id}
                           onReplaceImage={(id, imageUrl) =>
                             openReplaceImage(id, "player", imageUrl)
@@ -5576,12 +6244,12 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                       Other Roles
                     </h3>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
                     {(squadByPosition.get("other") ?? []).map((player) => (
                       <SquadPlayerCard
                         key={player.id}
                         player={player}
-                        isAdminAuthenticated={isAdminAuthenticated}
+                        showAdminControls={canManageClubContent}
                         isUpdatingPosition={updatingPlayerPositionId === player.id}
                         onReplaceImage={(id, imageUrl) =>
                           openReplaceImage(id, "player", imageUrl)
@@ -5759,7 +6427,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                       key={fixture.id}
                       fixture={fixture}
                       mode="live"
-                      isAdminAuthenticated={isAdminAuthenticated}
+                      isAdminAuthenticated={canManageClubContent}
                       onEdit={handleEditFixture}
                       onDelete={handleDeleteFixture}
                     />
@@ -5781,7 +6449,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                         key={fixture.id}
                         fixture={fixture}
                         mode="upcoming"
-                        isAdminAuthenticated={isAdminAuthenticated}
+                        isAdminAuthenticated={canManageClubContent}
                         onEdit={handleEditFixture}
                         onDelete={handleDeleteFixture}
                       />
@@ -5811,7 +6479,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                         key={fixture.id}
                         fixture={fixture}
                         mode="result"
-                        isAdminAuthenticated={isAdminAuthenticated}
+                        isAdminAuthenticated={canManageClubContent}
                         onEdit={handleEditFixture}
                         onDelete={handleDeleteFixture}
                       />
@@ -5828,7 +6496,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
               </section>
             </div>
 
-            {initialData.fixtures.length === 0 && (
+            {clubData.fixtures.length === 0 && (
               <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
                 <CalendarDays className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                 <h4 className="font-black text-slate-800 text-lg">Fixtures Coming Soon</h4>
@@ -5851,7 +6519,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
             </div>
 
             <div className="space-y-12">
-              {initialData.news.map((item, idx) => (
+              {clubData.news.map((item, idx) => (
                 <div
                   key={item.id}
                   className={`bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm grid grid-cols-1 lg:grid-cols-12 gap-6 p-6 ${
@@ -5893,20 +6561,22 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
                     <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
                       <span className="text-slate-500 font-bold">Authorized: Mr. Erick Otieno Atanga (Patron)</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => openReplaceImage(item.id, "news", item.imageUrl)}
-                          className="text-blue-600 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
-                        >
-                          <Camera className="w-3 h-3" /> Replace Photo
-                        </button>
-                        <button
-                          onClick={() => handleDeleteNews(item.id, item.title)}
-                          className="text-rose-500 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
-                        >
-                          <Trash2 className="w-3 h-3" /> Delete
-                        </button>
-                      </div>
+                      {canManageClubContent && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openReplaceImage(item.id, "news", item.imageUrl)}
+                            className="text-blue-600 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                          >
+                            <Camera className="w-3 h-3" /> Replace Photo
+                          </button>
+                          <button
+                            onClick={() => handleDeleteNews(item.id, item.title)}
+                            className="text-rose-500 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                          >
+                            <Trash2 className="w-3 h-3" /> Delete
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -6044,7 +6714,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
             {/* Items Grid — Real Product Photos with Admin Controls */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {initialData.merchandise.map((item) => {
+              {clubData.merchandise.map((item) => {
                 const sizesArray = item.sizes.split(",").map((s) => s.trim());
                 
 
@@ -6333,8 +7003,8 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                   </p>
 
                   <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                    {initialData.donations.length > 0 ? (
-                      initialData.donations.map((d) => (
+                    {clubData.donations.length > 0 ? (
+                      clubData.donations.map((d) => (
                         <div
                           key={d.id}
                           className="p-4 bg-slate-900 rounded-xl border border-slate-800 space-y-1.5"
@@ -6439,11 +7109,11 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
               {/* Message Wall */}
               <div className="lg:col-span-2 space-y-4">
                 <h3 className="text-xl font-bold text-slate-950 flex items-center gap-2">
-                  <MessageSquare className="w-5 h-5 text-emerald-600" /> Live Supporter Messages ({initialData.fanMessages.length})
+                  <MessageSquare className="w-5 h-5 text-emerald-600" /> Live Supporter Messages ({clubData.fanMessages.length})
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {initialData.fanMessages.map((msg) => (
+                  {clubData.fanMessages.map((msg) => (
                     <div
                       key={msg.id}
                       className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-2 relative hover:scale-[1.01] transition"
@@ -6510,9 +7180,9 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                   <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
                     {customerProfile
                       ? "Track your orders, message the club admin, and read replies here in your account."
-                      : pendingCheckoutAfterAuth
-                        ? "Create a free fan account or sign in to pay for the items in your cart. Club officials can sign in on the right."
-                        : "Fans register to shop official kits, pay with M-Pesa, and track orders. Club officials sign in on the right to manage content and orders."}
+                        : pendingCheckoutAfterAuth
+                        ? "Create a free fan account or sign in to pay for the items in your cart. Club officials and press partners can sign in on the right."
+                        : "Fans register to shop official kits, pay with M-Pesa, and track orders. Each registered account works on its own phone or computer at the same time. Club officials manage the site on the right; newspapers use the press login to publish team news only."}
                   </p>
                 </div>
               </div>
@@ -7095,41 +7765,90 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                         </p>
                       </div>
 
-                      <form onSubmit={handleAdminLogin} className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Manager Password
-                          </label>
-                          <PasswordInput
-                            value={adminPassword}
-                            onChange={setAdminPassword}
-                            placeholder="Enter admin password"
-                            required
-                            className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
-                            autoComplete="current-password"
-                          />
+                      {isAdminAuthenticated ? (
+                        <div className="space-y-4">
+                          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 space-y-2">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                              Signed in
+                            </p>
+                            <p className="text-sm font-bold text-slate-900">
+                              {adminRole === "news_editor"
+                                ? "Newspaper / Press Partner"
+                                : "Kariobangi Legends Manager"}
+                            </p>
+                            <p className="text-xs text-slate-600 leading-relaxed">
+                              Edit controls stay visible on Management and Squad until you sign out below.
+                            </p>
+                          </div>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveTab("admin");
+                                window.scrollTo({ top: 0, behavior: "smooth" });
+                              }}
+                              className="flex-1 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                            >
+                              Open Admin Panel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const wasPressAccount = adminRole === "news_editor";
+                                await logoutAdminSession();
+                                returnToSignIn();
+                                showToast(
+                                  wasPressAccount
+                                    ? "Press account signed out."
+                                    : "Admin signed out. Edit controls are now hidden."
+                                );
+                              }}
+                              className="flex-1 inline-flex items-center justify-center gap-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                            >
+                              <LogOut className="w-4 h-4" />
+                              {adminRole === "news_editor" ? "Sign Out Press" : "Sign Out Admin"}
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          type="submit"
-                          className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                        >
-                          Sign In as Admin
-                        </button>
-                      </form>
+                      ) : (
+                        <>
+                          <form onSubmit={handleAdminLogin} className="space-y-3">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                Manager Password
+                              </label>
+                              <PasswordInput
+                                value={adminPassword}
+                                onChange={setAdminPassword}
+                                placeholder="Enter admin password"
+                                required
+                                className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
+                                autoComplete="current-password"
+                              />
+                            </div>
+                            <button
+                              type="submit"
+                              className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                            >
+                              Sign In as Admin
+                            </button>
+                          </form>
 
-                      <button
-                        type="button"
-                        aria-expanded={showAdminPasswordReset}
-                        onClick={() => {
-                          setShowAdminPasswordReset((open) => {
-                            if (open) setAdminResetStep("request");
-                            return !open;
-                          });
-                        }}
-                        className="w-full text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 cursor-pointer pt-1"
-                      >
-                        {showAdminPasswordReset ? "Hide admin password reset" : "Reset admin password"}
-                      </button>
+                          <button
+                            type="button"
+                            aria-expanded={showAdminPasswordReset}
+                            onClick={() => {
+                              setShowAdminPasswordReset((open) => {
+                                if (open) setAdminResetStep("request");
+                                return !open;
+                              });
+                            }}
+                            className="w-full text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 cursor-pointer pt-1"
+                          >
+                            {showAdminPasswordReset ? "Hide admin password reset" : "Reset admin password"}
+                          </button>
+                        </>
+                      )}
                     </div>
 
                     {showAdminPasswordReset && (
@@ -7224,6 +7943,53 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                         )}
                       </div>
                     )}
+
+                    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
+                      <div className="space-y-1 pb-1 border-b border-slate-100">
+                        <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                          <Newspaper className="w-5 h-5 text-emerald-600" />
+                          Newspaper / Press
+                        </h3>
+                        <p className="text-sm text-slate-600">
+                          Authorized media partners can sign in to publish official team news only.
+                        </p>
+                      </div>
+
+                      <form onSubmit={handleNewspaperLogin} className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Press Username
+                          </label>
+                          <input
+                            type="text"
+                            value={newspaperUsername}
+                            onChange={(e) => setNewspaperUsername(e.target.value)}
+                            className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                            required
+                            autoComplete="username"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Press Password
+                          </label>
+                          <PasswordInput
+                            value={newspaperPassword}
+                            onChange={setNewspaperPassword}
+                            placeholder="Enter press account password"
+                            required
+                            className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
+                            autoComplete="current-password"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                        >
+                          Sign In as Press
+                        </button>
+                      </form>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -7462,7 +8228,16 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
         {activeTab === "admin" && (
           <div className="space-y-8">
             <div className="max-w-2xl">
-              <h2 className="text-3xl font-black text-slate-950 tracking-tight">Manager Administration Panel</h2>
+              <h2 className="text-3xl font-black text-slate-950 tracking-tight">
+                {adminRole === "news_editor"
+                  ? "Press News Portal"
+                  : "Manager Administration Panel"}
+              </h2>
+              {adminRole === "news_editor" && (
+                <p className="text-sm text-slate-600 mt-2">
+                  You are signed in as a newspaper / press partner. You can publish official team news only.
+                </p>
+              )}
             </div>
 
             {!isAdminAuthenticated ? (
@@ -7474,7 +8249,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                   Admin Sign In Required
                 </h4>
                 <p className="text-sm text-slate-500 mt-2">
-                  Club officials sign in from the Sign In page using the admin panel on the right.
+                  Club officials and newspaper partners sign in from the Sign In page using the panels on the right.
                 </p>
                 <button
                   type="button"
@@ -7488,25 +8263,34 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
               <div className="space-y-8">
                 {/* Admin Status Header */}
                 <div className="bg-emerald-600 text-white p-4 rounded-2xl flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 text-xs">
-                  <span className="font-bold">✓ Authenticated as Kariobangi Legends Manager</span>
+                  <div className="space-y-1">
+                    <span className="font-bold block">
+                      {adminRole === "news_editor"
+                        ? "✓ Authenticated as Newspaper / Press Partner"
+                        : "✓ Authenticated as Kariobangi Legends Manager"}
+                    </span>
+                    <span className="text-emerald-100/90 text-[10px] font-semibold">
+                      Auto sign-out after 5 minutes with no mouse, keyboard, or scroll activity.
+                    </span>
+                  </div>
                   <button
   onClick={async () => {
-    try {
-      await fetch("/api/admin/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-    } finally {
-      clearAdminState();
-      showToast("Admin signed out. You can now sign in to your fan account.");
-    }
+    const wasPressAccount = adminRole === "news_editor";
+    await logoutAdminSession();
+    returnToSignIn();
+    showToast(
+      wasPressAccount
+        ? "Press account signed out."
+        : "Admin signed out. You can now sign in to your fan account."
+    );
   }}
   className="bg-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-800 font-bold transition"
 >
-  Logout Admin
+  {adminRole === "news_editor" ? "Logout Press" : "Logout Admin"}
 </button>
                 </div>
 
+                {adminRole !== "news_editor" && (
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -7565,10 +8349,13 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     )}
                   </button>
                 </div>
+                )}
 
                 {adminPanelView === "content" && (
                   <>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className={`grid grid-cols-1 ${adminRole === "news_editor" ? "max-w-2xl" : "lg:grid-cols-2"} gap-8`}>
+                  {adminRole !== "news_editor" && (
+                  <>
                   {/* Action 1: Add Player */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
                     <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
@@ -7652,13 +8439,14 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                       </div>
 
                       <div className="space-y-1">
-                        <label className="font-bold text-slate-500">Player Photo (optional)</label>
+                        <label className="font-bold text-slate-500">Passport Photo (optional)</label>
                         <input
                           type="file"
                           accept="image/*"
                           onChange={(e) => setAdminPlayerFile(e.target.files?.[0] || null)}
                           className="block w-full text-sm text-slate-600 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-950 file:text-yellow-400 hover:file:bg-slate-800 cursor-pointer"
                         />
+                        <p className="text-[9px] text-slate-400">Portrait headshot works best — cards crop to a professional passport frame.</p>
                         {adminPlayerFile && <p className="text-[10px] text-emerald-600 font-semibold">Selected: {adminPlayerFile.name}</p>}
                       </div>
 
@@ -7675,10 +8463,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
                       <button
                         type="submit"
-                        disabled={isPending}
-                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer"
+                        disabled={adminBusy === "player"}
+                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
                       >
-                        {isPending ? "Adding Player..." : "Insert Player into PostgreSQL"}
+                        {adminBusy === "player" ? "Adding Player..." : "Insert Player into PostgreSQL"}
                       </button>
                     </form>
 
@@ -7941,10 +8729,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
                       <button
                         type="submit"
-                        disabled={isPending}
-                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer"
+                        disabled={adminBusy === "fixture"}
+                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
                       >
-                       {isPending
+                       {adminBusy === "fixture"
   ? editingFixtureId
     ? "Updating Match..."
     : "Adding Fixture..."
@@ -8106,7 +8894,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   {/* ================= MANAGEMENT PHOTO ================= */}
   <div className="space-y-1">
     <label className="font-bold text-slate-500">
-      Official&apos;s Photo
+      Passport Photo
     </label>
 
     <input
@@ -8123,6 +8911,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
         file:bg-emerald-50 file:text-emerald-700
         hover:file:bg-emerald-100"
     />
+    <p className="text-[9px] text-slate-400">Upload a clear portrait headshot for the official passport-style card.</p>
 
     {adminManagementFile && (
       <p className="text-[10px] text-emerald-600 font-semibold">
@@ -8135,10 +8924,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
   {/* ================= SUBMIT ================= */}
   <button
     type="submit"
-    disabled={isPending}
+    disabled={adminBusy === "management"}
     className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
   >
-    {isPending
+    {adminBusy === "management"
       ? editingManagementId
         ? "Updating Official..."
         : "Adding Official..."
@@ -8376,12 +9165,262 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                       {/* Publish Button */}
                       <button
                         type="submit"
-                        disabled={isPending || !adminGalleryFile}
+                        disabled={adminBusy === "gallery" || !adminGalleryFile}
                         className="w-full bg-slate-950 text-yellow-400 font-bold py-3 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-slate-950/10"
                       >
-                        {isPending ? "Uploading Image..." : "Publish to Gallery"}
+                        {adminBusy === "gallery" ? "Uploading Image..." : "Publish to Gallery"}
                       </button>
                     </form>
+                  </div>
+
+                  {/* Action 4: Upload Team Highlight Video */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-5 overflow-hidden">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
+                          <Film className="w-5 h-5 text-yellow-500" /> Upload Team Highlight Video
+                        </h3>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                          Upload match clips, goals, and skills directly from your PC or phone. No YouTube links needed.
+                        </p>
+                      </div>
+                      <span className="shrink-0 px-2.5 py-1 rounded-full bg-yellow-50 text-yellow-700 text-[9px] font-black uppercase tracking-wider">
+                        Video
+                      </span>
+                    </div>
+
+                    <form onSubmit={handleAdminAddHighlight} className="space-y-4 text-xs">
+                      <div className="space-y-2">
+                        <label className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                          Highlight Video
+                        </label>
+                        <label
+                          htmlFor="admin-highlight-video-upload"
+                          className={`relative block rounded-2xl border-2 border-dashed transition-all duration-300 cursor-pointer overflow-hidden ${
+                            adminHighlightVideoPreview
+                              ? "border-yellow-300 bg-slate-950"
+                              : "border-slate-200 bg-gradient-to-br from-slate-50 via-white to-yellow-50/40 hover:border-yellow-300"
+                          }`}
+                        >
+                          {adminHighlightVideoPreview ? (
+                            <div className="relative aspect-video">
+                              <video
+                                src={adminHighlightVideoPreview}
+                                controls
+                                playsInline
+                                className="w-full h-full object-contain bg-black"
+                              />
+                            </div>
+                          ) : (
+                            <div className="py-10 px-6 text-center">
+                              <div className="w-14 h-14 rounded-2xl bg-white border border-yellow-100 flex items-center justify-center mx-auto mb-3 shadow-sm">
+                                <Film className="w-7 h-7 text-yellow-600" />
+                              </div>
+                              <p className="font-black text-slate-800 text-sm">
+                                Tap to choose a video
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-1">
+                                MP4, MOV, or WEBM from phone or PC (max {VIDEO_UPLOAD_RULES.maxFileSizeLabel})
+                              </p>
+                            </div>
+                          )}
+                          <input
+                            id="admin-highlight-video-upload"
+                            type="file"
+                            accept={VIDEO_UPLOAD_RULES.acceptedTypes}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] || null;
+                              if (adminHighlightVideoPreview) {
+                                URL.revokeObjectURL(adminHighlightVideoPreview);
+                              }
+                              setAdminHighlightVideoFile(file);
+                              setAdminHighlightVideoPreview(file ? URL.createObjectURL(file) : null);
+                            }}
+                            className="sr-only"
+                            required
+                          />
+                        </label>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                          Cover Photo (optional)
+                        </label>
+                        <label
+                          htmlFor="admin-highlight-thumb-upload"
+                          className="block rounded-xl border border-dashed border-slate-200 p-4 cursor-pointer hover:border-emerald-300 transition"
+                        >
+                          {adminHighlightThumbPreview ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={adminHighlightThumbPreview}
+                              alt="Highlight cover preview"
+                              className="max-h-32 mx-auto rounded-lg object-contain"
+                            />
+                          ) : (
+                            <p className="text-center text-[11px] text-slate-500">
+                              Optional thumbnail shown before play
+                            </p>
+                          )}
+                          <input
+                            id="admin-highlight-thumb-upload"
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] || null;
+                              if (adminHighlightThumbPreview) {
+                                URL.revokeObjectURL(adminHighlightThumbPreview);
+                              }
+                              setAdminHighlightThumbFile(file);
+                              setAdminHighlightThumbPreview(file ? URL.createObjectURL(file) : null);
+                            }}
+                            className="sr-only"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                            Title
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Winning goal vs City Stars"
+                            value={adminHighlightTitle}
+                            onChange={(e) => setAdminHighlightTitle(e.target.value)}
+                            className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                            required
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                            Category
+                          </label>
+                          <select
+                            value={adminHighlightCategory}
+                            onChange={(e) => setAdminHighlightCategory(e.target.value)}
+                            className="w-full p-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                          >
+                            {HIGHLIGHT_CATEGORIES.map((category) => (
+                              <option key={category} value={category}>
+                                {category}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                          Short Description
+                        </label>
+                        <textarea
+                          rows={2}
+                          placeholder="Brief match or training context..."
+                          value={adminHighlightDescription}
+                          onChange={(e) => setAdminHighlightDescription(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none resize-none"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={adminBusy === "highlights" || !adminHighlightVideoFile}
+                        className="w-full bg-slate-950 text-yellow-400 font-bold py-3 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-slate-950/10"
+                      >
+                        {adminBusy === "highlights" ? "Uploading Video..." : "Publish Highlight Video"}
+                      </button>
+                    </form>
+
+                    {(clubData.highlights ?? []).length > 0 && (
+                      <div className="pt-5 border-t border-slate-100 space-y-3">
+                        <div className="space-y-1">
+                          <h4 className="font-bold text-sm text-slate-950">
+                            Published Highlights
+                          </h4>
+                          <p className="text-[11px] text-slate-500 leading-relaxed">
+                            Review, preview, or remove highlight videos already live on the Media → Highlights page.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                          {(clubData.highlights ?? []).map((highlight) => (
+                            <div
+                              key={highlight.id}
+                              className="flex flex-col sm:flex-row sm:items-start gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50/70"
+                            >
+                              <div className="relative w-full sm:w-28 aspect-video rounded-lg overflow-hidden bg-slate-950 shrink-0">
+                                {isUploadedMediaUrl(highlight.thumbnailUrl) ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img
+                                    src={highlight.thumbnailUrl as string}
+                                    alt={highlight.title}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : isVideoMediaUrl(highlight.videoUrl) ? (
+                                  <video
+                                    src={highlight.videoUrl}
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <Film className="w-5 h-5 text-yellow-400" />
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-bold text-xs text-slate-900 truncate">
+                                    {highlight.title}
+                                  </p>
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-yellow-100 text-yellow-800 text-[9px] font-black uppercase tracking-wider">
+                                    {highlight.category}
+                                  </span>
+                                </div>
+                                {highlight.description && (
+                                  <p className="text-[11px] text-slate-600 leading-relaxed line-clamp-2">
+                                    {highlight.description}
+                                  </p>
+                                )}
+                                <p className="text-[10px] text-slate-400 font-semibold">
+                                  {new Date(highlight.createdAt).toLocaleDateString("en-KE", {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  })}
+                                </p>
+                              </div>
+
+                              <div className="flex sm:flex-col gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveHighlight(highlight)}
+                                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg bg-slate-950 text-yellow-400 text-[10px] font-bold uppercase tracking-wider hover:bg-slate-900 cursor-pointer"
+                                >
+                                  <Play className="w-3.5 h-3.5" />
+                                  Preview
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleDeleteHighlight(highlight.id, highlight.title)
+                                  }
+                                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg bg-rose-500 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-rose-600 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Action 5: Add Merchandise to Shop */}
@@ -8468,19 +9507,26 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
                       <button
                         type="submit"
-                        disabled={isPending}
-                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer"
+                        disabled={adminBusy === "merch"}
+                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
                       >
-                        {isPending ? "Adding Item..." : "Add to Fan Shop"}
+                        {adminBusy === "merch" ? "Adding Item..." : "Add to Fan Shop"}
                       </button>
                     </form>
                   </div>
+                  </>
+                  )}
 
                   {/* Action 4: Publish News */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
                     <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
                       <BookOpen className="w-5 h-5 text-emerald-600" /> Publish Official Club News
                     </h3>
+                    {adminRole === "news_editor" && (
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Submit match reports, press releases, and community updates. Other site sections remain locked for press accounts.
+                      </p>
+                    )}
                     <form onSubmit={handleAdminAddNews} className="space-y-3 text-xs">
                       <div className="space-y-1">
                         <label className="font-bold text-slate-500 block">News Headline / Title</label>
@@ -8531,15 +9577,93 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
 
                       <button
                         type="submit"
-                        disabled={isPending}
-                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer"
+                        disabled={adminBusy === "news"}
+                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
                       >
-                        {isPending ? "Publishing..." : "Publish Article to News Feed"}
+                        {adminBusy === "news" ? "Publishing..." : "Publish Article to News Feed"}
                       </button>
                     </form>
                   </div>
                 </div>
 
+                {adminRole === "admin" && (
+                  <div className="bg-white rounded-3xl border border-emerald-100 shadow-sm p-6 sm:p-8 space-y-5 max-w-2xl">
+                    <div className="space-y-1">
+                      <h3 className="font-black text-lg text-slate-950 flex items-center gap-2">
+                        <Newspaper className="w-5 h-5 text-emerald-600" />
+                        Reset Newspaper Password
+                      </h3>
+                      <p className="text-sm text-slate-600">
+                        Only club admins can change the press account password. Share the new password with authorized newspaper partners.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      aria-expanded={showNewspaperPasswordReset}
+                      onClick={() => setShowNewspaperPasswordReset((open) => !open)}
+                      className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 hover:text-emerald-800 cursor-pointer"
+                    >
+                      {showNewspaperPasswordReset
+                        ? "Hide newspaper password reset"
+                        : "Reset newspaper / press password"}
+                    </button>
+
+                    {showNewspaperPasswordReset && (
+                      <form onSubmit={handleNewspaperPasswordReset} className="space-y-4 border-t border-slate-100 pt-5">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Your Admin Password
+                          </label>
+                          <PasswordInput
+                            value={newspaperResetAdminPassword}
+                            onChange={setNewspaperResetAdminPassword}
+                            placeholder="Confirm you are the club admin"
+                            required
+                            autoComplete="current-password"
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              New Press Password
+                            </label>
+                            <PasswordInput
+                              value={newspaperResetNewPassword}
+                              onChange={setNewspaperResetNewPassword}
+                              placeholder="At least 6 characters"
+                              required
+                              minLength={6}
+                              autoComplete="new-password"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Confirm Press Password
+                            </label>
+                            <PasswordInput
+                              value={newspaperResetConfirmPassword}
+                              onChange={setNewspaperResetConfirmPassword}
+                              placeholder="Confirm new press password"
+                              required
+                              minLength={6}
+                              autoComplete="new-password"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={isNewspaperResetPending}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+                        >
+                          {isNewspaperResetPending ? "Updating..." : "Update Press Password"}
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                )}
+
+                {adminRole !== "news_editor" && (
                 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <h3 className="font-black text-lg text-slate-950 flex items-center gap-2">
@@ -8575,10 +9699,11 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
+                )}
                   </>
                 )}
 
-                {adminPanelView === "inbox" && (
+                {adminPanelView === "inbox" && adminRole !== "news_editor" && (
                   <div className="space-y-4">
                     <button
                       type="button"
@@ -8768,7 +9893,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
                   </div>
                 )}
 
-                {adminPanelView === "orders" && (
+                {adminPanelView === "orders" && adminRole !== "news_editor" && (
                   <div className="space-y-6">
                     <button
                       type="button"
@@ -9536,6 +10661,60 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
         </div>
       )}
 
+      {/* ================= HIGHLIGHT VIDEO MODAL ================= */}
+      {activeHighlight && (
+        <div
+          className="fixed inset-0 z-[110] bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setActiveHighlight(null)}
+        >
+          <div
+            className="relative w-full max-w-5xl bg-slate-950 rounded-3xl overflow-hidden border border-slate-800 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setActiveHighlight(null)}
+              className="absolute top-3 right-3 z-20 w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition cursor-pointer"
+              aria-label="Close video"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="aspect-video bg-black">
+              <video
+                key={activeHighlight.id}
+                src={activeHighlight.videoUrl}
+                controls
+                autoPlay
+                playsInline
+                className="w-full h-full object-contain"
+              />
+            </div>
+
+            <div className="p-5 sm:p-6 space-y-2 border-t border-slate-800">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center px-2 py-1 rounded-md bg-yellow-400 text-slate-950 text-[10px] font-black uppercase tracking-wider">
+                  {activeHighlight.category}
+                </span>
+                <span className="text-[11px] text-slate-400 font-semibold">
+                  {new Date(activeHighlight.createdAt).toLocaleDateString("en-KE", {
+                    month: "long",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </span>
+              </div>
+              <h3 className="text-xl font-black text-white">{activeHighlight.title}</h3>
+              {activeHighlight.description && (
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  {activeHighlight.description}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ================= IMAGE REPLACE MODAL ================= */}
       {replaceImageId !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
@@ -9611,10 +10790,10 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
               </button>
               <button
                 onClick={handleReplaceImage}
-                disabled={isPending || !replaceImageFile}
+                disabled={adminBusy === "replace-image" || !replaceImageFile}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isPending ? "Replacing..." : "Confirm Replace"}
+                {adminBusy === "replace-image" ? "Replacing..." : "Confirm Replace"}
               </button>
             </div>
           </div>
@@ -9701,6 +10880,7 @@ const handleAdminUpdateManagement = (e: React.FormEvent) => {
           { label: "Our Story", tab: "history" },
           { label: "Matches & Fixtures", tab: "fixtures" },
           { label: "Team Photo Gallery", tab: "gallery" },
+          { label: "Team Highlights", tab: "highlights" },
           { label: "Fan Zone", tab: "fanzone" },
           { label: "Merchandise Shop", tab: "shop" },
           { label: "My Account", tab: "account" },
