@@ -1,14 +1,35 @@
 import { normalizeKenyaPhone } from "@/lib/order-tracking";
 import {
+  getAfricasTalkingWhatsAppTemplateHeader,
+  getAfricasTalkingWhatsAppTemplateId,
+  getMetaWhatsAppApiVersion,
+  getMetaWhatsAppTemplateName,
   getWhatsAppBusinessPhone,
   isAfricasTalkingWhatsAppConfigured,
   isMetaWhatsAppConfigured,
+  isMetaWhatsAppTemplateConfigured,
   isWhatsAppLogMode,
+  shouldUseAfricasTalkingWhatsApp,
+  shouldUseMetaWhatsApp,
 } from "@/lib/notifications/config";
 
 function toInternationalPhone(phone: string): string {
   const normalized = normalizeKenyaPhone(phone);
   return normalized.startsWith("+") ? normalized : `+${normalized}`;
+}
+
+function extractMetaError(data: unknown): string {
+  if (!data || typeof data !== "object") {
+    return "WhatsApp request failed";
+  }
+
+  const error = (data as { error?: { message?: string; error_user_msg?: string } }).error;
+
+  return (
+    error?.error_user_msg ||
+    error?.message ||
+    "WhatsApp request failed"
+  );
 }
 
 async function sendViaMetaCloudApi(
@@ -22,13 +43,24 @@ async function sendViaMetaCloudApi(
 ) {
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const templateName = process.env.WHATSAPP_TEMPLATE_NAME;
+  const templateName = getMetaWhatsAppTemplateName();
+  const apiVersion = getMetaWhatsAppApiVersion();
 
   if (!accessToken || !phoneNumberId) {
     return {
       sent: false,
       channel: "whatsapp" as const,
-      reason: "WhatsApp Cloud API is not configured",
+      reason:
+        "Meta Cloud API is not configured — set WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID",
+    };
+  }
+
+  if (templateValues && !templateName) {
+    return {
+      sent: false,
+      channel: "whatsapp" as const,
+      reason:
+        "Meta outbound messages require an approved template — set WHATSAPP_TEMPLATE_NAME in .env",
     };
   }
 
@@ -53,7 +85,7 @@ async function sendViaMetaCloudApi(
                   { type: "text", text: templateValues.statusLabel },
                   {
                     type: "text",
-                    text: templateValues.trackingUrl || "our website shop page",
+                    text: templateValues.trackingUrl || "Visit our website shop page",
                   },
                 ],
               },
@@ -71,7 +103,7 @@ async function sendViaMetaCloudApi(
 
   try {
     const response = await fetch(
-      `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+      `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`,
       {
         method: "POST",
         headers: {
@@ -85,11 +117,13 @@ async function sendViaMetaCloudApi(
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      console.error("WhatsApp notification failed:", data);
+      const reason = extractMetaError(data);
+      console.error("Meta WhatsApp notification failed:", data);
       return {
         sent: false,
         channel: "whatsapp" as const,
-        reason: "WhatsApp request failed",
+        reason,
+        providerResponse: data,
       };
     }
 
@@ -100,7 +134,7 @@ async function sendViaMetaCloudApi(
       providerResponse: data,
     };
   } catch (error) {
-    console.error("WhatsApp notification error:", error);
+    console.error("Meta WhatsApp notification error:", error);
     return {
       sent: false,
       channel: "whatsapp" as const,
@@ -111,11 +145,17 @@ async function sendViaMetaCloudApi(
 
 async function sendViaAfricasTalking(
   phoneNumber: string,
-  message: string
+  message: string,
+  templateValues?: {
+    orderId: string;
+    statusLabel: string;
+    trackingUrl?: string | null;
+  }
 ) {
   const apiKey = process.env.AFRICAS_TALKING_API_KEY;
   const username = process.env.AFRICAS_TALKING_USERNAME;
   const waNumber = getWhatsAppBusinessPhone();
+  const templateId = getAfricasTalkingWhatsAppTemplateId();
 
   if (!apiKey || !username || !waNumber) {
     return {
@@ -124,6 +164,21 @@ async function sendViaAfricasTalking(
       reason: "Africa's Talking WhatsApp is not configured",
     };
   }
+
+  const body =
+    templateId && templateValues
+      ? {
+          templateId,
+          headerValue: getAfricasTalkingWhatsAppTemplateHeader(),
+          bodyValues: [
+            templateValues.orderId,
+            templateValues.statusLabel,
+            templateValues.trackingUrl || "Visit our website shop page",
+          ],
+        }
+      : {
+          message,
+        };
 
   try {
     const response = await fetch(
@@ -139,9 +194,7 @@ async function sendViaAfricasTalking(
           username,
           waNumber: toInternationalPhone(waNumber),
           phoneNumber: toInternationalPhone(phoneNumber),
-          body: {
-            message,
-          },
+          body,
         }),
       }
     );
@@ -153,7 +206,10 @@ async function sendViaAfricasTalking(
       return {
         sent: false,
         channel: "whatsapp" as const,
-        reason: "WhatsApp request failed",
+        reason:
+          !templateId && templateValues
+            ? "WhatsApp request failed — set WHATSAPP_AT_TEMPLATE_ID for outbound order updates"
+            : "WhatsApp request failed",
         providerResponse: data,
       };
     }
@@ -181,26 +237,36 @@ export async function sendOrderWhatsApp(
     orderId: string;
     statusLabel: string;
     trackingUrl?: string | null;
+  },
+  options?: {
+    logOnly?: boolean;
   }
 ) {
+  const metaReady = isMetaWhatsAppConfigured();
+  const metaLive = metaReady && isMetaWhatsAppTemplateConfigured();
+
   if (
-    isWhatsAppLogMode() &&
-    process.env.WHATSAPP_NOTIFY_MODE !== "live" &&
-    !isMetaWhatsAppConfigured() &&
-    !isAfricasTalkingWhatsAppConfigured()
+    options?.logOnly ||
+    (isWhatsAppLogMode() &&
+      process.env.WHATSAPP_NOTIFY_MODE !== "live" &&
+      !metaLive &&
+      !isAfricasTalkingWhatsAppConfigured())
   ) {
     console.log(
       `[WhatsApp from ${getWhatsAppBusinessPhone()} → ${toInternationalPhone(phoneNumber)}] ${message}`
     );
 
     return {
-      sent: true,
+      sent: false,
       channel: "whatsapp" as const,
       provider: "log" as const,
+      reason:
+        "WhatsApp is in log mode — message was printed in the server console only",
+      logged: true,
     };
   }
 
-  if (isMetaWhatsAppConfigured()) {
+  if (shouldUseMetaWhatsApp() && metaReady) {
     const metaResult = await sendViaMetaCloudApi(
       phoneNumber,
       message,
@@ -210,10 +276,47 @@ export async function sendOrderWhatsApp(
     if (metaResult.sent) {
       return metaResult;
     }
+
+    if (!shouldUseAfricasTalkingWhatsApp()) {
+      return metaResult;
+    }
+
+    console.error(
+      "Meta WhatsApp failed, trying Africa's Talking fallback:",
+      metaResult.reason
+    );
   }
 
-  if (isAfricasTalkingWhatsAppConfigured()) {
-    return sendViaAfricasTalking(phoneNumber, message);
+  if (shouldUseAfricasTalkingWhatsApp()) {
+    const atResult = await sendViaAfricasTalking(
+      phoneNumber,
+      message,
+      templateValues
+    );
+
+    if (atResult.sent) {
+      return atResult;
+    }
+
+    if (!getAfricasTalkingWhatsAppTemplateId() && templateValues) {
+      return {
+        ...atResult,
+        reason:
+          atResult.reason ||
+          "Outbound WhatsApp needs an approved template — set WHATSAPP_AT_TEMPLATE_ID in .env",
+      };
+    }
+
+    return atResult;
+  }
+
+  if (shouldUseMetaWhatsApp()) {
+    return {
+      sent: false,
+      channel: "whatsapp" as const,
+      reason:
+        "Meta Cloud API is not configured — set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, and WHATSAPP_TEMPLATE_NAME",
+    };
   }
 
   return {

@@ -30,7 +30,12 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-slate-50 text-slate-900 antialiased overflow-x-hidden">{children}</body>
+      <body
+        suppressHydrationWarning
+        className="bg-slate-50 text-slate-900 antialiased overflow-x-hidden"
+      >
+        {children}
+      </body>
     </html>
   );
 }

@@ -84,10 +84,88 @@ export function isSmsConfigured(): boolean {
   );
 }
 
+export function isAfricasTalkingSandbox(): boolean {
+  if (process.env.AFRICAS_TALKING_ENVIRONMENT?.trim().toLowerCase() === "sandbox") {
+    return true;
+  }
+
+  return process.env.AFRICAS_TALKING_USERNAME?.trim().toLowerCase() === "sandbox";
+}
+
+export function getAfricasTalkingApiBaseUrl(): string {
+  return isAfricasTalkingSandbox()
+    ? "https://api.sandbox.africastalking.com"
+    : "https://api.africastalking.com";
+}
+
+/** Sandbox ignores custom alphanumeric IDs — omit or use your sandbox shortcode. */
+export function getAfricasTalkingSenderId(): string | undefined {
+  if (isAfricasTalkingSandbox()) {
+    const sandboxSender = process.env.AFRICAS_TALKING_SANDBOX_SENDER_ID?.trim();
+    return sandboxSender || undefined;
+  }
+
+  const senderId = process.env.AFRICAS_TALKING_SENDER_ID?.trim();
+  return senderId || undefined;
+}
+
 export function isMetaWhatsAppConfigured(): boolean {
   return Boolean(
     process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID
   );
+}
+
+export function isMetaWhatsAppTemplateConfigured(): boolean {
+  return Boolean(getMetaWhatsAppTemplateName());
+}
+
+/** Meta Cloud API is ready to send outbound order updates (token + phone id + template). */
+export function isMetaWhatsAppLive(): boolean {
+  return isMetaWhatsAppConfigured() && isMetaWhatsAppTemplateConfigured();
+}
+
+export function getMetaWhatsAppApiVersion(): string {
+  return process.env.WHATSAPP_API_VERSION?.trim() || "v21.0";
+}
+
+export type WhatsAppProviderPreference = "meta" | "africas_talking" | "auto";
+
+export function getWhatsAppProviderPreference(): WhatsAppProviderPreference {
+  const raw = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase();
+
+  if (raw === "meta" || raw === "africas_talking") {
+    return raw;
+  }
+
+  return "auto";
+}
+
+export function shouldUseMetaWhatsApp(): boolean {
+  const preference = getWhatsAppProviderPreference();
+
+  if (preference === "meta") {
+    return true;
+  }
+
+  if (preference === "africas_talking") {
+    return false;
+  }
+
+  return isMetaWhatsAppConfigured();
+}
+
+export function shouldUseAfricasTalkingWhatsApp(): boolean {
+  const preference = getWhatsAppProviderPreference();
+
+  if (preference === "meta") {
+    return false;
+  }
+
+  if (preference === "africas_talking") {
+    return isAfricasTalkingWhatsAppConfigured();
+  }
+
+  return isAfricasTalkingWhatsAppConfigured() && !isMetaWhatsAppConfigured();
 }
 
 export function isAfricasTalkingWhatsAppConfigured(): boolean {
@@ -100,6 +178,23 @@ export function isAfricasTalkingWhatsAppConfigured(): boolean {
 
 export function isWhatsAppLogMode(): boolean {
   return process.env.WHATSAPP_NOTIFY_MODE === "log";
+}
+
+export function getMetaWhatsAppTemplateName(): string | null {
+  const name = process.env.WHATSAPP_TEMPLATE_NAME?.trim();
+  return name || null;
+}
+
+export function getAfricasTalkingWhatsAppTemplateId(): string | null {
+  const templateId = process.env.WHATSAPP_AT_TEMPLATE_ID?.trim();
+  return templateId || null;
+}
+
+export function getAfricasTalkingWhatsAppTemplateHeader(): string {
+  return (
+    process.env.WHATSAPP_AT_TEMPLATE_HEADER?.trim() ||
+    "Kariobangi Legends FC"
+  );
 }
 
 export function isWhatsAppConfigured(): boolean {
@@ -115,11 +210,11 @@ export function getWhatsAppProvider():
   | "africas_talking"
   | "log"
   | null {
-  if (isMetaWhatsAppConfigured()) {
+  if (shouldUseMetaWhatsApp() && isMetaWhatsAppConfigured()) {
     return "meta";
   }
 
-  if (isAfricasTalkingWhatsAppConfigured()) {
+  if (shouldUseAfricasTalkingWhatsApp()) {
     return "africas_talking";
   }
 
@@ -148,9 +243,15 @@ export function isSmsLive(): boolean {
 }
 
 export function isWhatsAppLive(): boolean {
-  return (
-    isMetaWhatsAppConfigured() || isAfricasTalkingWhatsAppConfigured()
-  );
+  if (shouldUseMetaWhatsApp()) {
+    return isMetaWhatsAppLive();
+  }
+
+  if (shouldUseAfricasTalkingWhatsApp()) {
+    return isAfricasTalkingWhatsAppConfigured();
+  }
+
+  return isMetaWhatsAppLive() || isAfricasTalkingWhatsAppConfigured();
 }
 
 /** True when at least one buyer notification channel can send real messages. */
@@ -178,6 +279,8 @@ export function getNotificationConfigSummary() {
     whatsappLive,
     whatsappPhone: getWhatsAppBusinessPhoneDisplay(),
     whatsappProvider,
+    whatsappProviderPreference: getWhatsAppProviderPreference(),
+    metaTemplateConfigured: isMetaWhatsAppTemplateConfigured(),
     whatsappLogMode: isWhatsAppLogMode() && !whatsappLive,
     trackingUrlConfigured: Boolean(getSiteBaseUrl()),
     buyerNotificationsLive: isBuyerNotificationsLive(),

@@ -1506,7 +1506,7 @@ export async function updateOrderStatus(
 
     const order = updatedOrder[0];
 
-    await notifyBuyerOrderUpdate(
+    const notification = await notifyBuyerOrderUpdate(
       order.phoneNumber,
       order.id,
       order.orderStatus as "processing" | "shipped" | "delivered" | "cancelled"
@@ -1517,6 +1517,10 @@ export async function updateOrderStatus(
     return {
       success: true,
       order,
+      notification: {
+        sent: notification.sent,
+        reason: notification.reason,
+      },
     };
   } catch (error) {
     console.error("Update order status failed:", error);
@@ -1578,7 +1582,7 @@ export async function markOrderCashPaid(orderId: number) {
       return { success: false, error: "Unable to update order payment status." };
     }
 
-    await notifyBuyerOrderUpdate(
+    const notification = await notifyBuyerOrderUpdate(
       updatedOrder.phoneNumber,
       updatedOrder.id,
       "payment_confirmed"
@@ -1590,6 +1594,10 @@ export async function markOrderCashPaid(orderId: number) {
       success: true,
       order: updatedOrder,
       message: "Cash payment recorded.",
+      notification: {
+        sent: notification.sent,
+        reason: notification.reason,
+      },
     };
   } catch (error) {
     console.error("Mark order cash paid failed:", error);

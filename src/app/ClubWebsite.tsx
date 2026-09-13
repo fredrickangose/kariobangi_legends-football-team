@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Settings,
@@ -1012,26 +1013,36 @@ function PassportPhoto({
   imageUrl,
   alt,
   size = "md",
+  priority = false,
 }: {
   imageUrl: string | null | undefined;
   alt: string;
   size?: "sm" | "md";
+  priority?: boolean;
 }) {
+  const trimmedUrl = imageUrl?.trim() ?? "";
+  const hasRemoteImage = isUploadedMediaUrl(trimmedUrl);
+  const hasLocalImage =
+    Boolean(trimmedUrl) &&
+    (trimmedUrl.startsWith("/") || trimmedUrl.startsWith("./"));
+
   const frameClass =
     size === "sm"
       ? "aspect-[3/4] rounded-lg"
       : "aspect-[3/4] rounded-xl";
 
-  if (isUploadedMediaUrl(imageUrl)) {
+  if (hasRemoteImage || hasLocalImage) {
     return (
       <div
-        className={`relative w-full overflow-hidden bg-slate-100 border border-slate-200/90 shadow-inner ${frameClass}`}
+        className={`relative w-full overflow-hidden bg-slate-200 border border-slate-200/90 shadow-inner ${frameClass}`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={imageUrl as string}
+          src={trimmedUrl}
           alt={alt}
-          className="absolute inset-0 w-full h-full object-cover object-[center_15%]"
+          loading={priority ? "eager" : "lazy"}
+          decoding="async"
+          className="absolute inset-0 w-full h-full object-cover object-[center_20%]"
         />
       </div>
     );
@@ -1178,7 +1189,7 @@ function SquadPlayerCard({
   );
 
   return (
-    <div className="group bg-white rounded-xl overflow-hidden border border-slate-200/80 shadow-sm hover:shadow-md hover:border-emerald-200/80 transition-all duration-200 flex flex-col">
+    <div className="group bg-white rounded-xl overflow-hidden border border-slate-200/80 shadow-sm hover:shadow-md hover:border-emerald-200/80 transition-shadow duration-200 flex flex-col">
       <div className="relative p-2 pb-0">
         <PassportPhoto
           imageUrl={player.imageUrl}
@@ -1325,7 +1336,7 @@ function ManagementMemberCard({
 
   return (
     <div
-      className={`group bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-md transition-all duration-200 flex flex-col ${
+      className={`group bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col ${
         featured
           ? "border-emerald-200 ring-1 ring-emerald-100"
           : "border-slate-200/80 hover:border-emerald-200/80"
@@ -2097,6 +2108,8 @@ const [notificationConfig, setNotificationConfig] = useState<{
   whatsappLive: boolean;
   whatsappPhone?: string;
   whatsappProvider?: "meta" | "africas_talking" | "log" | null;
+  whatsappProviderPreference?: "meta" | "africas_talking" | "auto";
+  metaTemplateConfigured?: boolean;
   whatsappLogMode?: boolean;
   trackingUrlConfigured: boolean;
   buyerNotificationsLive: boolean;
@@ -3418,7 +3431,15 @@ const handleUpdateOrderStatus = async (
     const result = await updateOrderStatus(orderId, orderStatus);
 
     if (result.success) {
-      showToast(`Order #${orderId} updated to ${getOrderStatusLabel(orderStatus)}.`);
+      const baseMessage = `Order #${orderId} updated to ${getOrderStatusLabel(orderStatus)}.`;
+      if (result.notification && !result.notification.sent) {
+        showToast(
+          `${baseMessage} Buyer was not notified on WhatsApp/SMS${result.notification.reason ? `: ${result.notification.reason}` : "."}`,
+          "error"
+        );
+      } else {
+        showToast(baseMessage);
+      }
       await loadAdminOrders();
     } else {
       showToast(result.error || "Unable to update order status.", "error");
@@ -3443,7 +3464,15 @@ const handleMarkOrderCashPaid = async (orderId: number) => {
     const result = await markOrderCashPaid(orderId);
 
     if (result.success) {
-      showToast(result.message || `Order #${orderId} marked as paid.`);
+      const baseMessage = result.message || `Order #${orderId} marked as paid.`;
+      if (result.notification && !result.notification.sent) {
+        showToast(
+          `${baseMessage} Buyer was not notified on WhatsApp/SMS${result.notification.reason ? `: ${result.notification.reason}` : "."}`,
+          "error"
+        );
+      } else {
+        showToast(baseMessage);
+      }
       await loadAdminOrders();
     } else {
       showToast(result.error || "Unable to mark cash payment.", "error");
@@ -5138,8 +5167,8 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
       )}
 
 
-      {/* Main Header */}
-      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-200/80 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.18)]">
+      {/* Main Header — fixed so it stays visible while scrolling */}
+      <header className="fixed top-0 inset-x-0 z-[60] bg-white/95 backdrop-blur-xl border-b border-slate-200/80 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.18)]">
 
         {/* Top club strip */}
         <div className="relative bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 text-white">
@@ -5533,6 +5562,9 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
         </div>
       </header>
 
+      {/* Spacer matching fixed header height (top strip + nav bar) */}
+      <div aria-hidden="true" className="h-[7rem] sm:h-[7.75rem] shrink-0" />
+
 {/* Main body wrapper */}
 <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 w-full min-w-0">
         
@@ -5542,15 +5574,23 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
          {/* ================= HERO BANNER ================= */}
 <div className="relative min-h-[500px] sm:min-h-[580px] rounded-3xl overflow-hidden bg-slate-950 text-white border border-slate-800 shadow-2xl">
 
-  {/* Hero background image */}
-  <div
-    className="absolute inset-0 bg-cover bg-[center_40%] brightness-105"
-    style={{ backgroundImage: "url('/assets/hero-team.jpg')" }}
-  />
+  {/* Hero background image — optimized for sharpness and clarity */}
+  <div className="absolute inset-0">
+    <Image
+      src="/assets/hero-team.jpg"
+      alt="Kariobangi Legends FC team photo"
+      fill
+      priority
+      quality={92}
+      sizes="(max-width: 768px) 100vw, (max-width: 1280px) 90vw, 1280px"
+      className="object-cover object-[center_32%] sm:object-[center_30%] scale-[1.03] contrast-[1.08] saturate-[1.06] brightness-[1.04]"
+    />
+  </div>
 
-  {/* Overlays — darken only the left where text sits; keep the team photo clear on the right */}
-  <div className="absolute inset-0 bg-gradient-to-r from-slate-950/65 via-slate-950/20 to-transparent" />
-  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/25 via-transparent to-transparent" />
+  {/* Overlays — strong scrim on the left for text; right side stays bright and clear */}
+  <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/35 to-transparent" />
+  <div className="absolute inset-y-0 left-0 w-[58%] bg-gradient-to-r from-black/25 to-transparent" />
+  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/45 via-transparent to-slate-950/15" />
 
   {/* Hero content */}
   <div className="relative z-10 min-h-[500px] sm:min-h-[580px] flex items-center">
@@ -6354,6 +6394,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
         <form
           onSubmit={handleFanSubmit}
           className="space-y-3"
+          suppressHydrationWarning
         >
 
           <div>
@@ -8311,7 +8352,11 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                   Your words inspire the team as we fight for promotion. Any supporter from Kariobangi slums or global friends can post!
                 </p>
 
-                <form onSubmit={handleFanSubmit} className="space-y-3">
+                <form
+                  onSubmit={handleFanSubmit}
+                  className="space-y-3"
+                  suppressHydrationWarning
+                >
                   <div className="space-y-1">
                     <label className="text-[10px] text-slate-400 font-bold uppercase block">Your Name</label>
                     <input
@@ -11464,9 +11509,14 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                       ? " (Meta Cloud)"
                       : ""
                 }`
-              : notificationConfig.whatsapp
-                ? `log mode from ${notificationConfig.whatsappPhone || "0796230743"} — add API keys for live delivery`
-                : "not configured"}
+              : notificationConfig.whatsappProvider === "meta" ||
+                  notificationConfig.whatsappProviderPreference === "meta"
+                ? notificationConfig.metaTemplateConfigured
+                  ? `Meta configured — set WHATSAPP_NOTIFY_MODE=live and verify token/phone ID`
+                  : `Meta token set — add approved WHATSAPP_TEMPLATE_NAME for order updates`
+                : notificationConfig.whatsapp
+                  ? `log mode from ${notificationConfig.whatsappPhone || "0796230743"} — add Meta Cloud API keys`
+                  : "not configured"}
           </p>
           <p>
             <span className="font-black uppercase tracking-wider text-slate-500">
@@ -12770,7 +12820,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
       </button>
 
       <p className="text-[10px] text-slate-500 pt-2 border-t border-slate-900">
-        © {new Date().getFullYear()} Kariobangi Legends FC. Made with love for Nairobi youth.
+        © <span suppressHydrationWarning>{new Date().getFullYear()}</span> Kariobangi Legends FC. Made with love for Nairobi youth.
       </p>
 
     </div>

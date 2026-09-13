@@ -3,7 +3,8 @@ import {
   getOrderAdminPhones,
   getOrderTrackingUrl,
   isSmsConfigured,
-  isWhatsAppConfigured,
+  isWhatsAppLive,
+  isWhatsAppLogMode,
 } from "@/lib/notifications/config";
 import { sendOrderSms } from "@/lib/notifications/sms";
 import { sendOrderWhatsApp } from "@/lib/notifications/whatsapp";
@@ -57,8 +58,16 @@ async function dispatchNotification(
     results.push(await sendOrderSms(phoneNumber, message));
   }
 
-  if (channels.includes("whatsapp") && isWhatsAppConfigured()) {
-    results.push(await sendOrderWhatsApp(phoneNumber, message, templateValues));
+  if (channels.includes("whatsapp")) {
+    if (isWhatsAppLive()) {
+      results.push(await sendOrderWhatsApp(phoneNumber, message, templateValues));
+    } else if (isWhatsAppLogMode()) {
+      results.push(
+        await sendOrderWhatsApp(phoneNumber, message, templateValues, {
+          logOnly: true,
+        })
+      );
+    }
   }
 
   return results;
@@ -77,6 +86,7 @@ export async function notifyBuyerOrderUpdate(
       : event
   );
   const trackingUrl = getOrderTrackingUrl(orderId);
+  const channels = getNotificationChannels();
   const results = await dispatchNotification(phoneNumber, message, {
     orderId: String(orderId),
     statusLabel,
@@ -84,6 +94,10 @@ export async function notifyBuyerOrderUpdate(
   });
 
   if (results.length === 0) {
+    const reason = channels.includes("whatsapp")
+      ? "WhatsApp/SMS notifications are not live — add API keys and an approved WhatsApp template"
+      : "No notification channels are configured";
+
     console.log(
       `[Order notification skipped — not configured] Order #${orderId} (${event}): ${message}`
     );
@@ -91,11 +105,15 @@ export async function notifyBuyerOrderUpdate(
     return {
       sent: false,
       results,
-      reason: "No notification channels are configured",
+      reason,
     };
   }
 
   const sent = results.some((result) => result.sent);
+  const failureReasons = results
+    .filter((result) => !result.sent)
+    .map((result) => result.reason)
+    .filter(Boolean);
 
   if (sent) {
     console.log(
@@ -109,6 +127,12 @@ export async function notifyBuyerOrderUpdate(
   return {
     sent,
     results,
+    reason: sent
+      ? undefined
+      : failureReasons.join(" • ") ||
+        (isWhatsAppLogMode()
+          ? "WhatsApp is in log mode — message was printed in the server console only"
+          : "Notification could not be delivered"),
   };
 }
 
