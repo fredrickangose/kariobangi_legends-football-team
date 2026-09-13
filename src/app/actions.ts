@@ -32,6 +32,7 @@ import {
 } from "@/lib/admin-auth";
 import { normalizeMerchandiseCategory } from "@/lib/merchandise-categories";
 import { normalizeMerchandiseStockStatus } from "@/lib/merchandise-stock";
+import { merchandiseNeedsCopyUpgrade, getImprovedMerchandiseCopy } from "@/lib/merchandise-copy";
 
 async function requireFullAdmin() {
   const cookieStore = await cookies();
@@ -71,7 +72,20 @@ export async function getClubData() {
     const allPlayers = await db.select().from(players).orderBy(asc(players.jerseyNumber));
     const allFixtures = await db.select().from(fixtures).orderBy(asc(fixtures.date));
     const allNews = await db.select().from(news).orderBy(desc(news.createdAt));
-    const allMerchandise = await db.select().from(merchandise).orderBy(asc(merchandise.price));
+    let allMerchandise = await db.select().from(merchandise).orderBy(asc(merchandise.price));
+    const merchNeedingCopy = allMerchandise.filter((item) => merchandiseNeedsCopyUpgrade(item));
+    if (merchNeedingCopy.length > 0) {
+      await Promise.all(
+        merchNeedingCopy.map((item) => {
+          const copy = getImprovedMerchandiseCopy(item);
+          return db
+            .update(merchandise)
+            .set({ name: copy.name, description: copy.description })
+            .where(eq(merchandise.id, item.id));
+        })
+      );
+      allMerchandise = await db.select().from(merchandise).orderBy(asc(merchandise.price));
+    }
     const allDonations = await db.select().from(donations).orderBy(desc(donations.createdAt));
     const allFanMessages = await db.select().from(fanMessages).orderBy(desc(fanMessages.createdAt));
     const allGallery = await db.select().from(gallery).orderBy(desc(gallery.createdAt));
@@ -1054,6 +1068,51 @@ export async function updateMerchandiseStockStatus(
   } catch (error) {
     console.error("Update merchandise stock status failed:", error);
 
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
+export async function updateMerchandiseDetails(
+  merchId: number,
+  data: {
+    name: string;
+    description: string;
+  }
+) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const name = data.name.trim();
+    const description = data.description.trim();
+    if (!name) {
+      return { success: false, error: "Product name is required." };
+    }
+
+    const [item] = await db
+      .update(merchandise)
+      .set({
+        name,
+        description: description || "Official Kariobangi Legends replica. 100% of profit supports the squad.",
+      })
+      .where(eq(merchandise.id, merchId))
+      .returning();
+
+    if (!item) {
+      return { success: false, error: "Merchandise item not found." };
+    }
+
+    return {
+      success: true,
+      message: "Product details updated.",
+      item,
+    };
+  } catch (error) {
     return {
       success: false,
       error: String(error),

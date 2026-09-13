@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["tipper-lavender-saddlebag.ngrok-free.dev"],
   images: {
-    qualities: [75, 92],
+    qualities: [75, 92, 100],
     remotePatterns: [
       {
         protocol: "https",

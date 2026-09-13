@@ -43,6 +43,7 @@ import {
   LogOut,
   Navigation,
   Play,
+  Pause,
   Film,
   Banknote,
 } from "lucide-react";
@@ -142,6 +143,7 @@ import {
   updateGalleryImage,
   addMerchandise,
   updateMerchandiseImage,
+  updateMerchandiseDetails,
   updateMerchandisePrice,
   updateMerchandiseStockStatus,
   updateMerchandiseCategory,
@@ -184,6 +186,11 @@ import {
   formatJerseyCustomization,
   isJerseyMerchandise,
 } from "@/lib/order-customization";
+import {
+  getImprovedMerchandiseCopy,
+  SHOP_DELIVERY_NOTE,
+  SHOP_SIZE_CHART,
+} from "@/lib/merchandise-copy";
 interface Player {
   id: number;
   name: string;
@@ -600,13 +607,13 @@ function MerchandiseAdminThumbnail({ item }: { item: MerchandiseItem }) {
   const stockMeta = getMerchandiseStockStatusMeta(item.stockStatus);
 
   return (
-    <div className="relative w-full h-56 sm:h-64 bg-gradient-to-b from-white to-slate-100 border-b border-slate-100 flex items-center justify-center p-5 sm:p-6 overflow-hidden">
+    <div className="relative w-full h-44 sm:h-48 bg-white border-b border-slate-100 overflow-hidden flex items-center justify-center p-2">
       {hasImage ? (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
           src={item.imageUrl}
           alt={item.name}
-          className="max-w-full max-h-full w-auto h-auto object-contain drop-shadow-sm"
+          className="max-w-full max-h-full w-auto h-auto object-contain"
         />
       ) : (
         <div className="text-center space-y-2">
@@ -1808,7 +1815,9 @@ type AdminBusyAction =
   | "merch-price"
   | "merch-stock"
   | "merch-category"
+  | "merch-details"
   | "replace-image"
+  | "bulk-photos"
   | null;
 
 export default function ClubWebsite({
@@ -1822,6 +1831,10 @@ export default function ClubWebsite({
   const [clubData, setClubData] = useState(initialData);
   const [adminBusy, setAdminBusy] = useState<AdminBusyAction>(null);
   const [selectedSizes, setSelectedSizes] = useState<Record<number, string>>({});
+  const [selectedShopItemId, setSelectedShopItemId] = useState<number | null>(null);
+  const [explicitShopSizes, setExplicitShopSizes] = useState<Record<number, boolean>>({});
+  const [newsPreviewOpen, setNewsPreviewOpen] = useState(false);
+  const [bulkPhotoFiles, setBulkPhotoFiles] = useState<Record<string, File>>({});
   const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [highlightNewsId, setHighlightNewsId] = useState<number | null>(initialNewsId);
   const [highlightFixtureId, setHighlightFixtureId] = useState<number | null>(
@@ -1831,6 +1844,7 @@ export default function ClubWebsite({
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [galleryCarouselIndex, setGalleryCarouselIndex] = useState(0);
+  const [galleryCarouselPaused, setGalleryCarouselPaused] = useState(false);
 
   useEffect(() => {
     setClubData(initialData);
@@ -1918,7 +1932,7 @@ export default function ClubWebsite({
 
   // Automatically rotate homepage gallery every 4 seconds
 useEffect(() => {
-  if (carouselGallery.length <= 1) return;
+  if (carouselGallery.length <= 1 || galleryCarouselPaused) return;
 
   const interval = setInterval(() => {
     setGalleryCarouselIndex((current) =>
@@ -1929,7 +1943,7 @@ useEffect(() => {
   }, 4000);
 
   return () => clearInterval(interval);
-}, [carouselGallery.length]);
+}, [carouselGallery.length, galleryCarouselPaused]);
 
   // Gallery filter state
   const [selectedGalleryCategory, setSelectedGalleryCategory] = useState<string>("All");
@@ -2091,6 +2105,8 @@ useEffect(() => {
   const [managementPanelOpen, setManagementPanelOpen] = useState(false);
   const [squadUpdatesOpen, setSquadUpdatesOpen] = useState(false);
   const [managementUpdatesOpen, setManagementUpdatesOpen] = useState(false);
+  const [bulkPhotosOpen, setBulkPhotosOpen] = useState(false);
+  const [adminPanelsHydrated, setAdminPanelsHydrated] = useState(false);
   const [publishedHighlightsOpen, setPublishedHighlightsOpen] = useState(false);
   const [newspaperResetAdminPassword, setNewspaperResetAdminPassword] = useState("");
   const [newspaperResetNewPassword, setNewspaperResetNewPassword] = useState("");
@@ -2354,6 +2370,7 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
       return;
     }
 
+    const displayName = getImprovedMerchandiseCopy(item).name;
     const existingIndex = cart.findIndex((i) => i.merchId === item.id && i.size === size);
     if (existingIndex > -1) {
       const updated = [...cart];
@@ -2364,7 +2381,7 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
         ...cart,
         {
           merchId: item.id,
-          name: item.name,
+          name: displayName,
           price: item.price,
           size: size,
           quantity: 1,
@@ -2372,7 +2389,74 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
         },
       ]);
     }
-    showToast(`Added ${item.name} (${size}) to shopping cart!`);
+    showToast(`Added ${displayName} (${size}) to shopping cart!`);
+  };
+
+  const hasRealPassportPhoto = (imageUrl?: string | null) => {
+    const trimmed = imageUrl?.trim() ?? "";
+    if (!trimmed || /placeholder/i.test(trimmed)) return false;
+    return isUploadedMediaUrl(trimmed) || trimmed.startsWith("/") || trimmed.startsWith("./");
+  };
+
+  const handleBulkPassportUploads = async (kind: "player" | "management") => {
+    const prefix = `${kind}-`;
+    const assignments = Object.entries(bulkPhotoFiles).filter(([key, file]) =>
+      key.startsWith(prefix) && file
+    );
+
+    if (assignments.length === 0) {
+      showToast("Choose at least one photo to upload.", "error");
+      return;
+    }
+
+    setAdminBusy("bulk-photos");
+    try {
+      let uploaded = 0;
+      for (const [key, file] of assignments) {
+        const id = Number(key.slice(prefix.length));
+        const imageUrl = await uploadSelectedImage(
+          file,
+          kind === "player" ? "players" : "management"
+        );
+
+        if (kind === "player") {
+          const res = await updatePlayerImage(id, imageUrl);
+          if (res.success && res.player) {
+            setClubData((prev) => ({
+              ...prev,
+              players: prev.players.map((player) =>
+                player.id === res.player.id ? res.player : player
+              ),
+            }));
+            uploaded += 1;
+          }
+        } else {
+          const res = await updateManagementImage(id, imageUrl);
+          if (res.success && res.member) {
+            setClubData((prev) => ({
+              ...prev,
+              management: prev.management.map((member) =>
+                member.id === res.member.id ? res.member : member
+              ),
+            }));
+            uploaded += 1;
+          }
+        }
+      }
+
+      setBulkPhotoFiles((prev) => {
+        const next = { ...prev };
+        for (const [key] of assignments) {
+          delete next[key];
+        }
+        return next;
+      });
+      showToast(`Uploaded ${uploaded} passport photo${uploaded === 1 ? "" : "s"}.`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Bulk photo upload failed.", "error");
+    } finally {
+      setAdminBusy(null);
+    }
   };
 
   const removeFromCart = (merchId: number, size: string) => {
@@ -3633,10 +3717,6 @@ useEffect(() => {
 }, [adminPanelView, isAdminAuthenticated, adminRole]);
 
 const collapseAdminUpdatePanels = useCallback(() => {
-  setPlayerPanelOpen(false);
-  setManagementPanelOpen(false);
-  setSquadUpdatesOpen(false);
-  setManagementUpdatesOpen(false);
   setPublishedHighlightsOpen(false);
   setListedShopItemsOpen(false);
   setShowArchivedOrders(false);
@@ -3645,6 +3725,50 @@ const collapseAdminUpdatePanels = useCallback(() => {
   setAdminInboxMessages([]);
   setAdminReplyDraft("");
 }, []);
+
+useEffect(() => {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem("klfc-admin-open-panels");
+    if (!raw) return;
+    const stored = JSON.parse(raw) as {
+      player?: boolean;
+      management?: boolean;
+      squadUpdates?: boolean;
+      managementUpdates?: boolean;
+      bulkPhotos?: boolean;
+    };
+    setPlayerPanelOpen(Boolean(stored.player));
+    setManagementPanelOpen(Boolean(stored.management));
+    setSquadUpdatesOpen(Boolean(stored.squadUpdates));
+    setManagementUpdatesOpen(Boolean(stored.managementUpdates));
+    setBulkPhotosOpen(Boolean(stored.bulkPhotos));
+  } catch {
+    // Ignore unreadable local storage.
+  }
+  setAdminPanelsHydrated(true);
+}, []);
+
+useEffect(() => {
+  if (typeof window === "undefined" || !adminPanelsHydrated) return;
+  window.localStorage.setItem(
+    "klfc-admin-open-panels",
+    JSON.stringify({
+      player: playerPanelOpen,
+      management: managementPanelOpen,
+      squadUpdates: squadUpdatesOpen,
+      managementUpdates: managementUpdatesOpen,
+      bulkPhotos: bulkPhotosOpen,
+    })
+  );
+}, [
+  playerPanelOpen,
+  managementPanelOpen,
+  squadUpdatesOpen,
+  managementUpdatesOpen,
+  bulkPhotosOpen,
+  adminPanelsHydrated,
+]);
 
 useEffect(() => {
   collapseAdminUpdatePanels();
@@ -4902,15 +5026,13 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     // If imageUrl is a real path (starts with /), show the image
     if (item.imageUrl.startsWith("/") || item.imageUrl.startsWith("http")) {
       return (
-        <div className="relative h-80 bg-gradient-to-b from-slate-50 to-slate-100 overflow-hidden group">
-          <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-5">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={item.imageUrl}
-              alt={item.name}
-              className="max-w-full max-h-full w-auto h-auto object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out"
-            />
-          </div>
+        <div className="relative h-48 sm:h-52 bg-white overflow-hidden group flex items-center justify-center p-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={item.imageUrl}
+            alt={item.name}
+            className="max-w-full max-h-full w-auto h-auto object-contain group-hover:scale-[1.03] transition-transform duration-500 ease-out"
+          />
         </div>
       );
     }
@@ -4936,7 +5058,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
       kitColors[normalizeMerchandiseCategory(item.kitType)] || kitColors.other;
 
     return (
-      <div className={`h-80 ${colors.bg} ${colors.border} border-2 flex flex-col items-center justify-center relative`}>
+      <div className={`h-48 sm:h-52 ${colors.bg} ${colors.border} border-2 flex flex-col items-center justify-center relative`}>
         <div className="text-center space-y-3">
           <Shield className={`w-16 h-16 ${colors.accent} mx-auto`} />
           <p className={`text-sm font-black ${colors.accent} tracking-widest`}>KLFC</p>
@@ -5000,17 +5122,19 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
   };
 
   const renderMerchandiseProductGrid = (items: MerchandiseItem[]) => (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
       {items.map((item) => {
         const sizesArray = item.sizes.split(",").map((s) => s.trim());
         const categoryMeta = getMerchandiseCategoryMeta(item.kitType);
         const stockMeta = getMerchandiseStockStatusMeta(item.stockStatus);
         const isAvailable = isMerchandiseAvailable(item.stockStatus);
+        const productCopy = getImprovedMerchandiseCopy(item);
+        const selectedSize = selectedSizes[item.id] || sizesArray[0];
 
         return (
           <div
             key={item.id}
-            className={`bg-white rounded-3xl overflow-hidden border shadow-sm hover:shadow-md transition flex flex-col justify-between ${
+            className={`bg-white rounded-2xl overflow-hidden border shadow-sm hover:shadow-md transition flex flex-col justify-between ${
               isAvailable ? "border-slate-100" : "border-slate-200 opacity-95"
             }`}
           >
@@ -5038,22 +5162,22 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
               )}
             </div>
 
-            <div className="px-5 pt-4 flex flex-wrap gap-2">
-              <span className="bg-slate-950 text-yellow-400 text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full">
+            <div className="px-3 pt-2.5 flex flex-wrap gap-1.5">
+              <span className="bg-slate-950 text-yellow-400 text-[8px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full">
                 {categoryMeta.label}
               </span>
               <span
-                className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${stockMeta.badgeClass}`}
+                className={`text-[8px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${stockMeta.badgeClass}`}
               >
                 {stockMeta.label}
               </span>
             </div>
 
-            <div className="p-5 pt-3 space-y-4">
+            <div className="p-3 pt-2 space-y-3">
               <div className="space-y-1">
                 <div className="flex justify-between items-start gap-2">
-                  <h3 className="font-extrabold text-slate-950 text-base leading-snug flex-1">
-                    {item.name}
+                  <h3 className="font-extrabold text-slate-950 text-sm leading-snug flex-1">
+                    {productCopy.name}
                   </h3>
                   {canManageClubContent && editingMerchPriceId === item.id ? (
                     <div className="flex items-center gap-1 shrink-0">
@@ -5101,28 +5225,34 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 line-clamp-2">{item.description}</p>
+                <p className="text-[11px] text-slate-500 line-clamp-2">{productCopy.description}</p>
               </div>
 
-              <div className="space-y-1.5">
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Select Size</p>
-                <div className="flex gap-2 flex-wrap">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[9px] text-slate-400 font-bold uppercase">Select Size</p>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                    Size {selectedSize}
+                  </p>
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
                   {sizesArray.map((size) => (
                     <button
                       key={size}
                       type="button"
                       disabled={!isAvailable}
-                      onClick={() =>
+                      onClick={() => {
                         setSelectedSizes((prev) => ({
                           ...prev,
                           [item.id]: size,
-                        }))
-                      }
-                      className={`px-2.5 py-1 text-[11px] rounded-lg font-bold transition ${
+                        }));
+                        setExplicitShopSizes((prev) => ({ ...prev, [item.id]: true }));
+                      }}
+                      className={`px-2 py-0.5 text-[10px] rounded-md font-bold transition ${
                         !isAvailable
                           ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : (selectedSizes[item.id] || sizesArray[0]) === size
-                            ? "bg-slate-950 text-yellow-400 cursor-pointer"
+                          : selectedSize === size
+                            ? "bg-slate-950 text-yellow-400 cursor-pointer ring-2 ring-yellow-400/40"
                             : "bg-slate-50 text-slate-600 hover:bg-slate-100 cursor-pointer"
                       }`}
                     >
@@ -5134,9 +5264,17 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 
               <button
                 type="button"
+                onClick={() => setSelectedShopItemId(item.id)}
+                className="w-full font-bold text-[10px] uppercase tracking-wider py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                View details
+              </button>
+
+              <button
+                type="button"
                 disabled={!isAvailable}
-                onClick={() => addToCart(item, selectedSizes[item.id] || sizesArray[0])}
-                className={`w-full font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm ${
+                onClick={() => addToCart(item, selectedSize)}
+                className={`w-full font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-lg transition flex items-center justify-center gap-1 shadow-sm ${
                   isAvailable
                     ? "bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
                     : stockMeta.id === "out_of_stock"
@@ -5146,7 +5284,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
               >
                 {isAvailable ? (
                   <>
-                    <ShoppingBag className="w-4 h-4" /> {stockMeta.buttonLabel}
+                    <ShoppingBag className="w-3.5 h-3.5" /> Add {selectedSize}
                   </>
                 ) : (
                   stockMeta.buttonLabel
@@ -5195,6 +5333,39 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     const category = MERCHANDISE_CATEGORIES.find((entry) => entry.id === selectedShopCategory);
     return category ? [category] : [];
   }, [selectedShopCategory, shopCategoriesWithItems]);
+
+  const selectedShopItem = useMemo(
+    () => clubData.merchandise.find((item) => item.id === selectedShopItemId) ?? null,
+    [clubData.merchandise, selectedShopItemId]
+  );
+
+  const relatedShopItems = useMemo(() => {
+    if (!selectedShopItem) return [];
+    const categoryId = normalizeMerchandiseCategory(selectedShopItem.kitType);
+    const others = clubData.merchandise.filter((item) => item.id !== selectedShopItem.id);
+    const sameCategory = others.filter(
+      (item) => normalizeMerchandiseCategory(item.kitType) === categoryId
+    );
+    const otherCategories = others.filter(
+      (item) => normalizeMerchandiseCategory(item.kitType) !== categoryId
+    );
+    return [...sameCategory, ...otherCategories].slice(0, 3);
+  }, [clubData.merchandise, selectedShopItem]);
+
+  const complementaryShopItems = useMemo(() => {
+    if (selectedShopCategory === "All") return [];
+    const visibleIds = new Set(
+      visibleShopCategories.flatMap((category) =>
+        (merchandiseByCategory.get(category.id) ?? []).map((item) => item.id)
+      )
+    );
+    return clubData.merchandise.filter((item) => !visibleIds.has(item.id)).slice(0, 4);
+  }, [
+    clubData.merchandise,
+    merchandiseByCategory,
+    selectedShopCategory,
+    visibleShopCategories,
+  ]);
 
   const navAccountAction = useMemo(() => {
     if (customerProfile) {
@@ -5778,28 +5949,27 @@ useEffect(() => {
         {activeTab === "home" && (
           <div className="space-y-12">
          {/* ================= HERO BANNER ================= */}
-<div className="relative min-h-[500px] sm:min-h-[580px] rounded-3xl overflow-hidden bg-slate-950 text-white border border-slate-800 shadow-2xl">
+<div className="relative min-h-[520px] sm:min-h-0 sm:aspect-[3/2] rounded-3xl overflow-hidden bg-slate-950 text-white border border-slate-800 shadow-2xl">
 
-  {/* Hero background image — optimized for sharpness and clarity */}
+  {/* Hero background image — original file, full frame, no extra compression */}
   <div className="absolute inset-0">
     <Image
       src="/assets/hero-team.jpg"
       alt="Kariobangi Legends FC team photo"
       fill
       priority
-      quality={92}
-      sizes="(max-width: 768px) 100vw, (max-width: 1280px) 90vw, 1280px"
-      className="object-cover object-[center_32%] sm:object-[center_30%] scale-[1.03] contrast-[1.08] saturate-[1.06] brightness-[1.04]"
+      unoptimized
+      sizes="100vw"
+      className="object-contain object-center contrast-[1.08] saturate-[1.08] brightness-[1.08]"
     />
   </div>
 
-  {/* Overlays — strong scrim on the left for text; right side stays bright and clear */}
-  <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/35 to-transparent" />
-  <div className="absolute inset-y-0 left-0 w-[58%] bg-gradient-to-r from-black/25 to-transparent" />
-  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/45 via-transparent to-slate-950/15" />
+  {/* Light overlays — text stays readable, jerseys and faces stay clear */}
+  <div className="absolute inset-0 bg-gradient-to-r from-slate-950/50 via-slate-950/15 to-transparent" />
+  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/25 via-transparent to-slate-950/10" />
 
-  {/* Hero content */}
-  <div className="relative z-10 min-h-[500px] sm:min-h-[580px] flex items-center">
+  {/* Hero content over the background photo */}
+  <div className="relative z-10 min-h-[520px] sm:min-h-0 sm:h-full flex items-center">
 
     <div className="w-full p-6 sm:p-10 md:p-14 lg:p-16">
 
@@ -6159,6 +6329,25 @@ useEffect(() => {
 
       </div>
 
+      <div className="relative z-10 px-5 sm:px-8 pb-2">
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 sm:px-5">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-yellow-400 mb-2">
+            Match preview
+          </p>
+          <p className="text-sm text-slate-200 leading-relaxed">
+            {getMatchTypeMeta(upcomingFixtures[0].matchType).label}{" "}
+            {upcomingFixtures[0].isHome ? "at home" : "on the road"} against{" "}
+            {upcomingFixtures[0].opponent}. Kick-off {formatKickoff(upcomingFixtures[0].date)} at{" "}
+            {upcomingFixtures[0].venue}.
+            {recentForm.length > 0
+              ? ` Recent league form: ${recentForm
+                  .map((result) => getResultLabel(result))
+                  .join(" · ")}.`
+              : ""}
+          </p>
+        </div>
+      </div>
+
       {/* Match Centre + Directions */}
       <div className="relative z-10 p-5 sm:p-6 border-t border-white/10 space-y-3">
 
@@ -6182,6 +6371,40 @@ useEffect(() => {
 
     </div>
 
+    {recentFixtures[0] && (
+      <div className="rounded-3xl border border-slate-100 bg-white p-5 sm:p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
+              Last time out
+            </p>
+            <h3 className="text-lg sm:text-xl font-black text-slate-950">
+              {(() => {
+                const lastMatch = recentFixtures[0];
+                const result = getMatchResult(lastMatch);
+                const { home, away } = getHomeAwayTeams(lastMatch);
+                return `${home.name} ${lastMatch.homeScore ?? "-"}-${lastMatch.awayScore ?? "-"} ${away.name}`;
+              })()}
+            </h3>
+            <p className="text-sm text-slate-500">
+              {getMatchTypeMeta(recentFixtures[0].matchType).label} · {formatKickoff(recentFixtures[0].date)}
+              {getMatchResult(recentFixtures[0])
+                ? ` · ${getResultLabel(getMatchResult(recentFixtures[0])!)}`
+                : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab("fixtures")}
+            className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-[10px] font-black uppercase tracking-wider text-yellow-400"
+          >
+            Full recap
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    )}
+
     {/* Mobile fixtures link */}
     <button
       onClick={() => setActiveTab("fixtures")}
@@ -6201,28 +6424,26 @@ useEffect(() => {
 
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <span className="w-2 h-2 rounded-full bg-yellow-400" />
-
-        <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+        <span className="w-8 h-px bg-yellow-400" />
+        <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.28em] text-emerald-600">
           Club Media
         </span>
       </div>
 
-      <h3 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight flex items-center gap-2">
-        <Camera className="w-6 h-6 text-emerald-600" />
+      <h3 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight">
         Life at Kariobangi Legends
       </h3>
 
-      <p className="text-sm text-slate-500 mt-2">
-        Moments, memories and stories from our football community.
+      <p className="text-sm text-slate-500 mt-2 max-w-xl">
+        Matchdays, training, and community — the stories behind the crest.
       </p>
     </div>
 
     <button
       onClick={() => setActiveTab("gallery")}
-      className="hidden sm:flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-700 transition cursor-pointer"
+      className="hidden sm:inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-[10px] font-black uppercase tracking-wider text-slate-800 shadow-sm hover:border-emerald-300 hover:text-emerald-700 transition cursor-pointer"
     >
-      View All Photos
+      Full gallery
       <ArrowRight className="w-4 h-4" />
     </button>
 
@@ -6231,78 +6452,161 @@ useEffect(() => {
 
   {/* ================= AUTO CAROUSEL ================= */}
   {carouselGallery.length > 0 ? (
-
-    <div className="relative rounded-3xl overflow-hidden border border-slate-200/80 shadow-xl shadow-slate-950/10 bg-white">
-
-      {/* Image — container shrinks to photo, no crop or distortion */}
-      <div className="relative w-full flex justify-center bg-white">
-
-        {carouselGallery.map((item, index) => (
-
-          <div
-            key={item.id}
-            className={`transition-opacity duration-700 ease-out ${
-              index === safeGalleryCarouselIndex
-                ? "opacity-100 relative z-10"
-                : "opacity-0 absolute inset-x-0 top-0 flex justify-center pointer-events-none z-0"
-            }`}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={item.imageUrl}
-              alt={item.caption || "Kariobangi Legends FC"}
-              className="block max-w-full w-auto h-auto max-h-[min(70vh,560px)] object-contain"
-              draggable={false}
-            />
-          </div>
-
-        ))}
-
-      </div>
-
-
-      {/* Caption bar */}
-      <div className="relative border-t border-slate-100 bg-slate-50 px-5 sm:px-8 py-4 sm:py-5">
-
-        {carouselGallery.map((item, index) => (
-
-          <div
-            key={`caption-${item.id}`}
-            className={`transition-all duration-500 ${
-              index === safeGalleryCarouselIndex
-                ? "opacity-100 relative z-10 translate-y-0"
-                : "opacity-0 absolute inset-0 px-5 sm:px-8 py-4 sm:py-5 pointer-events-none translate-y-1"
-            }`}
-          >
-
-            <div className="flex flex-wrap items-center gap-2 mb-2">
-
-              {item.category && (
-                <span className="inline-flex items-center bg-emerald-600 text-white text-[8px] sm:text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full">
-                  {item.category}
-                </span>
-              )}
-
-              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                {new Date(item.createdAt).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </span>
-
+    <div
+      className="overflow-hidden rounded-[1.75rem] bg-slate-950 shadow-[0_28px_80px_-32px_rgba(15,23,42,0.7)] ring-1 ring-slate-900/10"
+      onMouseEnter={() => setGalleryCarouselPaused(true)}
+      onMouseLeave={() => setGalleryCarouselPaused(false)}
+    >
+      <div className="relative aspect-[4/3] sm:aspect-[16/10] bg-slate-950">
+          {carouselGallery.map((item, index) => (
+            <div
+              key={item.id}
+              className={`absolute inset-0 flex items-center justify-center transition-opacity duration-700 ease-out ${
+                index === safeGalleryCarouselIndex
+                  ? "opacity-100 z-10"
+                  : "opacity-0 z-0 pointer-events-none"
+              }`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={item.imageUrl}
+                alt=""
+                aria-hidden="true"
+                className="absolute inset-0 h-full w-full scale-110 object-cover opacity-30 blur-2xl"
+                draggable={false}
+              />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={item.imageUrl}
+                alt={item.caption || "Kariobangi Legends FC"}
+                className={`relative z-10 max-h-full max-w-full object-contain transition-transform duration-[4000ms] ease-out ${
+                  index === safeGalleryCarouselIndex ? "scale-100" : "scale-[1.04]"
+                }`}
+                draggable={false}
+              />
             </div>
+          ))}
 
-            <p className="text-base sm:text-xl font-black text-slate-950 leading-snug max-w-3xl">
-              {item.caption || "Kariobangi Legends FC"}
-            </p>
+          <div className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-t from-slate-950 via-slate-950/10 to-slate-950/35" />
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-24 bg-gradient-to-r from-slate-950/40 to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-24 bg-gradient-to-l from-slate-950/40 to-transparent" />
 
+          <div className="absolute left-4 top-4 z-30 flex items-center gap-2 sm:left-6 sm:top-6">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-white backdrop-blur-md ring-1 ring-white/15">
+              <Camera className="h-3 w-3 text-yellow-400" />
+              From the ground
+            </span>
           </div>
 
-        ))}
+          <div className="absolute right-4 top-4 z-30 flex items-center gap-2 sm:right-6 sm:top-6">
+            <span className="rounded-full bg-slate-950/50 px-3 py-1 font-mono text-[11px] font-bold tabular-nums text-yellow-400 backdrop-blur-md ring-1 ring-white/10">
+              {String(safeGalleryCarouselIndex + 1).padStart(2, "0")}
+              <span className="mx-1 text-white/40">/</span>
+              {String(carouselGallery.length).padStart(2, "0")}
+            </span>
+            {carouselGallery.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setGalleryCarouselPaused((paused) => !paused)}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white ring-1 ring-white/15 backdrop-blur-md hover:bg-white/20"
+                aria-label={galleryCarouselPaused ? "Play slideshow" : "Pause slideshow"}
+              >
+                {galleryCarouselPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+              </button>
+            )}
+          </div>
 
+          {carouselGallery.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  setGalleryCarouselIndex((current) =>
+                    current === 0 ? carouselGallery.length - 1 : current - 1
+                  )
+                }
+                className="absolute left-3 top-1/2 z-30 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-yellow-400 hover:text-slate-950 sm:left-5 sm:h-12 sm:w-12"
+                aria-label="Previous photo"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setGalleryCarouselIndex((current) =>
+                    current === carouselGallery.length - 1 ? 0 : current + 1
+                  )
+                }
+                className="absolute right-3 top-1/2 z-30 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-yellow-400 hover:text-slate-950 sm:right-5 sm:h-12 sm:w-12"
+                aria-label="Next photo"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </>
+          )}
+
+          {carouselGallery[safeGalleryCarouselIndex] && (
+            <div className="absolute inset-x-0 bottom-0 z-30 p-4 sm:p-7">
+              <div className="max-w-xl rounded-2xl bg-slate-950/55 p-4 sm:p-5 ring-1 ring-white/10 backdrop-blur-md">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  {carouselGallery[safeGalleryCarouselIndex].category && (
+                    <span className="inline-flex items-center rounded-full bg-emerald-500 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-white">
+                      {carouselGallery[safeGalleryCarouselIndex].category}
+                    </span>
+                  )}
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-white/60">
+                    {new Date(carouselGallery[safeGalleryCarouselIndex].createdAt).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </span>
+                </div>
+                <p className="text-base sm:text-2xl font-black leading-tight text-white">
+                  {carouselGallery[safeGalleryCarouselIndex].caption || "Kariobangi Legends FC"}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {carouselGallery.length > 1 && !galleryCarouselPaused && (
+            <div className="absolute inset-x-0 bottom-0 z-30 h-0.5 bg-white/10">
+              <div
+                key={safeGalleryCarouselIndex}
+                className="h-full origin-left bg-gradient-to-r from-yellow-400 to-emerald-400"
+                style={{ animation: "klfc-carousel-progress 4s linear" }}
+              />
+            </div>
+          )}
       </div>
 
+      {carouselGallery.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto bg-slate-950 px-3 py-3 sm:px-4">
+          {carouselGallery.map((item, index) => (
+            <button
+              key={`thumb-${item.id}`}
+              type="button"
+              onClick={() => setGalleryCarouselIndex(index)}
+              className={`relative h-16 w-24 shrink-0 overflow-hidden rounded-xl ring-2 transition sm:h-20 sm:w-32 ${
+                index === safeGalleryCarouselIndex
+                  ? "ring-yellow-400"
+                  : "ring-white/10 opacity-70 hover:opacity-100 hover:ring-white/30"
+              }`}
+              aria-label={`Show photo ${index + 1}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={item.imageUrl}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+              <span className="absolute left-1.5 top-1.5 rounded bg-slate-950/70 px-1.5 py-0.5 font-mono text-[9px] font-bold text-white">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
 
   ) : (
@@ -6750,28 +7054,23 @@ useEffect(() => {
     <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[minmax(300px,420px)_1fr]">
 
       {/* Founder image */}
-      <div className="bg-white flex flex-col">
+      <div className="relative min-h-[420px] sm:min-h-[480px] lg:min-h-full overflow-hidden bg-slate-900">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/founder-atanga.jpg"
+          alt="Mr. Erick Otieno Atanga - Founder and Patron of Kariobangi Legends FC"
+          className="absolute inset-0 !h-full !w-full !max-h-none !max-w-none object-cover object-[center_18%] contrast-[1.1] saturate-[1.08] brightness-[1.08]"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/10 to-transparent" />
 
-        <div className="flex items-center justify-center p-4 sm:p-6 min-h-[420px] lg:min-h-[520px]">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/images/founder-atanga.jpg"
-            alt="Mr. Erick Otieno Atanga - Founder and Patron of Kariobangi Legends FC"
-            className="max-w-full max-h-[520px] w-auto h-auto object-contain"
-          />
-        </div>
-
-        {/* Founder label */}
-        <div className="px-6 pb-6 pt-2 border-t border-slate-100 bg-white">
+        <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6">
           <span className="inline-flex items-center bg-yellow-400 text-slate-950 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full mb-3">
             Founder & Patron
           </span>
-
-          <h3 className="text-xl font-black text-slate-950">
+          <h3 className="text-xl sm:text-2xl font-black text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)]">
             Mr. Erick Otieno Atanga
           </h3>
         </div>
-
       </div>
 
 
@@ -7524,6 +7823,27 @@ useEffect(() => {
       </div>
     )}
 
+    {canManageClubContent &&
+      clubData.management.some((member) => !hasRealPassportPhoto(member.imageUrl)) && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <p className="text-xs font-semibold text-rose-900">
+            {clubData.management.filter((member) => !hasRealPassportPhoto(member.imageUrl)).length} official
+            {clubData.management.filter((member) => !hasRealPassportPhoto(member.imageUrl)).length === 1 ? " still needs" : "s still need"} a passport photo.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setAdminPanelView("content");
+              setBulkPhotosOpen(true);
+              setActiveTab("admin");
+            }}
+            className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-[10px] font-black uppercase tracking-wider text-yellow-400"
+          >
+            Upload missing photos
+          </button>
+        </div>
+      )}
+
     <div className="max-w-3xl space-y-4">
       <div className="flex items-center gap-2">
         <span className="w-2 h-2 rounded-full bg-yellow-400" />
@@ -7655,6 +7975,27 @@ useEffect(() => {
                 Meet our local champions playing in Division One. These players are molded from the local neighborhoods and represent our pride on the field.
               </p>
             </div>
+
+            {canManageClubContent &&
+              clubData.players.some((player) => !hasRealPassportPhoto(player.imageUrl)) && (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <p className="text-xs font-semibold text-rose-900">
+                    {clubData.players.filter((player) => !hasRealPassportPhoto(player.imageUrl)).length} player
+                    {clubData.players.filter((player) => !hasRealPassportPhoto(player.imageUrl)).length === 1 ? " still needs" : "s still need"} a passport photo.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminPanelView("content");
+                      setBulkPhotosOpen(true);
+                      setActiveTab("admin");
+                    }}
+                    className="inline-flex items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-[10px] font-black uppercase tracking-wider text-yellow-400"
+                  >
+                    Upload missing photos
+                  </button>
+                </div>
+              )}
 
             {clubData.players.length > 0 ? (
             <div className="space-y-10">
@@ -8159,6 +8500,20 @@ useEffect(() => {
                     );
                   })}
                 </div>
+
+                {complementaryShopItems.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex items-end justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
+                          Keep browsing
+                        </p>
+                        <h3 className="text-xl font-black text-slate-950">You may also like</h3>
+                      </div>
+                    </div>
+                    {renderMerchandiseProductGrid(complementaryShopItems)}
+                  </div>
+                )}
               </div>
             )}
 
@@ -10090,6 +10445,113 @@ useEffect(() => {
                     )}
                   </AdminCollapsibleSection>
 
+                  <AdminCollapsibleSection
+                    variant="panel"
+                    title="Missing Passport Photos"
+                    description="Assign a photo to each player or official who still has an empty card, then upload them together."
+                    closedDescription="Open to upload missing squad and management photos in one place."
+                    isOpen={bulkPhotosOpen}
+                    onToggle={() => setBulkPhotosOpen((open) => !open)}
+                    icon={Camera}
+                    badge={
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-rose-50 text-rose-700">
+                        {clubData.players.filter((player) => !hasRealPassportPhoto(player.imageUrl)).length +
+                          clubData.management.filter((member) => !hasRealPassportPhoto(member.imageUrl)).length}{" "}
+                        missing
+                      </span>
+                    }
+                  >
+                    <div className="space-y-6 text-xs">
+                      <div className="space-y-3">
+                        <p className="font-black uppercase tracking-wider text-slate-500">Squad without photos</p>
+                        {clubData.players.filter((player) => !hasRealPassportPhoto(player.imageUrl)).length === 0 ? (
+                          <p className="text-slate-500">Every player has a passport photo.</p>
+                        ) : (
+                          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                            {clubData.players
+                              .filter((player) => !hasRealPassportPhoto(player.imageUrl))
+                              .map((player) => (
+                                <label
+                                  key={player.id}
+                                  className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 p-2.5"
+                                >
+                                  <span className="min-w-0 flex-1 font-semibold text-slate-800">
+                                    #{player.jerseyNumber} {player.name}
+                                  </span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      setBulkPhotoFiles((prev) => {
+                                        const next = { ...prev };
+                                        if (file) next[`player-${player.id}`] = file;
+                                        else delete next[`player-${player.id}`];
+                                        return next;
+                                      });
+                                    }}
+                                    className="text-[11px] file:mr-3 file:rounded-lg file:border-0 file:bg-slate-950 file:px-3 file:py-1.5 file:text-[10px] file:font-bold file:text-yellow-400"
+                                  />
+                                </label>
+                              ))}
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          disabled={adminBusy === "bulk-photos"}
+                          onClick={() => handleBulkPassportUploads("player")}
+                          className="w-full rounded-xl bg-slate-950 py-2.5 font-bold uppercase tracking-wider text-yellow-400 disabled:opacity-50"
+                        >
+                          {adminBusy === "bulk-photos" ? "Uploading..." : "Upload squad photos"}
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        <p className="font-black uppercase tracking-wider text-slate-500">Management without photos</p>
+                        {clubData.management.filter((member) => !hasRealPassportPhoto(member.imageUrl)).length === 0 ? (
+                          <p className="text-slate-500">Every official has a passport photo.</p>
+                        ) : (
+                          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                            {clubData.management
+                              .filter((member) => !hasRealPassportPhoto(member.imageUrl))
+                              .map((member) => (
+                                <label
+                                  key={member.id}
+                                  className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 p-2.5"
+                                >
+                                  <span className="min-w-0 flex-1 font-semibold text-slate-800">
+                                    {member.name} · {member.position}
+                                  </span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      setBulkPhotoFiles((prev) => {
+                                        const next = { ...prev };
+                                        if (file) next[`management-${member.id}`] = file;
+                                        else delete next[`management-${member.id}`];
+                                        return next;
+                                      });
+                                    }}
+                                    className="text-[11px] file:mr-3 file:rounded-lg file:border-0 file:bg-slate-950 file:px-3 file:py-1.5 file:text-[10px] file:font-bold file:text-yellow-400"
+                                  />
+                                </label>
+                              ))}
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          disabled={adminBusy === "bulk-photos"}
+                          onClick={() => handleBulkPassportUploads("management")}
+                          className="w-full rounded-xl bg-slate-950 py-2.5 font-bold uppercase tracking-wider text-yellow-400 disabled:opacity-50"
+                        >
+                          {adminBusy === "bulk-photos" ? "Uploading..." : "Upload management photos"}
+                        </button>
+                      </div>
+                    </div>
+                  </AdminCollapsibleSection>
+
                   {/* Action 3: Club Management */}
                   <AdminCollapsibleSection
                     variant="panel"
@@ -11155,12 +11617,17 @@ useEffect(() => {
                     <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
                       <BookOpen className="w-5 h-5 text-emerald-600" /> Publish Official Club News
                     </h3>
-                    {adminRole === "news_editor" && (
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        Submit match reports, press releases, and community updates. Other site sections remain locked for press accounts.
-                      </p>
-                    )}
-                    <form onSubmit={handleAdminAddNews} className="space-y-3 text-xs">
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!adminNewsTitle || !adminNewsSummary || !adminNewsContent) {
+                          showToast("Fill the headline, summary, and article first.", "error");
+                          return;
+                        }
+                        setNewsPreviewOpen(true);
+                      }}
+                      className="space-y-3 text-xs"
+                    >
                       <div className="space-y-1">
                         <label className="font-bold text-slate-500 block">News Headline / Title</label>
                         <input
@@ -11213,8 +11680,11 @@ useEffect(() => {
                         disabled={adminBusy === "news"}
                         className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
                       >
-                        {adminBusy === "news" ? "Publishing..." : "Publish Article to News Feed"}
+                        Preview & publish
                       </button>
+                      <p className="text-[10px] text-slate-500 text-center">
+                        Review the article before it goes live on the news feed.
+                      </p>
                     </form>
                   </div>
 
@@ -11232,7 +11702,17 @@ useEffect(() => {
                         Submit match reports, press releases, and community updates. Other site sections remain locked for press accounts.
                       </p>
                     )}
-                    <form onSubmit={handleAdminAddNews} className="space-y-3 text-xs">
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!adminNewsTitle || !adminNewsSummary || !adminNewsContent) {
+                          showToast("Fill the headline, summary, and article first.", "error");
+                          return;
+                        }
+                        setNewsPreviewOpen(true);
+                      }}
+                      className="space-y-3 text-xs"
+                    >
                       <div className="space-y-1">
                         <label className="font-bold text-slate-500 block">News Headline / Title</label>
                         <input
@@ -11285,8 +11765,11 @@ useEffect(() => {
                         disabled={adminBusy === "news"}
                         className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
                       >
-                        {adminBusy === "news" ? "Publishing..." : "Publish Article to News Feed"}
+                        Preview & publish
                       </button>
+                      <p className="text-[10px] text-slate-500 text-center">
+                        Review the article before it goes live on the news feed.
+                      </p>
                     </form>
                   </div>
 
@@ -12909,6 +13392,181 @@ useEffect(() => {
                   {activeHighlight.description}
                 </p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedShopItem && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" onClick={() => setSelectedShopItemId(null)} />
+          <div className="relative max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+            <div className="grid grid-cols-1 md:grid-cols-2">
+              <div className="bg-white p-5 md:p-7 flex items-center justify-center min-h-[280px]">
+                {renderProductPhoto(selectedShopItem)}
+              </div>
+              <div className="space-y-5 p-5 md:p-7">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
+                      {getMerchandiseCategoryMeta(selectedShopItem.kitType).label}
+                    </p>
+                    <h3 className="text-2xl font-black text-slate-950 leading-tight">
+                      {getImprovedMerchandiseCopy(selectedShopItem).name}
+                    </h3>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      {getImprovedMerchandiseCopy(selectedShopItem).description}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedShopItemId(null)}
+                    className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
+                    aria-label="Close product details"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <p className="text-lg font-black text-emerald-700">
+                  Ksh {selectedShopItem.price.toLocaleString()}
+                </p>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Choose size</p>
+                    <p className="text-xs font-black uppercase tracking-wider text-emerald-700">
+                      Selected: {selectedSizes[selectedShopItem.id] || selectedShopItem.sizes.split(",")[0].trim()}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedShopItem.sizes.split(",").map((sizeValue) => {
+                      const size = sizeValue.trim();
+                      const selected = (selectedSizes[selectedShopItem.id] || selectedShopItem.sizes.split(",")[0].trim()) === size;
+                      return (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => {
+                            setSelectedSizes((prev) => ({ ...prev, [selectedShopItem.id]: size }));
+                            setExplicitShopSizes((prev) => ({ ...prev, [selectedShopItem.id]: true }));
+                          }}
+                          className={`min-w-12 rounded-xl px-3 py-2 text-xs font-black uppercase ${
+                            selected
+                              ? "bg-slate-950 text-yellow-400 ring-2 ring-yellow-400/40"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          {size}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="overflow-hidden rounded-2xl border border-slate-100">
+                  <table className="w-full text-left text-[11px]">
+                    <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider">
+                      <tr>
+                        <th className="px-3 py-2">Size</th>
+                        <th className="px-3 py-2">Chest</th>
+                        <th className="px-3 py-2">Length</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {SHOP_SIZE_CHART.map((row) => (
+                        <tr key={row.size} className="border-t border-slate-100">
+                          <td className="px-3 py-2 font-black text-slate-900">{row.size}</td>
+                          <td className="px-3 py-2 text-slate-600">{row.chest}</td>
+                          <td className="px-3 py-2 text-slate-600">{row.length}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-xs leading-relaxed text-emerald-900">
+                  {SHOP_DELIVERY_NOTE}
+                </p>
+
+                <button
+                  type="button"
+                  disabled={!isMerchandiseAvailable(selectedShopItem.stockStatus)}
+                  onClick={() => {
+                    const size =
+                      selectedSizes[selectedShopItem.id] ||
+                      selectedShopItem.sizes.split(",")[0].trim();
+                    addToCart(selectedShopItem, size);
+                  }}
+                  className="w-full rounded-xl bg-emerald-600 py-3 text-xs font-black uppercase tracking-wider text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  Add {selectedSizes[selectedShopItem.id] || selectedShopItem.sizes.split(",")[0].trim()} to cart
+                </button>
+              </div>
+            </div>
+
+            {relatedShopItems.length > 0 && (
+              <div className="border-t border-slate-100 p-5 md:p-7 space-y-4">
+                <h4 className="text-sm font-black uppercase tracking-wider text-slate-500">You may also like</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {relatedShopItems.map((item) => {
+                    const copy = getImprovedMerchandiseCopy(item);
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setSelectedShopItemId(item.id)}
+                        className="rounded-2xl border border-slate-100 bg-slate-50 p-3 text-left hover:border-emerald-200"
+                      >
+                        <p className="text-sm font-black text-slate-950">{copy.name}</p>
+                        <p className="mt-1 text-xs text-emerald-700 font-bold">Ksh {item.price.toLocaleString()}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {newsPreviewOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" onClick={() => setNewsPreviewOpen(false)} />
+          <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">Preview</p>
+                <h3 className="text-2xl font-black text-slate-950 mt-1">{adminNewsTitle}</h3>
+              </div>
+              <button type="button" onClick={() => setNewsPreviewOpen(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {adminNewsFile && (
+              <p className="text-xs font-semibold text-emerald-700">Photo ready: {adminNewsFile.name}</p>
+            )}
+            <p className="text-sm font-semibold text-slate-600">{adminNewsSummary}</p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{adminNewsContent}</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setNewsPreviewOpen(false)}
+                className="flex-1 rounded-xl border border-slate-200 py-2.5 text-xs font-black uppercase tracking-wider text-slate-600"
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                disabled={adminBusy === "news"}
+                onClick={() => {
+                  setNewsPreviewOpen(false);
+                  void handleAdminAddNews({ preventDefault() {} } as React.FormEvent);
+                }}
+                className="flex-1 rounded-xl bg-slate-950 py-2.5 text-xs font-black uppercase tracking-wider text-yellow-400 disabled:opacity-50"
+              >
+                {adminBusy === "news" ? "Publishing..." : "Looks good, publish"}
+              </button>
             </div>
           </div>
         </div>
