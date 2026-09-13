@@ -110,7 +110,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const pricedCart = await validateAndPriceCheckoutCart(cart);
+    const pricedCart = await validateAndPriceCheckoutCart(cart, { customerId });
     if (!pricedCart.ok) {
       return NextResponse.json(
         { success: false, error: pricedCart.error },

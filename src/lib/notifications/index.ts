@@ -167,6 +167,24 @@ export async function notifyAdminOrderAlert(message: string) {
   return { sent, results: allResults };
 }
 
+export async function notifyMembershipConfirmed(
+  phoneNumber: string,
+  planName: string,
+  expiresAt: Date
+) {
+  const expiry = new Date(expiresAt).toLocaleDateString("en-KE", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  const message = `Karibu Kariobangi Legends! Your ${planName} membership is active until ${expiry}. Your digital card is in My Account, and you get 10% off shop kits. Asante.`;
+
+  return dispatchNotification(phoneNumber, message, {
+    orderId: "membership",
+    statusLabel: "Membership confirmed",
+  });
+}
+
 export async function notifyCashOrderPlaced(input: {
   orderId: number;
   phoneNumber: string;

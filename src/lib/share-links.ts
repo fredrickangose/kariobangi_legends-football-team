@@ -65,6 +65,7 @@ export const SHAREABLE_TABS = new Set([
   "fixtures",
   "news",
   "shop",
+  "membership",
   "donors",
   "account",
   "admin",
@@ -79,5 +80,6 @@ export const SHAREABLE_TABS = new Set([
 export function normalizeShareTab(tab?: string | null): string | undefined {
   if (!tab) return undefined;
   if (tab === "donate") return "donors";
+  if (tab === "join" || tab === "member") return "membership";
   return tab;
 }

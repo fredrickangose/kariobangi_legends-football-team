@@ -14,15 +14,26 @@ import {
   orders,
   orderItems,
   customers,
+  memberships,
 } from "@/db/schema";
 import { seedDatabaseIfNeeded } from "@/db/seed";
-import { desc, asc, eq, or, and, isNull, isNotNull } from "drizzle-orm";
+import { desc, asc, eq, or, and, inArray, isNull, isNotNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { normalizeKenyaPhone } from "@/lib/order-tracking";
+import crypto from "crypto";
+import { normalizeKenyaPhone, isValidKenyaPhone } from "@/lib/order-tracking";
 import { notifyBuyerOrderUpdate } from "@/lib/notifications";
+import { findActivePaidMembership } from "@/lib/membership-server";
+import {
+  getAdminMembershipStatus,
+  getMembershipPlan,
+} from "@/lib/membership";
 import { getNotificationConfigSummary } from "@/lib/notifications/config";
-import { verifyCustomerToken } from "@/lib/customer-auth";
+import {
+  hashPassword,
+  normalizeCustomerPhone,
+  verifyCustomerToken,
+} from "@/lib/customer-auth";
 import { getPhoneLookupVariants } from "@/lib/link-customer-orders";
 import {
   ensurePressAccount,
@@ -1893,6 +1904,230 @@ export async function getCustomerOrders() {
           ? error.message
           : "Unable to load your orders.",
       orders: [],
+    };
+  }
+}
+
+function serializeAdminMembership(row: typeof memberships.$inferSelect) {
+  const plan = getMembershipPlan(row.planId);
+  const status = getAdminMembershipStatus(row.paymentStatus, row.expiresAt);
+
+  return {
+    id: row.id,
+    customerId: row.customerId,
+    fullName: row.fullName,
+    phoneNumber: row.phoneNumber,
+    planId: row.planId,
+    planName: plan?.name ?? "Official Fan",
+    amount: row.amount,
+    paymentMethod: row.paymentMethod,
+    paymentStatus: row.paymentStatus,
+    status,
+    mpesaReceiptNumber: row.mpesaReceiptNumber,
+    expiresAt: row.expiresAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export async function getMemberships() {
+  try {
+    await ensureDatabaseSchema();
+
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error, memberships: [] };
+    }
+
+    const rows = await db
+      .select()
+      .from(memberships)
+      .orderBy(desc(memberships.createdAt), desc(memberships.id));
+
+    return {
+      success: true,
+      memberships: rows.map(serializeAdminMembership),
+    };
+  } catch (error) {
+    console.error("Get memberships failed:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Unable to load memberships.",
+      memberships: [],
+    };
+  }
+}
+
+export async function addAdminMembership(input: {
+  fullName: string;
+  phone: string;
+  planId: string;
+}) {
+  try {
+    await ensureDatabaseSchema();
+
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const fullName = String(input.fullName || "").trim();
+    const phone = String(input.phone || "").trim();
+    const plan = getMembershipPlan(String(input.planId || ""));
+
+    if (!fullName) {
+      return { success: false, error: "Member name is required." };
+    }
+
+    if (!isValidKenyaPhone(phone)) {
+      return {
+        success: false,
+        error: "Enter a valid Kenyan phone number, e.g. 0712345678.",
+      };
+    }
+
+    if (!plan) {
+      return { success: false, error: "Choose a membership plan." };
+    }
+
+    const phoneNumber = normalizeCustomerPhone(phone);
+    if (!phoneNumber) {
+      return { success: false, error: "Enter a valid Kenyan phone number." };
+    }
+
+    const variants = getPhoneLookupVariants(phoneNumber);
+    const [existingCustomer] = await db
+      .select()
+      .from(customers)
+      .where(inArray(customers.phoneNumber, variants))
+      .limit(1);
+
+    let customer = existingCustomer;
+    let createdAccount = false;
+
+    if (!customer) {
+      const temporaryPassword = crypto.randomBytes(9).toString("base64url");
+      const [created] = await db
+        .insert(customers)
+        .values({
+          fullName,
+          phoneNumber,
+          email: null,
+          passwordHash: await hashPassword(temporaryPassword),
+          createdAt: new Date(),
+        })
+        .returning();
+
+      if (!created) {
+        return { success: false, error: "Unable to create a fan account for this member." };
+      }
+
+      customer = created;
+      createdAccount = true;
+    }
+
+    const active = await findActivePaidMembership(customer.id);
+    if (active) {
+      return {
+        success: false,
+        error: `${customer.fullName} already has an active ${active.planName} membership.`,
+      };
+    }
+
+    const expiresAt = new Date();
+    expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+    const [membership] = await db
+      .insert(memberships)
+      .values({
+        customerId: customer.id,
+        fullName: customer.fullName || fullName,
+        phoneNumber: customer.phoneNumber,
+        planId: plan.id,
+        amount: plan.price,
+        paymentMethod: "admin",
+        paymentStatus: "paid",
+        mpesaReceiptNumber: "ADMIN",
+        expiresAt,
+        createdAt: new Date(),
+      })
+      .returning();
+
+    if (!membership) {
+      return { success: false, error: "Unable to add this membership." };
+    }
+
+    revalidatePath("/");
+
+    return {
+      success: true,
+      createdAccount,
+      membership: serializeAdminMembership(membership),
+    };
+  } catch (error) {
+    console.error("Add admin membership failed:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Unable to add this member.",
+    };
+  }
+}
+
+export async function revokeMembership(membershipId: number) {
+  try {
+    await ensureDatabaseSchema();
+
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const id = Number(membershipId);
+    if (!Number.isInteger(id) || id <= 0) {
+      return { success: false, error: "A valid membership is required." };
+    }
+
+    const [membership] = await db
+      .select()
+      .from(memberships)
+      .where(eq(memberships.id, id))
+      .limit(1);
+
+    if (!membership) {
+      return { success: false, error: "Membership not found." };
+    }
+
+    if (membership.paymentStatus === "revoked") {
+      return { success: false, error: "This membership is already revoked." };
+    }
+
+    if (membership.paymentStatus !== "paid") {
+      return {
+        success: false,
+        error: "Only a paid membership can be revoked.",
+      };
+    }
+
+    await db
+      .update(memberships)
+      .set({
+        paymentStatus: "revoked",
+        expiresAt: new Date(),
+      })
+      .where(eq(memberships.id, id));
+
+    revalidatePath("/");
+
+    return { success: true };
+  } catch (error) {
+    console.error("Revoke membership failed:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to revoke this membership.",
     };
   }
 }

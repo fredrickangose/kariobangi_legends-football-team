@@ -191,6 +191,23 @@ export const accountMessages = pgTable("account_messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const memberships = pgTable("memberships", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull(),
+  fullName: text("full_name").notNull(),
+  phoneNumber: text("phone_number").notNull(),
+  planId: text("plan_id").notNull(),
+  amount: integer("amount").notNull(),
+  paymentMethod: text("payment_method").default("mpesa").notNull(),
+  paymentStatus: text("payment_status").default("pending").notNull(),
+  merchantRequestId: text("merchant_request_id"),
+  checkoutRequestId: text("checkout_request_id"),
+  mpesaReceiptNumber: text("mpesa_receipt_number"),
+  transactionDate: text("transaction_date"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const teamHighlights = pgTable("team_highlights", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),

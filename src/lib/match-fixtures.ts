@@ -185,18 +185,152 @@ export function getResultTone(result: MatchResult | null): {
   };
 }
 
-export function formatKickoff(date: string): string {
-  const parsed = new Date(date);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toLocaleDateString("en-KE", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
+export function hasKickoffTime(date: string): boolean {
+  return /(?:T|\s)\d{1,2}:\d{2}/.test(date.trim());
+}
+
+export function parseFixtureDate(date: string): Date | null {
+  const trimmed = date.trim();
+  if (!trimmed) return null;
+
+  const dateOnly = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    return new Date(
+      Number(dateOnly[1]),
+      Number(dateOnly[2]) - 1,
+      Number(dateOnly[3]),
+      0,
+      0,
+      0
+    );
   }
 
-  return date;
+  const dateTime = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{1,2}):(\d{2})/);
+  if (dateTime) {
+    return new Date(
+      Number(dateTime[1]),
+      Number(dateTime[2]) - 1,
+      Number(dateTime[3]),
+      Number(dateTime[4]),
+      Number(dateTime[5]),
+      0
+    );
+  }
+
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function formatKickoff(date: string): string {
+  const parsed = parseFixtureDate(date);
+  if (!parsed) return date;
+
+  const datePart = parsed.toLocaleDateString("en-KE", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  if (!hasKickoffTime(date)) {
+    return datePart;
+  }
+
+  const timePart = parsed.toLocaleTimeString("en-KE", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  return `${datePart} · ${timePart}`;
+}
+
+export type MatchCountdown = {
+  hasTime: boolean;
+  started: boolean;
+  isMatchDay: boolean;
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+};
+
+export function getMatchCountdown(
+  date: string,
+  now = new Date()
+): MatchCountdown | null {
+  const kickoff = parseFixtureDate(date);
+  if (!kickoff) return null;
+
+  const withTime = hasKickoffTime(date);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const matchDay = new Date(
+    kickoff.getFullYear(),
+    kickoff.getMonth(),
+    kickoff.getDate()
+  );
+  const dayDiff = Math.round(
+    (matchDay.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)
+  );
+
+  if (!withTime) {
+    if (dayDiff > 0) {
+      return {
+        hasTime: false,
+        started: false,
+        isMatchDay: false,
+        days: dayDiff,
+        hours: 0,
+        minutes: 0,
+        seconds: 0,
+      };
+    }
+
+    if (dayDiff === 0) {
+      return {
+        hasTime: false,
+        started: false,
+        isMatchDay: true,
+        days: 0,
+        hours: 0,
+        minutes: 0,
+        seconds: 0,
+      };
+    }
+
+    return {
+      hasTime: false,
+      started: true,
+      isMatchDay: false,
+      days: 0,
+      hours: 0,
+      minutes: 0,
+      seconds: 0,
+    };
+  }
+
+  const diff = kickoff.getTime() - now.getTime();
+  if (diff <= 0) {
+    return {
+      hasTime: true,
+      started: true,
+      isMatchDay: dayDiff === 0,
+      days: 0,
+      hours: 0,
+      minutes: 0,
+      seconds: 0,
+    };
+  }
+
+  return {
+    hasTime: true,
+    started: false,
+    isMatchDay: dayDiff === 0,
+    days: Math.floor(diff / (24 * 60 * 60 * 1000)),
+    hours: Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000)),
+    minutes: Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000)),
+    seconds: Math.floor((diff % (60 * 1000)) / 1000),
+  };
 }
 
 export function toFixtureDateInputValue(date: string): string {

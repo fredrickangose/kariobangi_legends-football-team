@@ -84,6 +84,8 @@ import {
   COMPETITION_NAME,
   combineFixtureDateTime,
   formatKickoff,
+  getMatchCountdown,
+  hasKickoffTime,
   getHomeAwayTeams,
   getMatchResult,
   getMatchStatusMeta,
@@ -165,6 +167,9 @@ import {
   getNotificationSetup,
   getClubData,
   markOrderCashPaid,
+  getMemberships,
+  addAdminMembership,
+  revokeMembership,
 } from "./actions";
 import {
   getOrderStatusLabel,
@@ -191,6 +196,15 @@ import {
   SHOP_DELIVERY_NOTE,
   SHOP_SIZE_CHART,
 } from "@/lib/merchandise-copy";
+import {
+  MEMBER_SHOP_DISCOUNT_PERCENT,
+  MEMBERSHIP_PLANS,
+  applyMemberUnitPrice,
+  formatMembershipExpiry,
+  type AdminMembershipStatus,
+  type FanMembership,
+  type MembershipPlanId,
+} from "@/lib/membership";
 interface Player {
   id: number;
   name: string;
@@ -1559,6 +1573,78 @@ function MatchStatusPill({
   );
 }
 
+function padCountdown(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function MatchCountdown({
+  date,
+  variant = "dark",
+}: {
+  date: string;
+  variant?: "dark" | "light";
+}) {
+  const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    setNow(new Date());
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const countdown = now ? getMatchCountdown(date, now) : null;
+  const isDark = variant === "dark";
+  const shellClass = isDark
+    ? "border-white/10 bg-white/5 text-white"
+    : "border-slate-200 bg-slate-50 text-slate-950";
+  const labelClass = isDark ? "text-yellow-400" : "text-emerald-600";
+  const mutedClass = isDark ? "text-slate-400" : "text-slate-500";
+  const unitClass = isDark ? "bg-black/30 text-white" : "bg-white text-slate-950 border border-slate-200";
+
+  return (
+    <div className={`rounded-2xl border px-4 py-4 sm:px-5 ${shellClass}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <Clock className={`w-4 h-4 ${labelClass}`} />
+        <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${labelClass}`}>
+          Kick-off countdown
+        </p>
+      </div>
+
+      {!countdown ? (
+        <p className={`text-sm font-bold ${mutedClass}`}>Loading kick-off...</p>
+      ) : countdown.started ? (
+        <p className="text-sm font-bold">Kick-off has passed. Check Live Now or Results.</p>
+      ) : !countdown.hasTime && countdown.isMatchDay ? (
+        <p className="text-sm font-bold">
+          Match day. Kick-off time still to be confirmed.
+        </p>
+      ) : !countdown.hasTime ? (
+        <p className="text-sm font-bold">
+          {countdown.days} day{countdown.days === 1 ? "" : "s"} to go · kick-off time TBC
+        </p>
+      ) : (
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { label: "Days", value: countdown.days },
+            { label: "Hrs", value: countdown.hours },
+            { label: "Min", value: countdown.minutes },
+            { label: "Sec", value: countdown.seconds },
+          ].map((unit) => (
+            <div key={unit.label} className={`rounded-xl px-2 py-2 text-center ${unitClass}`}>
+              <p className="text-lg sm:text-xl font-black tabular-nums">
+                {padCountdown(unit.value)}
+              </p>
+              <p className={`text-[8px] font-black uppercase tracking-wider ${mutedClass}`}>
+                {unit.label}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MatchScoreboard({
   fixture,
   variant = "default",
@@ -2062,6 +2148,13 @@ useEffect(() => {
   const [isLoadingCustomerOrders, setIsLoadingCustomerOrders] = useState(false);
   const [accountView, setAccountView] = useState<"login" | "register">("register");
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
+  const [pendingMembershipAfterAuth, setPendingMembershipAfterAuth] = useState(false);
+  const [fanMembership, setFanMembership] = useState<FanMembership | null>(null);
+  const [selectedMembershipPlanId, setSelectedMembershipPlanId] =
+    useState<MembershipPlanId>("official");
+  const [membershipPhone, setMembershipPhone] = useState("");
+  const [membershipPaymentMessage, setMembershipPaymentMessage] = useState("");
+  const [membershipPaymentPending, setMembershipPaymentPending] = useState(false);
   const [resetStep, setResetStep] = useState<"request" | "confirm">("request");
   const [showFanPasswordReset, setShowFanPasswordReset] = useState(false);
   const [isFanResetPending, setIsFanResetPending] = useState(false);
@@ -2118,6 +2211,35 @@ useEffect(() => {
   const [newspaperPassword, setNewspaperPassword] = useState("");
   const canManageClubContent = adminRole === "admin";
   const [adminOrders, setAdminOrders] = useState<any[]>([]);
+  const [adminMemberships, setAdminMemberships] = useState<
+    {
+      id: number;
+      customerId: number;
+      fullName: string;
+      phoneNumber: string;
+      planId: string;
+      planName: string;
+      amount: number;
+      paymentMethod: string;
+      paymentStatus: string;
+      status: AdminMembershipStatus;
+      mpesaReceiptNumber: string | null;
+      expiresAt: string;
+      createdAt: string;
+    }[]
+  >([]);
+  const [isLoadingMemberships, setIsLoadingMemberships] = useState(false);
+  const [membershipSearch, setMembershipSearch] = useState("");
+  const [membershipFilter, setMembershipFilter] = useState<
+    "all" | AdminMembershipStatus
+  >("all");
+  const [adminMemberName, setAdminMemberName] = useState("");
+  const [adminMemberPhone, setAdminMemberPhone] = useState("");
+  const [adminMemberPlanId, setAdminMemberPlanId] =
+    useState<MembershipPlanId>("official");
+  const [revokingMembershipId, setRevokingMembershipId] = useState<number | null>(
+    null
+  );
   const [adminArchivedOrders, setAdminArchivedOrders] = useState<any[]>([]);
   const [adminUnseenOrderCount, setAdminUnseenOrderCount] = useState(0);
   const [showArchivedOrders, setShowArchivedOrders] = useState(false);
@@ -2157,7 +2279,7 @@ const [orderFilter, setOrderFilter] = useState<
 >("all");
 
 const [orderSearch, setOrderSearch] = useState<string>("");
-const [adminPanelView, setAdminPanelView] = useState<"content" | "inbox" | "orders">("content");
+const [adminPanelView, setAdminPanelView] = useState<"content" | "inbox" | "orders" | "members">("content");
 const [notificationConfig, setNotificationConfig] = useState<{
   channels: string[];
   sms: boolean;
@@ -2198,6 +2320,34 @@ const [notificationConfig, setNotificationConfig] = useState<{
       totalSales,
     };
   }, [adminOrders]);
+
+  const adminMembershipStats = useMemo(() => {
+    const active = adminMemberships.filter((row) => row.status === "active");
+    return {
+      total: adminMemberships.length,
+      activeCount: active.length,
+      expiredCount: adminMemberships.filter((row) => row.status === "expired").length,
+      pendingCount: adminMemberships.filter((row) => row.status === "pending").length,
+      revokedCount: adminMemberships.filter((row) => row.status === "revoked").length,
+      activeRevenue: active.reduce((sum, row) => sum + Number(row.amount || 0), 0),
+    };
+  }, [adminMemberships]);
+
+  const visibleAdminMemberships = useMemo(() => {
+    const query = membershipSearch.trim().toLowerCase();
+    return adminMemberships.filter((row) => {
+      if (membershipFilter !== "all" && row.status !== membershipFilter) {
+        return false;
+      }
+      if (!query) return true;
+      return (
+        row.fullName.toLowerCase().includes(query) ||
+        row.phoneNumber.toLowerCase().includes(query) ||
+        row.planName.toLowerCase().includes(query) ||
+        String(row.id).includes(query)
+      );
+    });
+  }, [adminMemberships, membershipFilter, membershipSearch]);
   
   const [adminPlayerName, setAdminPlayerName] = useState<string>("");
   const [adminPlayerPos, setAdminPlayerPos] = useState<string>("Centre Back");
@@ -2463,7 +2613,29 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
     setCart(cart.filter((i) => !(i.merchId === merchId && i.size === size)));
   };
 
-  const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const cartTotal = cart.reduce((sum, item) => {
+    const unitPrice = fanMembership ? applyMemberUnitPrice(item.price) : item.price;
+    return sum + unitPrice * item.quantity;
+  }, 0);
+  const cartSavings = fanMembership
+    ? cart.reduce((sum, item) => sum + item.price * item.quantity, 0) - cartTotal
+    : 0;
+
+  const formatShopPrice = (price: number, className = "") => {
+    if (!fanMembership) {
+      return <span className={className}>Ksh {price.toLocaleString()}</span>;
+    }
+
+    const memberPrice = applyMemberUnitPrice(price);
+    return (
+      <span className={className}>
+        <span className="mr-1.5 line-through font-semibold text-slate-400">
+          Ksh {price.toLocaleString()}
+        </span>
+        Ksh {memberPrice.toLocaleString()}
+      </span>
+    );
+  };
   const cartJerseyItems = useMemo(
     () => cart.filter((item) => isJerseyMerchandise(item.kitType)),
     [cart]
@@ -2962,12 +3134,97 @@ const loadAdminOrders = async () => {
   }
 };
 
+const loadAdminMemberships = async () => {
+  setIsLoadingMemberships(true);
+
+  try {
+    const result = await getMemberships();
+    if (result.success) {
+      setAdminMemberships(result.memberships || []);
+    } else {
+      setAdminMemberships([]);
+      showToast(result.error || "Unable to load memberships.", "error");
+    }
+  } catch (error) {
+    console.error("Load admin memberships failed:", error);
+    setAdminMemberships([]);
+    showToast("Unable to load memberships.", "error");
+  } finally {
+    setIsLoadingMemberships(false);
+  }
+};
+
+const handleAddAdminMembership = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  startTransition(async () => {
+    const result = await addAdminMembership({
+      fullName: adminMemberName,
+      phone: adminMemberPhone,
+      planId: adminMemberPlanId,
+    });
+
+    if (!result.success) {
+      showToast(result.error || "Unable to add this member.", "error");
+      return;
+    }
+
+    setAdminMemberName("");
+    setAdminMemberPhone("");
+    setAdminMemberPlanId("official");
+    await loadAdminMemberships();
+    showToast(
+      result.createdAccount
+        ? "Member added. They can set a password with Forgot password using this phone."
+        : "Member added. Their digital card is now in My Account."
+    );
+  });
+};
+
+const handleRevokeMembership = async (membership: {
+  id: number;
+  fullName: string;
+  planName: string;
+}) => {
+  if (
+    !window.confirm(
+      `Revoke ${membership.planName} for ${membership.fullName}? They will lose shop member prices immediately.`
+    )
+  ) {
+    return;
+  }
+
+  setRevokingMembershipId(membership.id);
+
+  try {
+    const result = await revokeMembership(membership.id);
+    if (!result.success) {
+      showToast(result.error || "Unable to revoke this membership.", "error");
+      return;
+    }
+
+    await loadAdminMemberships();
+    if (customerProfile?.id) {
+      await loadCustomerMembership();
+    }
+    showToast("Membership revoked.");
+  } catch (error) {
+    console.error("Revoke membership failed:", error);
+    showToast("Unable to revoke this membership.", "error");
+  } finally {
+    setRevokingMembershipId(null);
+  }
+};
+
 const clearCustomerState = () => {
   setCustomerProfile(null);
   setCustomerOrders([]);
   setExpandedAccountOrderId(null);
   setCustomerMessages([]);
   setCustomerMessageDraft("");
+  setFanMembership(null);
+  setMembershipPaymentMessage("");
+  setMembershipPaymentPending(false);
 };
 
 const clearAdminState = () => {
@@ -3051,6 +3308,7 @@ const loadAppSessions = async () => {
       setCustomerProfile(customerData.customer);
       setCheckoutName(customerData.customer.fullName);
       setCheckoutPhone(formatStoredPhoneForInput(customerData.customer.phoneNumber));
+      setMembershipPhone(formatStoredPhoneForInput(customerData.customer.phoneNumber));
     }
 
     await refreshAdminSession();
@@ -3091,6 +3349,22 @@ const loadCustomerOrders = async () => {
   } finally {
     setIsLoadingCustomerOrders(false);
     customerOrdersLoadRef.current = false;
+  }
+};
+
+const loadCustomerMembership = async () => {
+  try {
+    const response = await fetch("/api/customer/membership", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+    });
+    const result = await response.json();
+    if (response.ok && result.success) {
+      setFanMembership(result.membership ?? null);
+    }
+  } catch (error) {
+    console.error("Load membership failed:", error);
   }
 };
 
@@ -3281,10 +3555,11 @@ const handleCustomerRegister = async (e: React.FormEvent) => {
       setCustomerProfile(data.customer);
       setCheckoutName(data.customer.fullName);
       setCheckoutPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
+      setMembershipPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
       setRegisterPassword("");
       await refreshAdminSession();
       showToast("Account created successfully.");
-      resumeCheckoutIfPending();
+      resumeAfterAuth();
     } else {
       showToast(data.error || "Unable to create account.", "error");
     }
@@ -3313,10 +3588,11 @@ const handleCustomerLogin = async (e: React.FormEvent) => {
       setCustomerProfile(data.customer);
       setCheckoutName(data.customer.fullName);
       setCheckoutPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
+      setMembershipPhone(formatStoredPhoneForInput(data.customer.phoneNumber));
       setLoginPassword("");
       await refreshAdminSession();
       showToast("Welcome back!");
-      resumeCheckoutIfPending();
+      resumeAfterAuth();
     } else {
       showToast(data.error || "Unable to sign in.", "error");
     }
@@ -3332,6 +3608,7 @@ const handleCustomerLogout = async () => {
   } finally {
     clearCustomerState();
     setPendingCheckoutAfterAuth(false);
+    setPendingMembershipAfterAuth(false);
     returnToSignIn();
     showToast("Signed out successfully. You can now sign in to another account.");
   }
@@ -3690,9 +3967,18 @@ useEffect(() => {
 }, [activeTab, customerProfile?.id]);
 
 useEffect(() => {
+  if (!customerProfile?.id) {
+    setFanMembership(null);
+    return;
+  }
+  void loadCustomerMembership();
+}, [customerProfile?.id]);
+
+useEffect(() => {
   if (activeTab === "admin" && isAdminAuthenticated && adminRole !== "news_editor") {
     loadAdminOrders();
     loadAdminInboxThreads();
+    loadAdminMemberships();
   }
 }, [activeTab, isAdminAuthenticated, adminRole]);
 
@@ -4242,9 +4528,14 @@ const handleEditFixture = (
       : ""
   );
 
-  showToast(`Editing match vs ${fixture.opponent}. Open the Admin tab to update the logo or details.`);
+  showToast(`Editing match vs ${fixture.opponent}. Set kick-off time in the match form.`);
   setActiveTab("admin");
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.setTimeout(() => {
+    document.getElementById("admin-fixture-form")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 80);
 };
   // Admin Add News
   const handleAdminAddNews = async (e: React.FormEvent) => {
@@ -5210,7 +5501,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                   ) : (
                     <div className="flex items-center gap-1 shrink-0">
                       <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded whitespace-nowrap">
-                        Ksh {item.price.toLocaleString()}
+                        {formatShopPrice(item.price)}
                       </span>
                       {canManageClubContent && (
                         <button
@@ -5499,11 +5790,18 @@ useEffect(() => {
     goToTab("account");
   };
 
-  const resumeCheckoutIfPending = () => {
+  const resumeAfterAuth = () => {
     if (pendingCheckoutAfterAuth && cart.length > 0) {
       setPendingCheckoutAfterAuth(false);
       setIsCartOpen(true);
       showToast("Your account is ready. Complete payment in your cart.");
+      return;
+    }
+
+    if (pendingMembershipAfterAuth) {
+      setPendingMembershipAfterAuth(false);
+      goToTab("membership");
+      showToast("Your account is ready. Choose a plan and pay with M-Pesa.");
     }
   };
 
@@ -5516,6 +5814,126 @@ useEffect(() => {
         ? "Create a free account to complete your purchase."
         : "Sign in to complete your purchase."
     );
+  };
+
+  const redirectToMembershipAuth = (preferRegister = true) => {
+    setPendingMembershipAfterAuth(true);
+    openAccountTab(preferRegister);
+    showToast(
+      preferRegister
+        ? "Create a free account to join as an official supporter."
+        : "Sign in to join as an official supporter."
+    );
+  };
+
+  const handleMembershipSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!customerProfile) {
+      redirectToMembershipAuth(true);
+      return;
+    }
+
+    if (fanMembership) {
+      showToast("You already have an active membership. It is on your account card.");
+      goToTab("account");
+      return;
+    }
+
+    const plan = MEMBERSHIP_PLANS.find((item) => item.id === selectedMembershipPlanId);
+    if (!plan) {
+      showToast("Choose a membership plan.", "error");
+      return;
+    }
+
+    if (!membershipPhone.trim()) {
+      showToast("Enter your M-Pesa phone number.", "error");
+      return;
+    }
+
+    startTransition(async () => {
+      setMembershipPaymentPending(true);
+      setMembershipPaymentMessage("");
+
+      try {
+        const response = await fetch("/api/mpesa/membership-stkpush", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            planId: plan.id,
+            phone: membershipPhone,
+          }),
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          showToast(data.error || "Unable to start membership payment.", "error");
+          setMembershipPaymentPending(false);
+          return;
+        }
+
+        const membershipId = data.membershipId;
+        setMembershipPaymentMessage(
+          `M-Pesa payment request sent to ${membershipPhone}. Enter your PIN to complete Ksh ${plan.price.toLocaleString()}.`
+        );
+
+        let attempts = 0;
+        const maxAttempts = 30;
+
+        const checkMembershipStatus = async () => {
+          attempts += 1;
+
+          try {
+            const statusResponse = await fetch(
+              `/api/mpesa/membership-status?membershipId=${membershipId}&phone=${encodeURIComponent(membershipPhone)}`,
+              { method: "GET", cache: "no-store", credentials: "include" }
+            );
+            const statusData = await statusResponse.json();
+
+            if (statusResponse.ok && statusData.success) {
+              if (statusData.paymentStatus === "paid") {
+                setMembershipPaymentMessage(
+                  `Welcome in. Payment confirmed. Receipt: ${statusData.mpesaReceiptNumber || "confirmed"}.`
+                );
+                showToast("You are now an official Kariobangi Legends supporter.");
+                await loadCustomerMembership();
+                setMembershipPaymentPending(false);
+                return;
+              }
+
+              if (statusData.paymentStatus === "failed") {
+                setMembershipPaymentMessage("");
+                showToast("M-Pesa payment was cancelled or failed. Please try again.", "error");
+                setMembershipPaymentPending(false);
+                return;
+              }
+            }
+
+            if (attempts < maxAttempts) {
+              setTimeout(checkMembershipStatus, 3000);
+            } else {
+              setMembershipPaymentMessage(
+                "We are still waiting for M-Pesa. If you paid, refresh My Account in a minute."
+              );
+              setMembershipPaymentPending(false);
+            }
+          } catch (error) {
+            console.error("Membership status poll failed:", error);
+            if (attempts < maxAttempts) {
+              setTimeout(checkMembershipStatus, 3000);
+            } else {
+              setMembershipPaymentPending(false);
+            }
+          }
+        };
+
+        setTimeout(checkMembershipStatus, 3000);
+      } catch (error) {
+        console.error("Membership payment failed:", error);
+        showToast("Unable to start membership payment.", "error");
+        setMembershipPaymentPending(false);
+      }
+    });
   };
 
   const desktopNavLinkClass = (isActive: boolean) =>
@@ -5724,6 +6142,14 @@ useEffect(() => {
 
               <button
                 type="button"
+                onClick={() => goToTab("membership")}
+                className={desktopNavLinkClass(activeTab === "membership")}
+              >
+                Join
+              </button>
+
+              <button
+                type="button"
                 onClick={() => goToTab("contact")}
                 className={desktopNavLinkClass(activeTab === "contact")}
               >
@@ -5826,6 +6252,7 @@ useEffect(() => {
                         },
                         { id: "news", label: "Club News", icon: Newspaper },
                         { id: "shop", label: "Merchandise Shop", icon: ShoppingBag },
+                        { id: "membership", label: "Join as a Fan", icon: Award },
                         { id: "donors", label: "Donations", icon: HeartHandshake },
                         { id: "contact", label: "Contact Centre", icon: Phone },
                       ].map((tab) => {
@@ -6130,6 +6557,32 @@ useEffect(() => {
 
 </div>
 
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 sm:p-8 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
+                <div className="space-y-2 max-w-2xl">
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-600">
+                    Official Supporters
+                  </p>
+                  <h2 className="text-2xl font-black text-slate-950 tracking-tight">
+                    Join the Legends
+                  </h2>
+                  <p className="text-sm text-slate-600 leading-relaxed">
+                    Youth Fan Ksh 500 or Official Fan Ksh 1,500 for one year. You get a digital card
+                    in My Account and {MEMBER_SHOP_DISCOUNT_PERCENT}% off shop kits. Donate separately
+                    if you want to give extra today.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => goToTab("membership")}
+                  className="inline-flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl cursor-pointer"
+                >
+                  <Award className="w-4 h-4" />
+                  Become a member
+                </button>
+              </div>
+            </section>
+
             {/* ================= NEXT MATCH ================= */}
 {upcomingFixtures.length > 0 && (
   <section className="space-y-5">
@@ -6280,7 +6733,7 @@ useEffect(() => {
 
             <div>
               <p className="text-[9px] uppercase tracking-widest font-black text-slate-500">
-                Date
+                Kick-off
               </p>
               <p className="text-sm font-bold text-white">
                 {formatKickoff(upcomingFixtures[0].date)}
@@ -6327,6 +6780,10 @@ useEffect(() => {
 
         </div>
 
+      </div>
+
+      <div className="relative z-10 px-5 sm:px-8 pt-4">
+        <MatchCountdown date={upcomingFixtures[0].date} />
       </div>
 
       <div className="relative z-10 px-5 sm:px-8 pb-2">
@@ -8221,6 +8678,19 @@ useEffect(() => {
                       </div>
                     </div>
                   </div>
+                  <MatchCountdown date={fixtureGroups.nextMatch.date} />
+                  {canManageClubContent && (
+                    <button
+                      type="button"
+                      onClick={() => handleEditFixture(fixtureGroups.nextMatch)}
+                      className="w-full inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-yellow-400 font-black text-xs uppercase tracking-wider py-3 rounded-xl cursor-pointer"
+                    >
+                      <Clock className="w-4 h-4" />
+                      {hasKickoffTime(fixtureGroups.nextMatch.date)
+                        ? "Edit kick-off time"
+                        : "Set kick-off time"}
+                    </button>
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <GetDirectionsLink
                       venue={fixtureGroups.nextMatch.venue}
@@ -8436,6 +8906,24 @@ useEffect(() => {
               </p>
             </div>
 
+            {fanMembership ? (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                <strong>{fanMembership.planName} perk:</strong> {MEMBER_SHOP_DISCOUNT_PERCENT}% off is already applied
+                until {formatMembershipExpiry(fanMembership.expiresAt)}.
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                Official supporters get {MEMBER_SHOP_DISCOUNT_PERCENT}% off shop kits.{" "}
+                <button
+                  type="button"
+                  onClick={() => goToTab("membership")}
+                  className="font-bold text-emerald-700 hover:text-emerald-800 cursor-pointer"
+                >
+                  Join from Ksh 500
+                </button>
+              </div>
+            )}
+
             {clubData.merchandise.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 sm:p-14 text-center space-y-3">
                 <ShoppingBag className="w-10 h-10 text-slate-300 mx-auto" />
@@ -8614,6 +9102,160 @@ useEffect(() => {
           </div>
         )}
 
+        {/* ================= TAB: MEMBERSHIP ================= */}
+        {activeTab === "membership" && (
+          <div className="space-y-8">
+            <div className="relative overflow-hidden rounded-3xl bg-slate-950 text-white border border-slate-800 shadow-2xl">
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/20 via-transparent to-yellow-400/10" />
+              <div className="relative z-10 p-6 sm:p-10 space-y-4">
+                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-yellow-400 text-slate-950 text-[9px] font-black uppercase tracking-widest">
+                  <Award className="w-3.5 h-3.5" />
+                  Official Supporters
+                </span>
+                <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
+                  Join the <span className="text-yellow-400">Legends</span>
+                </h2>
+                <p className="max-w-2xl text-sm sm:text-base text-slate-300 leading-relaxed">
+                  A simple yearly membership. Sign in, pay with M-Pesa, then keep your digital card
+                  in My Account. Members get {MEMBER_SHOP_DISCOUNT_PERCENT}% off official shop kits.
+                  Want to give extra today? Use Donations instead.
+                </p>
+              </div>
+            </div>
+
+            {fanMembership ? (
+              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 sm:p-8 space-y-4">
+                <p className="text-sm font-black uppercase tracking-wider text-emerald-700">
+                  You are already a member
+                </p>
+                <p className="text-2xl font-black text-slate-950">{fanMembership.planName}</p>
+                <p className="text-sm text-slate-600">
+                  Active until {formatMembershipExpiry(fanMembership.expiresAt)}. Your digital card
+                  is in My Account, and shop prices already include your {MEMBER_SHOP_DISCOUNT_PERCENT}% perk.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => goToTab("account")}
+                    className="inline-flex items-center gap-2 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl cursor-pointer"
+                  >
+                    View my card
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => goToTab("shop")}
+                    className="inline-flex items-center gap-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl cursor-pointer"
+                  >
+                    Shop with member prices
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleMembershipSubmit} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {MEMBERSHIP_PLANS.map((plan) => {
+                    const selected = selectedMembershipPlanId === plan.id;
+                    return (
+                      <button
+                        key={plan.id}
+                        type="button"
+                        onClick={() => setSelectedMembershipPlanId(plan.id)}
+                        className={`text-left rounded-3xl border p-6 space-y-3 transition cursor-pointer ${
+                          selected
+                            ? "border-emerald-500 bg-emerald-50 shadow-md shadow-emerald-600/10"
+                            : "border-slate-200 bg-white hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                            {plan.id === "youth" ? "Young supporters" : "Full membership"}
+                          </p>
+                          {selected && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                              <Check className="w-3.5 h-3.5" />
+                              Selected
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-950">{plan.name}</h3>
+                        <p className="text-3xl font-black text-emerald-700">
+                          Ksh {plan.price.toLocaleString()}
+                          <span className="ml-1 text-xs font-bold uppercase tracking-wider text-slate-400">
+                            / year
+                          </span>
+                        </p>
+                        <p className="text-sm text-slate-600 leading-relaxed">{plan.blurb}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {!customerProfile ? (
+                  <div className="rounded-3xl border border-amber-200 bg-amber-50 p-6 space-y-4">
+                    <p className="font-black text-slate-950">Sign in to join</p>
+                    <p className="text-sm text-slate-600">
+                      Create a free fan account first. Then pay with M-Pesa and your digital card
+                      will appear in My Account.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button
+                        type="button"
+                        onClick={() => redirectToMembershipAuth(true)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl cursor-pointer"
+                      >
+                        Create account & join
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => redirectToMembershipAuth(false)}
+                        className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl cursor-pointer"
+                      >
+                        I already have an account
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-3xl border border-slate-100 bg-white p-6 sm:p-8 space-y-5">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        M-Pesa phone number
+                      </label>
+                      <input
+                        type="tel"
+                        placeholder="0712345678"
+                        value={membershipPhone}
+                        onChange={(e) => setMembershipPhone(e.target.value)}
+                        className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        required
+                      />
+                    </div>
+                    {membershipPaymentMessage && (
+                      <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                        {membershipPaymentMessage}
+                      </p>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={isPending || membershipPaymentPending}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider py-3.5 rounded-xl cursor-pointer disabled:opacity-50"
+                    >
+                      {membershipPaymentPending
+                        ? "Waiting for M-Pesa..."
+                        : `Pay Ksh ${
+                            MEMBERSHIP_PLANS.find((plan) => plan.id === selectedMembershipPlanId)?.price.toLocaleString() ??
+                            "1,500"
+                          } with M-Pesa`}
+                    </button>
+                    <p className="text-xs text-slate-500 text-center">
+                      You will get an STK prompt on your phone. After payment, your card appears in My Account.
+                    </p>
+                  </div>
+                )}
+              </form>
+            )}
+          </div>
+        )}
+
         {/* ================= TAB: DONATIONS ================= */}
         {activeTab === "donors" && (
           <div className="space-y-8">
@@ -8634,7 +9276,16 @@ useEffect(() => {
                     Division One football demands more than passion. Your donation helps us provide
                     boots, academy programmes, match travel, and daily training for young players
                     from Kariobangi North. Give in KES via M-Pesa or in USD, GBP, and EUR from abroad.
+                    Membership is yearly support; a donation here is an extra gift today.
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => goToTab("membership")}
+                    className="inline-flex items-center gap-2 text-yellow-400 text-xs font-black uppercase tracking-wider hover:text-yellow-300 cursor-pointer"
+                  >
+                    <Award className="w-4 h-4" />
+                    Prefer yearly membership? Join from Ksh 500
+                  </button>
                 </div>
               </div>
             </div>
@@ -9023,10 +9674,12 @@ useEffect(() => {
                   </h2>
                   <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
                     {customerProfile
-                      ? "Track your orders, message the club admin, and read replies here in your account."
+                      ? "Your digital membership card, shop orders, and club messages live here."
                         : pendingCheckoutAfterAuth
                         ? "Create a free fan account or sign in to pay for the items in your cart. Club officials and press partners can sign in on the right."
-                        : "Fans register to shop official kits, pay with M-Pesa, and track orders. Each registered account works on its own phone or computer at the same time. Club officials manage the site on the right; newspapers use the press login to publish team news only."}
+                        : pendingMembershipAfterAuth
+                        ? "Create a free fan account or sign in to join as an official supporter with M-Pesa."
+                        : "Fans register to shop official kits, join as supporters, pay with M-Pesa, and track orders. Each registered account works on its own phone or computer at the same time. Club officials manage the site on the right; newspapers use the press login to publish team news only."}
                   </p>
                 </div>
               </div>
@@ -9058,6 +9711,59 @@ useEffect(() => {
                     </button>
                   </div>
                 </div>
+
+                {fanMembership ? (
+                  <div className="relative overflow-hidden rounded-3xl bg-slate-950 text-white border border-slate-800 shadow-xl">
+                    <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/25 via-transparent to-yellow-400/15" />
+                    <div className="relative z-10 p-6 sm:p-8 space-y-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-yellow-400">
+                          Official supporter card
+                        </p>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1 text-[10px] font-black uppercase tracking-wider">
+                          <Award className="w-3.5 h-3.5" />
+                          Active
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-2xl font-black tracking-tight">{customerProfile.fullName}</p>
+                        <p className="text-sm text-slate-300">{fanMembership.planName}</p>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Valid until</p>
+                          <p className="font-bold text-white">{formatMembershipExpiry(fanMembership.expiresAt)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Paid</p>
+                          <p className="font-bold text-white">Ksh {fanMembership.amount.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Receipt</p>
+                          <p className="font-bold text-white">{fanMembership.mpesaReceiptNumber || "Confirmed"}</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-300">
+                        {MEMBER_SHOP_DISCOUNT_PERCENT}% off official shop kits is already applied at checkout.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-6 sm:p-8 space-y-3">
+                    <p className="text-sm font-bold text-slate-800">No active membership yet</p>
+                    <p className="text-sm text-slate-500">
+                      Join as a Youth Fan or Official Fan to get your digital card and {MEMBER_SHOP_DISCOUNT_PERCENT}% off the shop.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => goToTab("membership")}
+                      className="inline-flex items-center gap-2 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl cursor-pointer"
+                    >
+                      <Award className="w-4 h-4" />
+                      Join the Legends
+                    </button>
+                  </div>
+                )}
 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between gap-3">
@@ -9256,6 +9962,11 @@ useEffect(() => {
                 {pendingCheckoutAfterAuth && (
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                     <strong>Checkout waiting:</strong> create an account or sign in to pay for the items in your cart.
+                  </div>
+                )}
+                {pendingMembershipAfterAuth && (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                    <strong>Membership waiting:</strong> create an account or sign in, then pay with M-Pesa to join.
                   </div>
                 )}
 
@@ -10189,6 +10900,26 @@ useEffect(() => {
                       </span>
                     )}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminPanelView("members");
+                      loadAdminMemberships();
+                    }}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-2 ${
+                      adminPanelView === "members"
+                        ? "bg-slate-950 text-yellow-400 shadow-md"
+                        : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <Award className="w-4 h-4" />
+                    Members
+                    {adminMembershipStats.activeCount > 0 && (
+                      <span className="min-w-5 h-5 px-1 rounded-full bg-emerald-600 text-white text-[10px] font-black flex items-center justify-center">
+                        {adminMembershipStats.activeCount}
+                      </span>
+                    )}
+                  </button>
                 </div>
                 )}
 
@@ -10866,13 +11597,45 @@ useEffect(() => {
                   </div>
                   <div className="space-y-8 min-w-0">
                   {/* Action 2: Add Fixture (Dynamically updates upcoming games) */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                  <div
+                    id="admin-fixture-form"
+                    className={`bg-white p-6 rounded-3xl border shadow-sm space-y-4 scroll-mt-28 ${
+                      editingFixtureId
+                        ? "border-yellow-400 ring-2 ring-yellow-400/30"
+                        : "border-slate-100"
+                    }`}
+                  >
                     <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
                       <Calendar className="w-5 h-5 text-yellow-500" /> Log / Update Match Game
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Instantly updates the upcoming match banner on the Home page and the Match Center. Upload opponent logos directly from your device.
+                      Instantly updates the upcoming match banner on the Home page and the Match Center. Set kick-off time here so fans see the clock.
                     </p>
+                    {editingFixtureId ? (
+                      <div className="rounded-xl border border-yellow-300 bg-yellow-50 px-3 py-2 flex items-center justify-between gap-3">
+                        <p className="text-xs font-bold text-slate-800">
+                          Editing existing match{adminOpponent ? `: ${adminOpponent}` : ""}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingFixtureId(null);
+                            setAdminOpponent("");
+                            setAdminMatchDate("");
+                            setAdminMatchTime("");
+                            setAdminHomeScore("");
+                            setAdminAwayScore("");
+                            setAdminOpponentLogoFile(null);
+                            setAdminOpponentLogoUrl("");
+                            setAdminStatus("upcoming");
+                            setAdminMatchType("league");
+                          }}
+                          className="text-[10px] font-black uppercase tracking-wider text-slate-600 hover:text-rose-600 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : null}
                     <form
   onSubmit={
     editingFixtureId
@@ -10894,25 +11657,101 @@ useEffect(() => {
                           />
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div className="space-y-1">
-                            <label className="font-bold text-slate-500">Match Date</label>
-                            <input
-                              type="date"
-                              value={adminMatchDate}
-                              onChange={(e) => setAdminMatchDate(e.target.value)}
-                              className="w-full p-2.5 rounded-lg border border-slate-200 bg-white focus:ring-1 focus:ring-emerald-500"
-                              required
-                            />
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Match Date</label>
+                          <input
+                            type="date"
+                            value={adminMatchDate}
+                            onChange={(e) => setAdminMatchDate(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white focus:ring-1 focus:ring-emerald-500"
+                            required
+                          />
+                        </div>
+
+                        <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-3 space-y-2">
+                          <label className="font-black text-slate-800 flex items-center gap-1.5">
+                            <Clock className="w-4 h-4 text-yellow-600" />
+                            Kick-off time
+                          </label>
+                          <p className="text-[10px] text-slate-600">
+                            Fans see this on Home and Match Centre, and the countdown uses it.
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <select
+                              value={adminMatchTime ? adminMatchTime.split(":")[0] || "" : ""}
+                              onChange={(e) => {
+                                const hour = e.target.value;
+                                if (!hour) {
+                                  setAdminMatchTime("");
+                                  return;
+                                }
+                                const minute = adminMatchTime.split(":")[1] || "00";
+                                setAdminMatchTime(`${hour}:${minute}`);
+                              }}
+                              className="w-full p-2.5 rounded-lg border border-yellow-300 bg-white text-sm font-bold"
+                              aria-label="Kick-off hour"
+                            >
+                              <option value="">Hour</option>
+                              {Array.from({ length: 13 }, (_, index) => {
+                                const hour = String(index + 8).padStart(2, "0");
+                                return (
+                                  <option key={hour} value={hour}>
+                                    {hour}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            <select
+                              value={adminMatchTime ? adminMatchTime.split(":")[1] || "" : ""}
+                              onChange={(e) => {
+                                const minute = e.target.value;
+                                if (!minute) {
+                                  setAdminMatchTime("");
+                                  return;
+                                }
+                                const hour = adminMatchTime.split(":")[0] || "15";
+                                setAdminMatchTime(`${hour}:${minute}`);
+                              }}
+                              className="w-full p-2.5 rounded-lg border border-yellow-300 bg-white text-sm font-bold"
+                              aria-label="Kick-off minute"
+                            >
+                              <option value="">Minute</option>
+                              {(() => {
+                                const currentMinute = adminMatchTime.split(":")[1] || "";
+                                const minutes = ["00", "15", "30", "45"];
+                                if (currentMinute && !minutes.includes(currentMinute)) {
+                                  minutes.unshift(currentMinute);
+                                }
+                                return minutes.map((minute) => (
+                                  <option key={minute} value={minute}>
+                                    {minute}
+                                  </option>
+                                ));
+                              })()}
+                            </select>
                           </div>
-                          <div className="space-y-1">
-                            <label className="font-bold text-slate-500">Kick-off Time (optional)</label>
-                            <input
-                              type="time"
-                              value={adminMatchTime}
-                              onChange={(e) => setAdminMatchTime(e.target.value)}
-                              className="w-full p-2.5 rounded-lg border border-slate-200 bg-white focus:ring-1 focus:ring-emerald-500"
-                            />
+                          <div className="flex flex-wrap gap-1.5">
+                            {["14:00", "15:00", "15:30", "16:00"].map((time) => (
+                              <button
+                                key={time}
+                                type="button"
+                                onClick={() => setAdminMatchTime(time)}
+                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider cursor-pointer ${
+                                  adminMatchTime === time
+                                    ? "bg-slate-950 text-yellow-400"
+                                    : "bg-white border border-yellow-300 text-slate-700 hover:bg-yellow-100"
+                                }`}
+                              >
+                                {time}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => setAdminMatchTime("")}
+                              className="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-white border border-slate-200 text-slate-500 hover:text-rose-600 cursor-pointer"
+                            >
+                              Clear
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -10922,7 +11761,7 @@ useEffect(() => {
                           Scheduled for{" "}
                           <span className="font-bold text-slate-700">
                             {formatKickoff(combineFixtureDateTime(adminMatchDate, adminMatchTime))}
-                            {adminMatchTime ? ` at ${adminMatchTime}` : ""}
+                            {!adminMatchTime ? " · time TBC" : ""}
                           </span>
                         </p>
                       )}
@@ -11081,6 +11920,63 @@ useEffect(() => {
     : "Save Match Fixture"}
                       </button>
                     </form>
+
+                    {clubData.fixtures.length > 0 && (
+                      <div className="space-y-3 border-t border-slate-100 pt-4">
+                        <div>
+                          <h4 className="font-black text-sm text-slate-950">Existing matches</h4>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Pick a match to set or change kick-off time. The next match is at the top.
+                          </p>
+                        </div>
+                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                          {[...clubData.fixtures]
+                            .sort((a, b) => {
+                              const aUpcoming = !isFixtureFinished(a);
+                              const bUpcoming = !isFixtureFinished(b);
+                              if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+                              return aUpcoming
+                                ? a.date.localeCompare(b.date)
+                                : b.date.localeCompare(a.date);
+                            })
+                            .map((fixture) => {
+                              const isEditing = editingFixtureId === fixture.id;
+                              const timeSet = hasKickoffTime(fixture.date);
+                              return (
+                                <div
+                                  key={fixture.id}
+                                  className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border px-3 py-2.5 ${
+                                    isEditing
+                                      ? "border-yellow-400 bg-yellow-50"
+                                      : "border-slate-100 bg-slate-50"
+                                  }`}
+                                >
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-black text-slate-950 truncate">
+                                      {fixture.opponent}
+                                      {fixtureGroups.nextMatch?.id === fixture.id
+                                        ? " · Next match"
+                                        : ""}
+                                    </p>
+                                    <p className="text-[10px] text-slate-500">
+                                      {formatKickoff(fixture.date)}
+                                      {!timeSet ? " · time TBC" : ""}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditFixture(fixture)}
+                                    className="shrink-0 inline-flex items-center justify-center gap-1.5 bg-slate-950 hover:bg-slate-900 text-yellow-400 text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-lg cursor-pointer"
+                                  >
+                                    <Clock className="w-3.5 h-3.5" />
+                                    {timeSet ? "Edit time" : "Set time"}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
 {/* Action 3: Add Gallery Image */}
@@ -12820,6 +13716,233 @@ useEffect(() => {
                   </div>
                 )}
 
+                {adminPanelView === "members" && adminRole !== "news_editor" && (
+                  <div className="space-y-6">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminPanelView("content");
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-600 hover:text-emerald-700 transition cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Back to Admin Panel
+                    </button>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+                      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          All records
+                        </p>
+                        <p className="text-3xl font-black text-slate-950 mt-2">
+                          {adminMembershipStats.total}
+                        </p>
+                      </div>
+                      <div className="bg-emerald-50 rounded-2xl border border-emerald-100 shadow-sm p-5">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600">
+                          Active
+                        </p>
+                        <p className="text-3xl font-black text-emerald-700 mt-2">
+                          {adminMembershipStats.activeCount}
+                        </p>
+                      </div>
+                      <div className="bg-slate-50 rounded-2xl border border-slate-100 shadow-sm p-5">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                          Expired
+                        </p>
+                        <p className="text-3xl font-black text-slate-800 mt-2">
+                          {adminMembershipStats.expiredCount}
+                        </p>
+                      </div>
+                      <div className="bg-rose-50 rounded-2xl border border-rose-100 shadow-sm p-5">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-rose-600">
+                          Revoked
+                        </p>
+                        <p className="text-3xl font-black text-rose-700 mt-2">
+                          {adminMembershipStats.revokedCount}
+                        </p>
+                      </div>
+                      <div className="bg-slate-950 rounded-2xl shadow-sm p-5">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          Active value
+                        </p>
+                        <p className="text-2xl font-black text-yellow-400 mt-2">
+                          Ksh {adminMembershipStats.activeRevenue.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+
+                    <form
+                      onSubmit={handleAddAdminMembership}
+                      className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-4"
+                    >
+                      <div>
+                        <h3 className="font-black text-lg text-slate-950 flex items-center gap-2">
+                          <UserPlus className="w-5 h-5 text-emerald-600" />
+                          Add a member
+                        </h3>
+                        <p className="text-sm text-slate-500 mt-1">
+                          Grant a one-year card for cash or complimentary membership. If they have no
+                          fan account, one is created on this phone.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <input
+                          type="text"
+                          required
+                          placeholder="Full name"
+                          value={adminMemberName}
+                          onChange={(e) => setAdminMemberName(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                        <input
+                          type="tel"
+                          required
+                          placeholder="0712345678"
+                          value={adminMemberPhone}
+                          onChange={(e) => setAdminMemberPhone(e.target.value)}
+                          className="w-full p-3 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                        <select
+                          value={adminMemberPlanId}
+                          onChange={(e) =>
+                            setAdminMemberPlanId(e.target.value as MembershipPlanId)
+                          }
+                          className="w-full p-3 rounded-xl border border-slate-200 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          {MEMBERSHIP_PLANS.map((plan) => (
+                            <option key={plan.id} value={plan.id}>
+                              {plan.name} · Ksh {plan.price.toLocaleString()}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="submit"
+                          disabled={isPending}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-4 py-3 rounded-xl cursor-pointer disabled:opacity-50"
+                        >
+                          {isPending ? "Adding..." : "Add member"}
+                        </button>
+                      </div>
+                    </form>
+
+                    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                      <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div className="space-y-3">
+                          <h3 className="font-black text-lg text-slate-950 flex items-center gap-2">
+                            <Award className="w-5 h-5 text-emerald-600" />
+                            Membership roll
+                          </h3>
+                          <div className="flex flex-col sm:flex-row gap-3">
+                            <input
+                              type="text"
+                              value={membershipSearch}
+                              onChange={(e) => setMembershipSearch(e.target.value)}
+                              placeholder="Search name, phone, or plan..."
+                              className="w-full sm:w-72 px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-medium outline-none focus:ring-2 focus:ring-emerald-500"
+                            />
+                            <select
+                              value={membershipFilter}
+                              onChange={(e) =>
+                                setMembershipFilter(
+                                  e.target.value as "all" | AdminMembershipStatus
+                                )
+                              }
+                              className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold bg-white outline-none focus:ring-2 focus:ring-emerald-500"
+                            >
+                              <option value="all">All</option>
+                              <option value="active">Active</option>
+                              <option value="expired">Expired</option>
+                              <option value="pending">Pending</option>
+                              <option value="failed">Failed</option>
+                              <option value="revoked">Revoked</option>
+                            </select>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => loadAdminMemberships()}
+                          disabled={isLoadingMemberships}
+                          className="bg-slate-950 text-yellow-400 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-900 cursor-pointer disabled:opacity-50"
+                        >
+                          {isLoadingMemberships ? "Refreshing..." : "Refresh"}
+                        </button>
+                      </div>
+
+                      {isLoadingMemberships ? (
+                        <div className="p-10 text-center text-sm text-slate-500">
+                          Loading memberships...
+                        </div>
+                      ) : visibleAdminMemberships.length === 0 ? (
+                        <div className="p-10 text-center text-sm text-slate-500">
+                          No memberships match this view yet.
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-100">
+                          {visibleAdminMemberships.map((row) => {
+                            const statusClass =
+                              row.status === "active"
+                                ? "bg-emerald-50 text-emerald-700"
+                                : row.status === "revoked"
+                                  ? "bg-rose-50 text-rose-700"
+                                  : row.status === "pending"
+                                    ? "bg-yellow-50 text-yellow-700"
+                                    : "bg-slate-100 text-slate-600";
+
+                            return (
+                              <div
+                                key={row.id}
+                                className="p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
+                              >
+                                <div className="space-y-1">
+                                  <p className="font-black text-slate-950">{row.fullName}</p>
+                                  <p className="text-sm text-slate-600">
+                                    {formatPhoneDisplay(row.phoneNumber)} · {row.planName} · Ksh{" "}
+                                    {row.amount.toLocaleString()}
+                                  </p>
+                                  <p className="text-xs text-slate-500">
+                                    {row.status === "active" ? "Valid until" : "Ended"}{" "}
+                                    {formatMembershipExpiry(row.expiresAt)}
+                                    {row.mpesaReceiptNumber
+                                      ? ` · ${row.paymentMethod === "admin" ? "Added by admin" : `Receipt ${row.mpesaReceiptNumber}`}`
+                                      : ""}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span
+                                    className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${statusClass}`}
+                                  >
+                                    {row.status}
+                                  </span>
+                                  {row.status === "active" && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void handleRevokeMembership({
+                                          id: row.id,
+                                          fullName: row.fullName,
+                                          planName: row.planName,
+                                        })
+                                      }
+                                      disabled={revokingMembershipId === row.id}
+                                      className="bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-wider px-4 py-2.5 rounded-xl cursor-pointer disabled:opacity-50"
+                                    >
+                                      {revokingMembershipId === row.id
+                                        ? "Revoking..."
+                                        : "Revoke"}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
               </div>
               
             )}
@@ -12932,7 +14055,16 @@ useEffect(() => {
                               Size: <strong>{item.size}</strong> • Qty: <strong>{item.quantity}</strong>
                             </p>
                             <p className="text-xs font-bold text-slate-950">
-                              Ksh {(item.price * item.quantity).toLocaleString()}
+                              {fanMembership ? (
+                                <>
+                                  <span className="mr-1.5 line-through font-semibold text-slate-400">
+                                    Ksh {(item.price * item.quantity).toLocaleString()}
+                                  </span>
+                                  Ksh {(applyMemberUnitPrice(item.price) * item.quantity).toLocaleString()}
+                                </>
+                              ) : (
+                                <>Ksh {(item.price * item.quantity).toLocaleString()}</>
+                              )}
                             </p>
                           </div>
 
@@ -13292,6 +14424,11 @@ useEffect(() => {
     </span>
 
   </div>
+  {fanMembership && cartSavings > 0 && (
+    <p className="text-[11px] font-bold text-emerald-700 px-1">
+      Member price: {MEMBER_SHOP_DISCOUNT_PERCENT}% off applied
+    </p>
+  )}
 
   {/* Confirm Payment */}
   <button
@@ -13332,6 +14469,11 @@ useEffect(() => {
                       Ksh {cartTotal.toLocaleString()}
                     </span>
                   </div>
+                  {fanMembership && cartSavings > 0 && (
+                    <p className="text-[11px] font-bold text-emerald-700">
+                      {fanMembership.planName} perk: you save Ksh {cartSavings.toLocaleString()}
+                    </p>
+                  )}
                   <div className="flex justify-between items-center text-[10px] text-slate-400 font-semibold">
                     <span>Supporting local Nairobi factories</span>
                     <span>approx. ${(cartTotal / 130).toFixed(2)} USD</span>
@@ -13429,7 +14571,7 @@ useEffect(() => {
                 </div>
 
                 <p className="text-lg font-black text-emerald-700">
-                  Ksh {selectedShopItem.price.toLocaleString()}
+                  {formatShopPrice(selectedShopItem.price)}
                 </p>
 
                 <div className="space-y-2">
@@ -13519,7 +14661,7 @@ useEffect(() => {
                         className="rounded-2xl border border-slate-100 bg-slate-50 p-3 text-left hover:border-emerald-200"
                       >
                         <p className="text-sm font-black text-slate-950">{copy.name}</p>
-                        <p className="mt-1 text-xs text-emerald-700 font-bold">Ksh {item.price.toLocaleString()}</p>
+                        <p className="mt-1 text-xs text-emerald-700 font-bold">{formatShopPrice(item.price)}</p>
                       </button>
                     );
                   })}
@@ -13742,6 +14884,7 @@ useEffect(() => {
           { label: "Team Highlights", tab: "highlights" },
           { label: "Fan Zone", tab: "fanzone" },
           { label: "Merchandise Shop", tab: "shop" },
+          { label: "Join as a Fan", tab: "membership" },
           { label: "My Account", tab: "account" },
           { label: "Donations", tab: "donors" },
           { label: "Contact Centre", tab: "contact" },

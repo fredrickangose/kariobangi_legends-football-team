@@ -6,6 +6,8 @@ import {
   type CheckoutCartItem,
 } from "@/lib/order-customization";
 import { isMerchandiseAvailable } from "@/lib/merchandise-stock";
+import { applyMemberUnitPrice } from "@/lib/membership";
+import { findActivePaidMembership } from "@/lib/membership-server";
 
 const MAX_LINE_QUANTITY = 20;
 
@@ -17,9 +19,10 @@ function parseMerchandiseSizes(raw: string): string[] {
 }
 
 export async function validateAndPriceCheckoutCart(
-  cart: CheckoutCartItem[]
+  cart: CheckoutCartItem[],
+  options?: { customerId?: number | null }
 ): Promise<
-  | { ok: true; cart: CheckoutCartItem[]; totalAmount: number }
+  | { ok: true; cart: CheckoutCartItem[]; totalAmount: number; memberDiscountApplied: boolean }
   | { ok: false; error: string }
 > {
   if (!Array.isArray(cart) || cart.length === 0) {
@@ -46,6 +49,11 @@ export async function validateAndPriceCheckoutCart(
   const merchandiseById = new Map(
     merchandiseRows.map((row) => [row.id, row])
   );
+
+  const activeMembership = options?.customerId
+    ? await findActivePaidMembership(options.customerId)
+    : null;
+  const memberDiscountApplied = Boolean(activeMembership);
 
   const validatedCart: CheckoutCartItem[] = [];
   let totalAmount = 0;
@@ -101,13 +109,16 @@ export async function validateAndPriceCheckoutCart(
       };
     }
 
-    const lineTotal = product.price * quantity;
+    const unitPrice = memberDiscountApplied
+      ? applyMemberUnitPrice(product.price)
+      : product.price;
+    const lineTotal = unitPrice * quantity;
     totalAmount += lineTotal;
 
     validatedCart.push({
       merchId: product.id,
       name: product.name,
-      price: product.price,
+      price: unitPrice,
       size,
       quantity,
       kitType: product.kitType,
@@ -119,5 +130,6 @@ export async function validateAndPriceCheckoutCart(
     ok: true,
     cart: validatedCart,
     totalAmount: Math.round(totalAmount),
+    memberDiscountApplied,
   };
 }

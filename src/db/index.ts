@@ -172,6 +172,25 @@ export async function ensureDatabaseSchema() {
         ADD COLUMN IF NOT EXISTS item_customization text;
       `);
 
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS memberships (
+          id serial PRIMARY KEY,
+          customer_id integer NOT NULL,
+          full_name text NOT NULL,
+          phone_number text NOT NULL,
+          plan_id text NOT NULL,
+          amount integer NOT NULL,
+          payment_method text DEFAULT 'mpesa' NOT NULL,
+          payment_status text DEFAULT 'pending' NOT NULL,
+          merchant_request_id text,
+          checkout_request_id text,
+          mpesa_receipt_number text,
+          transaction_date text,
+          expires_at timestamp NOT NULL,
+          created_at timestamp DEFAULT now() NOT NULL
+        );
+      `);
+
       schemaEnsured = true;
     })().catch((error) => {
       schemaEnsurePromise = null;
