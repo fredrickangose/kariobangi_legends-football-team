@@ -15,6 +15,7 @@ interface OrderProgressTimelineProps {
     size: string;
     quantity: number;
     unitPrice: number;
+    itemCustomization?: string | null;
   }>;
   totalAmount?: number;
   createdAt?: Date | string;
@@ -36,8 +37,9 @@ export function OrderProgressTimeline({
   disabled = false,
   onStatusChange,
 }: OrderProgressTimelineProps) {
-  const paymentConfirmed =
-    String(paymentStatus || "").toLowerCase() === "paid";
+  const paymentStatusNormalized = String(paymentStatus || "pending").toLowerCase();
+  const paymentConfirmed = paymentStatusNormalized === "paid";
+  const paymentFailed = paymentStatusNormalized === "failed";
 
   if (orderStatus === "cancelled" && !interactive) {
     return (
@@ -47,7 +49,9 @@ export function OrderProgressTimeline({
     );
   }
 
-  const currentIndex = getFulfillmentStepIndex(orderStatus);
+  const fulfillmentIndex = paymentConfirmed
+    ? getFulfillmentStepIndex(orderStatus)
+    : -1;
 
   const handleStepClick = (stepKey: OrderFulfillmentStatus) => {
     if (!interactive || disabled || !onStatusChange) {
@@ -63,12 +67,33 @@ export function OrderProgressTimeline({
 
   return (
     <div className="space-y-4">
+      {!paymentConfirmed && orderStatus !== "cancelled" && (
+        <div
+          className={`rounded-2xl border p-4 ${
+            paymentFailed
+              ? "border-rose-200 bg-rose-50"
+              : "border-yellow-200 bg-yellow-50"
+          }`}
+        >
+          <p className="font-black text-sm text-slate-950">
+            {paymentFailed ? "Payment Failed" : "Awaiting Payment"}
+          </p>
+          <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+            {paymentFailed
+              ? "This order was not paid. Try M-Pesa again or contact the club if you need help."
+              : "Your order is saved. Complete M-Pesa payment or pay cash on delivery before we begin preparing it."}
+          </p>
+        </div>
+      )}
+
       <div
         className={`grid grid-cols-1 ${compact ? "md:grid-cols-3" : "md:grid-cols-3"} gap-4`}
       >
         {ORDER_FULFILLMENT_STEPS.map((step, index) => {
-          const isComplete = index <= currentIndex;
-          const isCurrent = index === currentIndex;
+          const isComplete =
+            paymentConfirmed && fulfillmentIndex >= 0 && index <= fulfillmentIndex;
+          const isCurrent =
+            paymentConfirmed && fulfillmentIndex >= 0 && index === fulfillmentIndex;
           const stepDisabled =
             disabled || (interactive && !paymentConfirmed);
           const stepClasses = `rounded-2xl p-4 border text-left w-full ${
@@ -100,7 +125,9 @@ export function OrderProgressTimeline({
                 <p className="font-black text-sm text-slate-950">{step.label}</p>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                {step.description}
+                {index === 0 && paymentConfirmed
+                  ? "Payment confirmed. Our team is preparing your merchandise."
+                  : step.description}
               </p>
             </>
           );
@@ -162,16 +189,20 @@ export function OrderProgressTimeline({
             Items in this order
           </p>
           {items.map((item) => (
-            <div
-              key={item.id}
-              className="flex justify-between gap-3 text-xs text-slate-700"
-            >
-              <span>
-                {item.productName} • Size {item.size} • Qty {item.quantity}
-              </span>
-              <span className="font-bold">
-                Ksh {(item.unitPrice * item.quantity).toLocaleString()}
-              </span>
+            <div key={item.id} className="space-y-1">
+              <div className="flex justify-between gap-3 text-xs text-slate-700">
+                <span>
+                  {item.productName} • Size {item.size} • Qty {item.quantity}
+                </span>
+                <span className="font-bold shrink-0">
+                  Ksh {(item.unitPrice * item.quantity).toLocaleString()}
+                </span>
+              </div>
+              {item.itemCustomization && (
+                <p className="text-[10px] font-semibold text-emerald-700">
+                  {item.itemCustomization}
+                </p>
+              )}
             </div>
           ))}
           {totalAmount != null && (
@@ -184,8 +215,20 @@ export function OrderProgressTimeline({
 
       <div className="text-xs text-slate-500">
         Payment:{" "}
-        <strong className="text-slate-800 uppercase">
-          {paymentStatus || "pending"}
+        <strong
+          className={`uppercase ${
+            paymentConfirmed
+              ? "text-emerald-700"
+              : paymentFailed
+                ? "text-rose-700"
+                : "text-amber-700"
+          }`}
+        >
+          {paymentStatusNormalized === "paid"
+            ? "Paid"
+            : paymentFailed
+              ? "Failed"
+              : "Pending"}
         </strong>
         {mpesaReceiptNumber && (
           <>

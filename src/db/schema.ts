@@ -52,6 +52,13 @@ export const donations = pgTable("donations", {
   currency: text("currency").default("KES").notNull(), // 'KES', 'USD', 'GBP', 'EUR'
   message: text("message"),
   purpose: text("purpose").notNull(), // 'Boots & Equipment', 'Academy Support', 'Transport & Meals', 'General Club Fund'
+  phoneNumber: text("phone_number"),
+  paymentMethod: text("payment_method").default("mpesa"),
+  paymentStatus: text("payment_status").default("pledge").notNull(), // pledge, pending, paid, failed
+  merchantRequestId: text("merchant_request_id"),
+  checkoutRequestId: text("checkout_request_id"),
+  mpesaReceiptNumber: text("mpesa_receipt_number"),
+  transactionDate: text("transaction_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -169,6 +176,7 @@ export const orderItems = pgTable("order_items", {
 
   quantity: integer("quantity").notNull(),
   unitPrice: integer("unit_price").notNull(),
+  itemCustomization: text("item_customization"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

@@ -126,6 +126,52 @@ export async function ensureDatabaseSchema() {
         WHERE admin_seen_at IS NULL;
       `);
 
+      await pool.query(`
+        ALTER TABLE donations
+        ADD COLUMN IF NOT EXISTS phone_number text;
+      `);
+
+      await pool.query(`
+        ALTER TABLE donations
+        ADD COLUMN IF NOT EXISTS payment_method text DEFAULT 'mpesa';
+      `);
+
+      await pool.query(`
+        ALTER TABLE donations
+        ADD COLUMN IF NOT EXISTS payment_status text DEFAULT 'pledge';
+      `);
+
+      await pool.query(`
+        UPDATE donations
+        SET payment_status = 'pledge'
+        WHERE payment_status IS NULL OR payment_status = '';
+      `);
+
+      await pool.query(`
+        ALTER TABLE donations
+        ADD COLUMN IF NOT EXISTS merchant_request_id text;
+      `);
+
+      await pool.query(`
+        ALTER TABLE donations
+        ADD COLUMN IF NOT EXISTS checkout_request_id text;
+      `);
+
+      await pool.query(`
+        ALTER TABLE donations
+        ADD COLUMN IF NOT EXISTS mpesa_receipt_number text;
+      `);
+
+      await pool.query(`
+        ALTER TABLE donations
+        ADD COLUMN IF NOT EXISTS transaction_date text;
+      `);
+
+      await pool.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS item_customization text;
+      `);
+
       schemaEnsured = true;
     })().catch((error) => {
       schemaEnsurePromise = null;

@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { db } from "@/db";
-import { orders } from "@/db/schema";
+import { db, ensureDatabaseSchema } from "@/db";
+import { donations, orders } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { notifyBuyerOrderUpdate } from "@/lib/notifications";
 
 export async function POST(request: Request) {
   try {
+    await ensureDatabaseSchema();
+
     const body = await request.json();
 
     console.log(
@@ -65,15 +67,75 @@ export async function POST(request: Request) {
     const order = existingOrders[0];
 
     if (!order) {
-      console.error(
-        "No order found for CheckoutRequestID:",
-        checkoutRequestId
+      const existingDonations = await db
+        .select()
+        .from(donations)
+        .where(eq(donations.checkoutRequestId, checkoutRequestId))
+        .limit(1);
+
+      const donation = existingDonations[0];
+
+      if (!donation) {
+        console.error(
+          "No order or donation found for CheckoutRequestID:",
+          checkoutRequestId
+        );
+
+        return NextResponse.json({
+          ResultCode: 0,
+          ResultDesc:
+            "Callback received, but matching payment record was not found.",
+        });
+      }
+
+      console.log(
+        "Matched M-PESA callback to donation:",
+        donation.id
       );
+
+      if (resultCode === 0) {
+        const callbackMetadata = stkCallback.CallbackMetadata?.Item || [];
+        const metadata: Record<string, unknown> = {};
+
+        for (const item of callbackMetadata) {
+          if (item?.Name) {
+            metadata[item.Name] = item.Value;
+          }
+        }
+
+        const receiptNumber =
+          typeof metadata.MpesaReceiptNumber === "string"
+            ? metadata.MpesaReceiptNumber
+            : null;
+
+        const transactionDate =
+          metadata.TransactionDate != null
+            ? String(metadata.TransactionDate)
+            : null;
+
+        await db
+          .update(donations)
+          .set({
+            paymentStatus: "paid",
+            mpesaReceiptNumber: receiptNumber,
+            transactionDate,
+          })
+          .where(eq(donations.id, donation.id));
+
+        return NextResponse.json({
+          ResultCode: 0,
+          ResultDesc: "Donation payment processed successfully.",
+        });
+      }
+
+      await db
+        .update(donations)
+        .set({ paymentStatus: "failed" })
+        .where(eq(donations.id, donation.id));
 
       return NextResponse.json({
         ResultCode: 0,
-        ResultDesc:
-          "Callback received, but matching order was not found.",
+        ResultDesc: "Donation payment failure recorded successfully.",
       });
     }
 

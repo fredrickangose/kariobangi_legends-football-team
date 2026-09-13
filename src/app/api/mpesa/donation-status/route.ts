@@ -1,26 +1,23 @@
 import { NextResponse } from "next/server";
 import { ensureDatabaseSchema } from "@/db";
-import { authorizeOrderStatusAccess } from "@/lib/mpesa-route-auth";
+import { authorizeDonationStatusAccess } from "@/lib/mpesa-route-auth";
 
 export async function GET(request: Request) {
   try {
     await ensureDatabaseSchema();
 
     const { searchParams } = new URL(request.url);
-    const orderId = Number(searchParams.get("orderId"));
+    const donationId = Number(searchParams.get("donationId"));
     const phone = String(searchParams.get("phone") || "").trim();
 
-    if (!orderId || orderId <= 0) {
+    if (!donationId || donationId <= 0) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "A valid order ID is required.",
-        },
+        { success: false, error: "A valid donation ID is required." },
         { status: 400 }
       );
     }
 
-    const access = await authorizeOrderStatusAccess({ orderId, phone });
+    const access = await authorizeDonationStatusAccess({ donationId, phone });
 
     if (!access.ok) {
       return NextResponse.json(
@@ -29,17 +26,17 @@ export async function GET(request: Request) {
       );
     }
 
-    const order = access.order;
+    const donation = access.donation;
 
     return NextResponse.json({
       success: true,
-      orderId: order.id,
-      paymentStatus: order.paymentStatus,
-      mpesaReceiptNumber: order.mpesaReceiptNumber,
-      transactionDate: order.transactionDate,
+      donationId: donation.id,
+      paymentStatus: donation.paymentStatus,
+      mpesaReceiptNumber: donation.mpesaReceiptNumber,
+      transactionDate: donation.transactionDate,
     });
   } catch (error) {
-    console.error("M-PESA order status error:", error);
+    console.error("M-Pesa donation status error:", error);
 
     return NextResponse.json(
       {
@@ -47,7 +44,7 @@ export async function GET(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "Unable to check payment status.",
+            : "Unable to check donation payment status.",
       },
       { status: 500 }
     );

@@ -4,7 +4,21 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Kariobangi Legends FC | Official Club Website",
-  description: "Official website of Kariobangi Legends Football Club (KLFC), playing in FKF Division One, Nairobi Kenya. Founded by Mr. Erick Otieno Atanga to empower slum youths through football and community leadership.",
+  description:
+    "Official website of Kariobangi Legends Football Club (KLFC), playing in FKF Division One, Nairobi Kenya. Founded by Mr. Erick Otieno Atanga to empower slum youths through football and community leadership.",
+  openGraph: {
+    title: "Kariobangi Legends FC | Official Club Website",
+    description:
+      "Official website of Kariobangi Legends Football Club (KLFC), playing in FKF Division One, Nairobi Kenya.",
+    type: "website",
+    siteName: "Kariobangi Legends FC",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Kariobangi Legends FC | Official Club Website",
+    description:
+      "Official website of Kariobangi Legends Football Club (KLFC), playing in FKF Division One, Nairobi Kenya.",
+  },
 };
 
 export const viewport: Viewport = {

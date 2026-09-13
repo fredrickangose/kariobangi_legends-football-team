@@ -43,6 +43,7 @@ import {
   Navigation,
   Play,
   Film,
+  Banknote,
 } from "lucide-react";
 import {
   OrderProgressTimeline,
@@ -156,6 +157,8 @@ import {
   restoreOrder,
   trackOrder,
   getNotificationSetup,
+  getClubData,
+  markOrderCashPaid,
 } from "./actions";
 import {
   getOrderStatusLabel,
@@ -169,6 +172,14 @@ import {
   getDonationCurrency,
   isDonationCurrencyCode,
 } from "@/lib/donation-currencies";
+import {
+  buildFixtureWhatsAppShare,
+  buildNewsWhatsAppShare,
+} from "@/lib/share-links";
+import {
+  formatJerseyCustomization,
+  isJerseyMerchandise,
+} from "@/lib/order-customization";
 interface Player {
   id: number;
   name: string;
@@ -221,6 +232,7 @@ interface Donation {
   currency?: string | null;
   message: string | null;
   purpose: string;
+  paymentStatus?: string | null;
   createdAt: Date;
 }
 
@@ -273,6 +285,11 @@ interface ClubWebsiteProps {
     highlights: TeamHighlight[];
     management: ManagementMember[];
   };
+  initialTab?: string;
+  initialNewsId?: number | null;
+  initialFixtureId?: number | null;
+  shareBaseUrl?: string;
+  initialTrackOrderId?: string;
 }
 
 const HIGHLIGHT_CATEGORIES = [
@@ -618,6 +635,15 @@ interface CartItem {
   kitType: string;
 }
 
+type JerseyCustomizationState = {
+  jerseyNameOption: "none" | "name";
+  jerseyName: string;
+};
+
+function getCartItemKey(item: Pick<CartItem, "merchId" | "size">) {
+  return `${item.merchId}-${item.size}`;
+}
+
 const CONTACT_CENTER = {
   email: "Kariobangilegendsyouth@gmail.com",
   location: {
@@ -661,25 +687,17 @@ function MpesaDonationPrompt({
       <div className="rounded-2xl bg-slate-950 text-white p-4 sm:p-5 border border-slate-800">
         <div className="flex items-center justify-between mb-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-yellow-400">
-            M-Pesa Payment
+            M-Pesa STK Push
           </p>
           <span className="text-[9px] font-bold bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-full">
             Secure
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white/5 rounded-xl p-3">
-            <p className="text-[8px] text-slate-400 uppercase font-bold">PayBill Number</p>
-            <p className="text-xl font-black text-yellow-400 mt-1">{MPESA_PAYBILL.paybill}</p>
-          </div>
-          <div className="bg-white/5 rounded-xl p-3">
-            <p className="text-[8px] text-slate-400 uppercase font-bold">Account</p>
-            <p className="text-xs font-black text-white mt-2 leading-snug">
-              {MPESA_PAYBILL.account}
-            </p>
-          </div>
-        </div>
+        <p className="text-xs text-slate-300 leading-relaxed">
+          Enter your M-Pesa number below and confirm the prompt on your phone — no manual PayBill
+          steps required.
+        </p>
 
         {amount && amount > 0 && (
           <div className="mt-3 flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
@@ -694,7 +712,7 @@ function MpesaDonationPrompt({
       {showPhone && onPhoneChange && (
         <div className="space-y-1">
           <label className="text-[10px] text-slate-400 font-bold uppercase block">
-            M-Pesa mobile number (optional)
+            M-Pesa mobile number
           </label>
           <div className="relative">
             <Phone className="absolute left-3 top-3.5 w-3.5 h-3.5 text-slate-400" />
@@ -704,29 +722,24 @@ function MpesaDonationPrompt({
               value={phone ?? ""}
               onChange={(e) => onPhoneChange(e.target.value)}
               className="w-full text-sm pl-9 pr-3 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              required
             />
           </div>
           <span className="text-[10px] text-slate-400 block">
-            For payment confirmation and receipt follow-up.
+            We will send an M-Pesa STK Push to this number when you submit.
           </span>
         </div>
       )}
 
       <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-3 sm:p-4">
         <p className="text-[10px] font-black uppercase tracking-wider text-slate-900 mb-2">
-          How to pay via M-Pesa
+          How M-Pesa donation works
         </p>
         <ol className="space-y-1 text-xs text-slate-600 leading-relaxed list-decimal list-inside">
-          <li>Open M-Pesa on your phone.</li>
-          <li>Select <strong>Lipa na M-Pesa</strong>, then <strong>PayBill</strong>.</li>
-          <li>
-            Enter PayBill <strong>{MPESA_PAYBILL.paybill}</strong> and Account{" "}
-            <strong>{MPESA_PAYBILL.account}</strong>.
-          </li>
-          <li>
-            Enter {displayAmount} and confirm with your M-Pesa PIN.
-          </li>
-          <li>Submit your details below so we can acknowledge your gift.</li>
+          <li>Fill in your name, amount, and M-Pesa number below.</li>
+          <li>Tap submit — an STK Push prompt is sent to your phone.</li>
+          <li>Enter your M-Pesa PIN to confirm {displayAmount}.</li>
+          <li>Your gift appears on the Donors Honor Board once payment is confirmed.</li>
         </ol>
       </div>
     </div>
@@ -795,6 +808,32 @@ function InternationalDonationPrompt({
         </ol>
       </div>
     </div>
+  );
+}
+
+function WhatsAppShareButton({
+  href,
+  label = "Share on WhatsApp",
+  compact = false,
+}: {
+  href: string;
+  label?: string;
+  compact?: boolean;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={
+        compact
+          ? "inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-700 hover:text-emerald-800"
+          : "inline-flex items-center justify-center gap-2 rounded-xl bg-[#25D366] hover:bg-[#1ebe5d] text-white font-bold text-xs uppercase tracking-wider px-4 py-2.5 transition"
+      }
+    >
+      <MessageCircle className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} />
+      {label}
+    </a>
   );
 }
 
@@ -1590,12 +1629,16 @@ function MatchFixtureCard({
   isAdminAuthenticated,
   onEdit,
   onDelete,
+  highlighted = false,
+  shareBaseUrl,
 }: {
   fixture: Fixture;
   mode: "upcoming" | "result" | "live";
   isAdminAuthenticated: boolean;
   onEdit: (fixture: Fixture) => void;
   onDelete: (id: number, opponent: string) => void;
+  highlighted?: boolean;
+  shareBaseUrl?: string;
 }) {
   const result = getMatchResult(fixture);
   const tone = getResultTone(result);
@@ -1603,8 +1646,13 @@ function MatchFixtureCard({
 
   return (
     <div
-      className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${
-        mode === "live" ? "border-rose-200 ring-1 ring-rose-100" : "border-slate-100"
+      id={`fixture-${fixture.id}`}
+      className={`bg-white rounded-2xl border shadow-sm overflow-hidden scroll-mt-24 ${
+        mode === "live"
+          ? "border-rose-200 ring-1 ring-rose-100"
+          : highlighted
+            ? "border-emerald-300 ring-2 ring-emerald-200"
+            : "border-slate-100"
       }`}
     >
       <div className="px-4 py-3 flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80">
@@ -1657,6 +1705,11 @@ function MatchFixtureCard({
               className="text-[10px]"
             />
           )}
+          <WhatsAppShareButton
+            href={buildFixtureWhatsAppShare(fixture, shareBaseUrl)}
+            label="Share"
+            compact
+          />
           <span className="font-bold text-slate-700">{formatKickoff(fixture.date)}</span>
           {isAdminAuthenticated && (
             <>
@@ -1705,16 +1758,22 @@ type AdminBusyAction =
   | "replace-image"
   | null;
 
-export default function ClubWebsite({ initialData }: ClubWebsiteProps) {
+export default function ClubWebsite({
+  initialData,
+  initialTab = "home",
+  initialNewsId = null,
+  initialFixtureId = null,
+  shareBaseUrl = "",
+  initialTrackOrderId = "",
+}: ClubWebsiteProps) {
   const [clubData, setClubData] = useState(initialData);
   const [adminBusy, setAdminBusy] = useState<AdminBusyAction>(null);
   const [selectedSizes, setSelectedSizes] = useState<Record<number, string>>({});
-  const [activeTab, setActiveTab] = useState<string>(() => {
-    if (typeof window === "undefined") return "home";
-    return new URLSearchParams(window.location.search).get("order")
-      ? "account"
-      : "home";
-  });
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+  const [highlightNewsId, setHighlightNewsId] = useState<number | null>(initialNewsId);
+  const [highlightFixtureId, setHighlightFixtureId] = useState<number | null>(
+    initialFixtureId
+  );
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
@@ -1833,6 +1892,8 @@ useEffect(() => {
   const [donationMessage, setDonationMessage] = useState<string>("");
   const [donationPurpose, setDonationPurpose] = useState<string>("Boots & Equipment");
   const [donationPhone, setDonationPhone] = useState<string>("");
+  const [donationPaymentMessage, setDonationPaymentMessage] = useState<string>("");
+  const [donationPaymentPending, setDonationPaymentPending] = useState<boolean>(false);
 
   const selectedDonationAmount = useMemo(() => {
     const custom = customDonation ? parseFloat(customDonation) : NaN;
@@ -1845,24 +1906,82 @@ useEffect(() => {
 
   // Checkout states
   const [checkoutName, setCheckoutName] = useState<string>("");
+  const [checkoutDeliveryAddress, setCheckoutDeliveryAddress] = useState<string>("");
   const [checkoutPhone, setCheckoutPhone] = useState<string>("");
-  const [checkoutMethod, setCheckoutMethod] = useState<"mpesa" | "card">("mpesa");
+  const [checkoutMethod, setCheckoutMethod] = useState<"mpesa" | "cash">("mpesa");
+  const [cartCustomizations, setCartCustomizations] = useState<
+    Record<string, JerseyCustomizationState>
+  >({});
   const [checkoutSuccess, setCheckoutSuccess] = useState<boolean>(false);
   const [checkoutMessage, setCheckoutMessage] = useState<string>("");
   const [lastOrderId, setLastOrderId] = useState<number | null>(null);
 
-  const [trackOrderId, setTrackOrderId] = useState<string>(() => {
-    if (typeof window === "undefined") return "";
-    return new URLSearchParams(window.location.search).get("order") || "";
-  });
+  const [trackOrderId, setTrackOrderId] = useState<string>(initialTrackOrderId);
   const [trackPhone, setTrackPhone] = useState<string>("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (new URLSearchParams(window.location.search).get("order")) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("order") || params.get("news") || params.get("fixture")) {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (activeTab !== "news" && activeTab !== "fixtures") return;
+
+    const targetId = highlightNewsId
+      ? `news-${highlightNewsId}`
+      : highlightFixtureId
+        ? `fixture-${highlightFixtureId}`
+        : null;
+
+    if (!targetId) return;
+
+    const timer = window.setTimeout(() => {
+      document.getElementById(targetId)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [activeTab, highlightNewsId, highlightFixtureId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const orderParam = params.get("order");
+
+    params.delete("tab");
+    params.delete("news");
+    params.delete("fixture");
+
+    if (activeTab === "account" && orderParam) {
+      params.set("order", orderParam);
+    } else if (activeTab !== "home") {
+      params.set("tab", activeTab);
+    }
+
+    if (highlightNewsId && activeTab === "news") {
+      params.set("news", String(highlightNewsId));
+    }
+
+    if (highlightFixtureId && activeTab === "fixtures") {
+      params.set("fixture", String(highlightFixtureId));
+    }
+
+    const qs = params.toString();
+    const nextUrl = qs
+      ? `${window.location.pathname}?${qs}`
+      : window.location.pathname;
+
+    if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
+      window.history.replaceState(null, "", nextUrl);
+    }
+  }, [activeTab, highlightNewsId, highlightFixtureId]);
   const [trackedOrder, setTrackedOrder] = useState<any | null>(null);
   const [trackError, setTrackError] = useState<string>("");
 
@@ -1973,10 +2092,16 @@ const [adminPanelView, setAdminPanelView] = useState<"content" | "inbox" | "orde
 const [notificationConfig, setNotificationConfig] = useState<{
   channels: string[];
   sms: boolean;
+  smsLive: boolean;
   whatsapp: boolean;
+  whatsappLive: boolean;
   whatsappPhone?: string;
   whatsappProvider?: "meta" | "africas_talking" | "log" | null;
+  whatsappLogMode?: boolean;
   trackingUrlConfigured: boolean;
+  buyerNotificationsLive: boolean;
+  adminAlertPhones: number;
+  adminAlertsLive: boolean;
 } | null>(null);
 
   const adminOrderStats = useMemo(() => {
@@ -2197,6 +2322,66 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
   };
 
   const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const cartJerseyItems = useMemo(
+    () => cart.filter((item) => isJerseyMerchandise(item.kitType)),
+    [cart]
+  );
+
+  const updateCartCustomization = (
+    key: string,
+    updates: Partial<JerseyCustomizationState>
+  ) => {
+    setCartCustomizations((prev) => ({
+      ...prev,
+      [key]: {
+        jerseyNameOption: prev[key]?.jerseyNameOption ?? "none",
+        jerseyName: prev[key]?.jerseyName ?? "",
+        ...updates,
+      },
+    }));
+  };
+
+  const buildCheckoutCartPayload = () =>
+    cart.map((item) => {
+      const key = getCartItemKey(item);
+      const customizationState = cartCustomizations[key];
+
+      return {
+        merchId: item.merchId,
+        name: item.name,
+        price: item.price,
+        size: item.size,
+        quantity: item.quantity,
+        kitType: item.kitType,
+        itemCustomization: isJerseyMerchandise(item.kitType)
+          ? formatJerseyCustomization(
+              customizationState?.jerseyNameOption || "none",
+              customizationState?.jerseyName
+            )
+          : null,
+      };
+    });
+
+  const validateJerseyCustomizations = () => {
+    for (const item of cartJerseyItems) {
+      const key = getCartItemKey(item);
+      const state = cartCustomizations[key];
+
+      if (state?.jerseyNameOption === "name" && !state.jerseyName.trim()) {
+        showToast(`Enter the name to print on ${item.name} (${item.size}).`, "error");
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  const refreshDonations = async () => {
+    const result = await getClubData();
+    if (result.success && result.donations) {
+      setClubData((prev) => ({ ...prev, donations: result.donations }));
+    }
+  };
 
   // Submit donation handler
   const handleDonationSubmit = (e: React.FormEvent) => {
@@ -2209,6 +2394,107 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
     }
     if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
       showToast("Please enter a valid amount", "error");
+      return;
+    }
+
+    if (donationCurrency === "KES") {
+      if (!donationPhone.trim()) {
+        showToast("Please enter your M-Pesa phone number.", "error");
+        return;
+      }
+
+      startTransition(async () => {
+        setDonationPaymentPending(true);
+        setDonationPaymentMessage("");
+
+        try {
+          const response = await fetch("/api/mpesa/donation-stkpush", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phone: donationPhone,
+              amount: finalAmount,
+              donorName,
+              message: donationMessage,
+              purpose: donationPurpose,
+              currency: "KES",
+            }),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok || !data.success) {
+            showToast(data.error || "Unable to initiate M-Pesa payment.", "error");
+            setDonationPaymentPending(false);
+            return;
+          }
+
+          const donationId = data.donationId;
+          setDonationPaymentMessage(
+            `M-Pesa payment request sent to ${donationPhone}. Enter your PIN on your phone to complete ${formatDonationAmount(finalAmount, "KES")}.`
+          );
+
+          let attempts = 0;
+          const maxAttempts = 30;
+
+          const checkDonationStatus = async () => {
+            attempts++;
+
+            try {
+              const statusResponse = await fetch(
+                `/api/mpesa/donation-status?donationId=${donationId}&phone=${encodeURIComponent(donationPhone)}`,
+                { method: "GET", cache: "no-store", credentials: "include" }
+              );
+              const statusData = await statusResponse.json();
+
+              if (statusResponse.ok && statusData.success) {
+                if (statusData.paymentStatus === "paid") {
+                  setDonationPaymentMessage(
+                    `Thank you! Payment confirmed. M-Pesa receipt: ${statusData.mpesaReceiptNumber || "confirmed"}.`
+                  );
+                  showToast("Donation received — thank you for supporting Kariobangi Legends!");
+                  setDonorName("");
+                  setDonationMessage("");
+                  setCustomDonation("");
+                  setDonationPhone("");
+                  setDonationAmount(getDefaultDonationAmount("KES"));
+                  await refreshDonations();
+                  setDonationPaymentPending(false);
+                  return;
+                }
+
+                if (statusData.paymentStatus === "failed") {
+                  setDonationPaymentMessage("");
+                  showToast("M-Pesa payment was cancelled or failed. Please try again.", "error");
+                  setDonationPaymentPending(false);
+                  return;
+                }
+              }
+
+              if (attempts < maxAttempts) {
+                setTimeout(checkDonationStatus, 3000);
+              } else {
+                setDonationPaymentMessage(
+                  "Your M-Pesa payment is still processing. We will add your gift to the honor board once confirmed."
+                );
+                setDonationPaymentPending(false);
+              }
+            } catch {
+              if (attempts < maxAttempts) {
+                setTimeout(checkDonationStatus, 3000);
+              } else {
+                setDonationPaymentPending(false);
+              }
+            }
+          };
+
+          setTimeout(checkDonationStatus, 3000);
+        } catch {
+          showToast("Unable to initiate M-Pesa payment.", "error");
+          setDonationPaymentPending(false);
+        }
+      });
+
       return;
     }
 
@@ -2225,15 +2511,13 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
         const formattedAmount = formatDonationAmount(finalAmount, donationCurrency);
         showToast(
           res.message ||
-            (donationCurrency === "KES"
-              ? `Thank you! Complete your M-Pesa payment of ${formattedAmount} to PayBill ${MPESA_PAYBILL.paybill} (${MPESA_PAYBILL.account}).`
-              : `Thank you! Your ${formattedAmount} pledge is recorded. Email ${CONTACT_CENTER.email} for international payment details.`)
+            `Thank you! Your ${formattedAmount} pledge is recorded. Email ${CONTACT_CENTER.email} for international payment details.`
         );
         setDonorName("");
         setDonationMessage("");
         setCustomDonation("");
-        setDonationPhone("");
         setDonationAmount(getDefaultDonationAmount(donationCurrency));
+        await refreshDonations();
       } else {
         showToast(res.error || "Something went wrong", "error");
       }
@@ -2264,8 +2548,17 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
     });
   };
 
-  // M-PESA checkout handler
-const handleCheckoutSubmit = (e: React.FormEvent) => {
+  const completeCheckoutOrder = (orderId: number, message: string) => {
+    setCheckoutMessage(message);
+    setCheckoutSuccess(true);
+    setLastOrderId(orderId);
+    setTrackOrderId(String(orderId));
+    setTrackPhone(checkoutPhone);
+    setCart([]);
+    setCartCustomizations({});
+  };
+
+  const handleCheckoutSubmit = (e: React.FormEvent) => {
   e.preventDefault();
 
   if (!customerProfile) {
@@ -2278,13 +2571,74 @@ const handleCheckoutSubmit = (e: React.FormEvent) => {
     return;
   }
 
+  if (!checkoutDeliveryAddress.trim()) {
+    showToast("Please enter your delivery address.", "error");
+    return;
+  }
+
   if (cart.length === 0) {
     showToast("Your cart is empty.", "error");
     return;
   }
 
-  if (checkoutMethod === "mpesa" && !checkoutPhone) {
-    showToast("Please enter your M-PESA phone number.", "error");
+  if (!validateJerseyCustomizations()) {
+    return;
+  }
+
+  if (!checkoutPhone.trim()) {
+    showToast(
+      checkoutMethod === "mpesa"
+        ? "Please enter your M-PESA phone number."
+        : "Please enter your contact phone number.",
+      "error"
+    );
+    return;
+  }
+
+  const checkoutCart = buildCheckoutCartPayload();
+
+  if (checkoutMethod === "cash") {
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/orders/cash-checkout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            phone: checkoutPhone,
+            amount: cartTotal,
+            name: checkoutName,
+            deliveryAddress: checkoutDeliveryAddress.trim(),
+            cart: checkoutCart,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          if (response.status === 401) {
+            redirectToCheckoutAuth(true);
+          }
+          showToast(data.error || "Unable to place cash order.", "error");
+          return;
+        }
+
+        if (!data.orderId) {
+          showToast("Order placed, but the order ID was not returned.", "error");
+          return;
+        }
+
+        completeCheckoutOrder(
+          data.orderId,
+          `Cash order #${data.orderId} placed successfully. Pay Ksh ${cartTotal.toLocaleString()} in cash when your order is delivered or collected.`
+        );
+      } catch (error) {
+        console.error("Cash checkout error:", error);
+        showToast("Unable to place cash order right now.", "error");
+      }
+    });
+
     return;
   }
 
@@ -2300,7 +2654,8 @@ const handleCheckoutSubmit = (e: React.FormEvent) => {
             phone: checkoutPhone,
             amount: cartTotal,
             name: checkoutName,
-            cart: cart,
+            deliveryAddress: checkoutDeliveryAddress.trim(),
+            cart: checkoutCart,
           }),
         });
 
@@ -2345,10 +2700,11 @@ const handleCheckoutSubmit = (e: React.FormEvent) => {
 
           try {
             const statusResponse = await fetch(
-              `/api/mpesa/status?orderId=${orderId}`,
+              `/api/mpesa/status?orderId=${orderId}&phone=${encodeURIComponent(checkoutPhone)}`,
               {
                 method: "GET",
                 cache: "no-store",
+                credentials: "include",
               }
             );
 
@@ -2362,15 +2718,10 @@ const handleCheckoutSubmit = (e: React.FormEvent) => {
               if (
                 statusData.paymentStatus === "paid"
               ) {
-                setCheckoutMessage(
+                completeCheckoutOrder(
+                  orderId,
                   `Payment successful! Your M-PESA receipt number is ${statusData.mpesaReceiptNumber || "confirmed"}. Your Kariobangi Legends merchandise order #${orderId} has been received and will be processed shortly.`
                 );
-
-                setLastOrderId(orderId);
-                setTrackOrderId(String(orderId));
-                setTrackPhone(checkoutPhone);
-
-                setCart([]);
 
                 return;
               }
@@ -2438,14 +2789,6 @@ const handleCheckoutSubmit = (e: React.FormEvent) => {
 
     return;
   }
-
-  // Card payment
-  setCheckoutMessage(
-    `Card payment of Ksh ${cartTotal.toLocaleString()} processed successfully! A receipt has been sent to your email. Your official Kariobangi Legends merchandise will be shipped shortly.`
-  );
-
-  setCheckoutSuccess(true);
-  setCart([]);
 };
 
 const loadAdminOrders = async () => {
@@ -3079,6 +3422,31 @@ const handleUpdateOrderStatus = async (
       await loadAdminOrders();
     } else {
       showToast(result.error || "Unable to update order status.", "error");
+    }
+  } finally {
+    setUpdatingOrderId(null);
+  }
+};
+
+const handleMarkOrderCashPaid = async (orderId: number) => {
+  if (
+    !window.confirm(
+      `Mark order #${orderId} as cash received? This will confirm payment and allow delivery progress updates.`
+    )
+  ) {
+    return;
+  }
+
+  setUpdatingOrderId(orderId);
+
+  try {
+    const result = await markOrderCashPaid(orderId);
+
+    if (result.success) {
+      showToast(result.message || `Order #${orderId} marked as paid.`);
+      await loadAdminOrders();
+    } else {
+      showToast(result.error || "Unable to mark cash payment.", "error");
     }
   } finally {
     setUpdatingOrderId(null);
@@ -5256,7 +5624,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 
 
           <button
-            onClick={() => setActiveTab("players")}
+            onClick={() => setActiveTab("squad")}
             className="group bg-white/10 hover:bg-white/20 border border-white/20 text-white font-black text-[10px] sm:text-xs uppercase tracking-wider px-5 sm:px-6 py-3 rounded-xl transition-all duration-300 backdrop-blur-sm flex items-center gap-2 cursor-pointer"
           >
             <Users className="w-4 h-4" />
@@ -5830,18 +6198,16 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
             className="group bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col"
           >
 
-            {/* News image */}
-            <div className="h-56 relative bg-slate-100 overflow-hidden">
-
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={item.imageUrl}
-                alt={item.title}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-              />
-
-              {/* Dark image overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-transparent to-transparent opacity-70" />
+            {/* News image — full photo visible, no cropping */}
+            <div className="relative bg-gradient-to-b from-slate-50 to-slate-100 border-b border-slate-100 overflow-hidden">
+              <div className="flex items-center justify-center p-4 sm:p-5 h-56 sm:h-60">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={item.imageUrl}
+                  alt={item.title}
+                  className="max-w-full max-h-full w-auto h-auto object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out"
+                />
+              </div>
 
               {/* Category */}
               <span className="absolute top-4 left-4 inline-flex items-center gap-1.5 bg-slate-950/90 text-yellow-400 text-[9px] font-black uppercase tracking-widest px-3 py-2 rounded-full backdrop-blur-sm">
@@ -5885,10 +6251,11 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
               </p>
 
 
-              <div className="mt-auto pt-5">
+              <div className="mt-auto pt-5 flex flex-wrap items-center gap-3">
 
                 <button
                   onClick={() => {
+                    setHighlightNewsId(item.id);
                     setActiveTab("news");
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
@@ -5898,6 +6265,12 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 
                   <ArrowRight className="w-4 h-4 group-hover/link:translate-x-1 transition-transform" />
                 </button>
+
+                <WhatsAppShareButton
+                  href={buildNewsWhatsAppShare(item, shareBaseUrl)}
+                  label="Share"
+                  compact
+                />
 
               </div>
 
@@ -7205,7 +7578,14 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
             )}
 
             {fixtureGroups.nextMatch && (
-              <section className="relative overflow-hidden rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl">
+              <section
+                id={`fixture-${fixtureGroups.nextMatch.id}`}
+                className={`relative overflow-hidden rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl scroll-mt-24 ${
+                  highlightFixtureId === fixtureGroups.nextMatch.id
+                    ? "ring-2 ring-emerald-400"
+                    : ""
+                }`}
+              >
                 <div className="absolute inset-0 bg-gradient-to-br from-emerald-950 via-slate-950 to-slate-950" />
                 <div className="absolute -top-24 right-0 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl" />
                 <div className="relative z-10 p-6 sm:p-8 space-y-6">
@@ -7251,16 +7631,22 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                       </div>
                     </div>
                   </div>
-                  <GetDirectionsLink
-                    venue={fixtureGroups.nextMatch.venue}
-                    variant="yellow"
-                    label={
-                      fixtureGroups.nextMatch.isHome
-                        ? "Get Directions on Google Maps"
-                        : "Directions to Match Venue"
-                    }
-                    className="w-full py-3.5"
-                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <GetDirectionsLink
+                      venue={fixtureGroups.nextMatch.venue}
+                      variant="yellow"
+                      label={
+                        fixtureGroups.nextMatch.isHome
+                          ? "Get Directions on Google Maps"
+                          : "Directions to Match Venue"
+                      }
+                      className="w-full py-3.5"
+                    />
+                    <WhatsAppShareButton
+                      href={buildFixtureWhatsAppShare(fixtureGroups.nextMatch, shareBaseUrl)}
+                      label="Share on WhatsApp"
+                    />
+                  </div>
                 </div>
               </section>
             )}
@@ -7280,6 +7666,8 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                       isAdminAuthenticated={canManageClubContent}
                       onEdit={handleEditFixture}
                       onDelete={handleDeleteFixture}
+                      highlighted={highlightFixtureId === fixture.id}
+                      shareBaseUrl={shareBaseUrl}
                     />
                   ))}
                 </div>
@@ -7302,6 +7690,8 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                         isAdminAuthenticated={canManageClubContent}
                         onEdit={handleEditFixture}
                         onDelete={handleDeleteFixture}
+                        highlighted={highlightFixtureId === fixture.id}
+                        shareBaseUrl={shareBaseUrl}
                       />
                     ))}
                   </div>
@@ -7332,6 +7722,8 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                         isAdminAuthenticated={canManageClubContent}
                         onEdit={handleEditFixture}
                         onDelete={handleDeleteFixture}
+                        highlighted={highlightFixtureId === fixture.id}
+                        shareBaseUrl={shareBaseUrl}
                       />
                     ))}
                   </div>
@@ -7372,17 +7764,22 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
               {clubData.news.map((item, idx) => (
                 <div
                   key={item.id}
-                  className={`bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm grid grid-cols-1 lg:grid-cols-12 gap-6 p-6 ${
-                    idx % 2 === 1 ? "lg:flex-row-reverse" : ""
-                  }`}
+                  id={`news-${item.id}`}
+                  className={`bg-white rounded-3xl overflow-hidden border shadow-sm grid grid-cols-1 lg:grid-cols-12 gap-6 p-6 scroll-mt-24 ${
+                    highlightNewsId === item.id
+                      ? "border-emerald-300 ring-2 ring-emerald-200"
+                      : "border-slate-100"
+                  } ${idx % 2 === 1 ? "lg:flex-row-reverse" : ""}`}
                 >
-                  <div className="lg:col-span-5 relative h-64 lg:h-full min-h-[220px] rounded-2xl overflow-hidden bg-slate-100">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.imageUrl}
-                      alt={item.title}
-                      className="w-full h-full object-contain"
-                    />
+                  <div className="lg:col-span-5 relative rounded-2xl overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100 border border-slate-100 min-h-[220px] lg:min-h-[280px]">
+                    <div className="flex items-center justify-center p-4 sm:p-6 h-64 lg:h-full lg:min-h-[280px]">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={item.imageUrl}
+                        alt={item.title}
+                        className="max-w-full max-h-full w-auto h-auto object-contain"
+                      />
+                    </div>
                   </div>
 
                   <div className="lg:col-span-7 flex flex-col justify-between space-y-4 py-2">
@@ -7409,25 +7806,29 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                       </p>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
-                      <span className="text-slate-500 font-bold">Authorized: Mr. Erick Otieno Atanga (Patron)</span>
-                      {canManageClubContent && (
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => openReplaceImage(item.id, "news", item.imageUrl)}
-                            className="text-blue-600 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
-                          >
-                            <Camera className="w-3 h-3" /> Replace Photo
-                          </button>
-                          <button
-                            onClick={() => handleDeleteNews(item.id, item.title)}
-                            className="text-rose-500 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
-                          >
-                            <Trash2 className="w-3 h-3" /> Delete
-                          </button>
-                        </div>
-                      )}
+                    <div className="pt-2 flex flex-wrap items-center gap-3">
+                      <WhatsAppShareButton
+                        href={buildNewsWhatsAppShare(item, shareBaseUrl)}
+                        label="Share on WhatsApp"
+                      />
                     </div>
+
+                    {canManageClubContent && (
+                      <div className="pt-2 border-t border-slate-100 flex justify-end items-center gap-2 text-xs">
+                        <button
+                          onClick={() => openReplaceImage(item.id, "news", item.imageUrl)}
+                          className="text-blue-600 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                        >
+                          <Camera className="w-3 h-3" /> Replace Photo
+                        </button>
+                        <button
+                          onClick={() => handleDeleteNews(item.id, item.title)}
+                          className="text-rose-500 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                        >
+                          <Trash2 className="w-3 h-3" /> Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -7639,8 +8040,8 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                 <div>
                   <h3 className="text-xl font-black text-slate-950">Make a donation</h3>
                   <p className="text-sm text-slate-500 mt-1">
-                    Choose your currency, complete payment, then submit your details so we can
-                    acknowledge your gift.
+                    KES donations are paid instantly via M-Pesa STK Push. International pledges
+                    are recorded and our team follows up with payment details.
                   </p>
                 </div>
 
@@ -7777,13 +8178,25 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     />
                   </div>
 
+                  {donationPaymentMessage && (
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-900 leading-relaxed">
+                      {donationPaymentMessage}
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    disabled={isPending}
+                    disabled={isPending || donationPaymentPending}
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs uppercase tracking-wider py-4 rounded-xl transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <HeartHandshake className="w-4 h-4" />
-                    {isPending ? "Submitting..." : "Submit Donation"}
+                    {donationPaymentPending
+                      ? "Waiting for M-Pesa..."
+                      : isPending
+                        ? "Submitting..."
+                        : donationCurrency === "KES"
+                          ? "Pay with M-Pesa"
+                          : "Submit Donation"}
                   </button>
 
                   <p className="text-[10px] text-center text-slate-400 leading-relaxed">
@@ -7814,8 +8227,20 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                   </p>
 
                   <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                    {clubData.donations.length > 0 ? (
-                      clubData.donations.map((d) => (
+                    {clubData.donations.filter(
+                      (d) =>
+                        !d.paymentStatus ||
+                        d.paymentStatus === "paid" ||
+                        d.paymentStatus === "pledge"
+                    ).length > 0 ? (
+                      clubData.donations
+                        .filter(
+                          (d) =>
+                            !d.paymentStatus ||
+                            d.paymentStatus === "paid" ||
+                            d.paymentStatus === "pledge"
+                        )
+                        .map((d) => (
                         <div
                           key={d.id}
                           className="p-4 bg-slate-900 rounded-xl border border-slate-800 space-y-1.5"
@@ -11013,25 +11438,59 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
       </p>
 
       {notificationConfig && (
-        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-600 leading-relaxed">
-          <span className="font-black uppercase tracking-wider text-slate-500">
-            Buyer notifications:
-          </span>{" "}
-          SMS {notificationConfig.sms ? "ready" : "not configured"} • WhatsApp{" "}
-          {notificationConfig.whatsapp
-            ? `ready from ${notificationConfig.whatsappPhone || "0796230743"}${
-                notificationConfig.whatsappProvider === "africas_talking"
-                  ? " (Africa's Talking)"
-                  : notificationConfig.whatsappProvider === "meta"
-                    ? " (Meta Cloud)"
-                    : notificationConfig.whatsappProvider === "log"
-                      ? " (log mode until API keys are added)"
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-600 leading-relaxed space-y-1">
+          <p>
+            <span className="font-black uppercase tracking-wider text-slate-500">
+              Buyer notifications:
+            </span>{" "}
+            {notificationConfig.buyerNotificationsLive ? (
+              <span className="font-bold text-emerald-700">Live</span>
+            ) : (
+              <span className="font-bold text-amber-700">Development / not live</span>
+            )}
+            {" • "}
+            SMS{" "}
+            {notificationConfig.smsLive
+              ? "live"
+              : notificationConfig.sms
+                ? "configured"
+                : "not configured"}{" "}
+            • WhatsApp{" "}
+            {notificationConfig.whatsappLive
+              ? `live from ${notificationConfig.whatsappPhone || "0796230743"}${
+                  notificationConfig.whatsappProvider === "africas_talking"
+                    ? " (Africa's Talking)"
+                    : notificationConfig.whatsappProvider === "meta"
+                      ? " (Meta Cloud)"
                       : ""
-              }`
-            : "not configured — add Africa's Talking or Meta WhatsApp credentials"}
-          {notificationConfig.trackingUrlConfigured
-            ? " • Tracking links enabled"
-            : " • Add NEXT_PUBLIC_SITE_URL for tracking links"}
+                }`
+              : notificationConfig.whatsapp
+                ? `log mode from ${notificationConfig.whatsappPhone || "0796230743"} — add API keys for live delivery`
+                : "not configured"}
+          </p>
+          <p>
+            <span className="font-black uppercase tracking-wider text-slate-500">
+              Admin cash alerts:
+            </span>{" "}
+            {notificationConfig.adminAlertsLive ? (
+              <span className="font-bold text-emerald-700">
+                Live to {notificationConfig.adminAlertPhones} phone
+                {notificationConfig.adminAlertPhones === 1 ? "" : "s"}
+              </span>
+            ) : notificationConfig.adminAlertPhones > 0 ? (
+              <span className="font-bold text-amber-700">
+                {notificationConfig.adminAlertPhones} phone
+                {notificationConfig.adminAlertPhones === 1 ? "" : "s"} set — enable SMS/WhatsApp keys
+              </span>
+            ) : (
+              <span className="font-bold text-amber-700">
+                Add ORDER_ADMIN_PHONES in .env
+              </span>
+            )}
+            {notificationConfig.trackingUrlConfigured
+              ? " • Tracking links enabled"
+              : " • Add NEXT_PUBLIC_SITE_URL for tracking links"}
+          </p>
         </div>
       )}
 
@@ -11177,15 +11636,46 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     </span>
                   </div>
 
+                  {order.deliveryAddress && (
+                    <div className="sm:col-span-2">
+                      <span className="text-slate-400 block">
+                        Delivery Address
+                      </span>
+
+                      <span className="font-bold text-slate-800 whitespace-pre-wrap">
+                        {order.deliveryAddress}
+                      </span>
+                    </div>
+                  )}
+
                   <div>
                     <span className="text-slate-400 block">
                       Payment Method
                     </span>
 
                     <span className="font-bold text-slate-800 uppercase">
-                      {order.paymentMethod || "M-PESA"}
+                      {String(order.paymentMethod || "mpesa").toLowerCase() === "cash"
+                        ? "Cash on Delivery"
+                        : order.paymentMethod || "M-PESA"}
                     </span>
                   </div>
+
+                  {String(order.paymentMethod || "").toLowerCase() === "cash" &&
+                    String(order.paymentStatus || "").toLowerCase() !== "paid" && (
+                      <div className="sm:col-span-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleMarkOrderCashPaid(order.id)}
+                          disabled={updatingOrderId === order.id}
+                          className="inline-flex items-center gap-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black text-[10px] uppercase tracking-wider px-4 py-2.5 transition disabled:opacity-50"
+                        >
+                          <Banknote className="w-3.5 h-3.5" />
+                          {updatingOrderId === order.id
+                            ? "Updating..."
+                            : "Mark Cash Received"}
+                        </button>
+                      </div>
+                    )}
 
                   <div>
                     <span className="text-slate-400 block">
@@ -11226,6 +11716,11 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                               {" "}
                               • Size: {item.size} • Qty: {item.quantity}
                             </span>
+                            {item.itemCustomization && (
+                              <p className="text-[10px] text-emerald-700 font-semibold mt-0.5">
+                                {item.itemCustomization}
+                              </p>
+                            )}
                           </div>
 
                           <span className="font-bold text-slate-900">
@@ -11591,7 +12086,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                           Account required to checkout
                         </p>
                         <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                          Register free to pay with M-Pesa and track your order in My Orders.
+                          Register free to checkout with M-Pesa or cash on delivery and track your order in My Orders.
                         </p>
                       </div>
                       <button
@@ -11640,6 +12135,107 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     />
   </div>
 
+  {/* Delivery Address */}
+  <div className="space-y-1">
+    <label className="text-[9px] text-slate-400 font-bold uppercase block">
+      Delivery Address
+    </label>
+
+    <textarea
+      rows={3}
+      placeholder="Estate, street, building, and any delivery notes"
+      value={checkoutDeliveryAddress}
+      onChange={(e) => setCheckoutDeliveryAddress(e.target.value)}
+      className="w-full text-xs p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 resize-none"
+      required
+    />
+
+    <span className="text-[8px] text-slate-400 block">
+      Include area, landmark, and phone contact if someone else will receive the order.
+    </span>
+  </div>
+
+  {/* Jersey personalization */}
+  {cartJerseyItems.length > 0 && (
+    <div className="space-y-3">
+      <div>
+        <label className="text-[9px] text-slate-400 font-bold uppercase block">
+          Jersey Personalization
+        </label>
+        <p className="text-[8px] text-slate-400 mt-1">
+          Choose whether to print a name on each jersey in your order.
+        </p>
+      </div>
+
+      {cartJerseyItems.map((item) => {
+        const key = getCartItemKey(item);
+        const customization = cartCustomizations[key] || {
+          jerseyNameOption: "none" as const,
+          jerseyName: "",
+        };
+
+        return (
+          <div
+            key={key}
+            className="rounded-xl border border-slate-200 bg-white p-3 space-y-3"
+          >
+            <p className="text-xs font-bold text-slate-900">
+              {item.name} • Size {item.size}
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  updateCartCustomization(key, {
+                    jerseyNameOption: "none",
+                    jerseyName: "",
+                  })
+                }
+                className={`p-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition ${
+                  customization.jerseyNameOption === "none"
+                    ? "bg-slate-950 text-yellow-400 border-slate-950"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                No name on jersey
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  updateCartCustomization(key, { jerseyNameOption: "name" })
+                }
+                className={`p-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition ${
+                  customization.jerseyNameOption === "name"
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                Add name on jersey
+              </button>
+            </div>
+
+            {customization.jerseyNameOption === "name" && (
+              <input
+                type="text"
+                placeholder="Name to print (max 15 letters)"
+                value={customization.jerseyName}
+                maxLength={15}
+                onChange={(e) =>
+                  updateCartCustomization(key, {
+                    jerseyName: e.target.value.toUpperCase(),
+                  })
+                }
+                className="w-full text-xs p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 uppercase"
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  )}
+
   {/* Payment Method */}
   <div className="space-y-2">
 
@@ -11647,20 +12243,33 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
       Payment Method
     </label>
 
-    <button
-      type="button"
-      onClick={() => setCheckoutMethod("mpesa")}
-      className="w-full p-3 rounded-xl bg-emerald-600 text-white border-2 border-emerald-600 font-black text-xs flex items-center justify-between shadow-sm"
-    >
-      <span className="flex items-center gap-2">
+    <div className="grid grid-cols-2 gap-2">
+      <button
+        type="button"
+        onClick={() => setCheckoutMethod("mpesa")}
+        className={`p-3 rounded-xl border-2 font-black text-xs flex items-center justify-center gap-2 transition ${
+          checkoutMethod === "mpesa"
+            ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+        }`}
+      >
         <Phone className="w-4 h-4" />
         M-PESA
-      </span>
+      </button>
 
-      <span className="text-[9px] bg-white/15 px-2 py-1 rounded-md">
-        Recommended
-      </span>
-    </button>
+      <button
+        type="button"
+        onClick={() => setCheckoutMethod("cash")}
+        className={`p-3 rounded-xl border-2 font-black text-xs flex items-center justify-center gap-2 transition ${
+          checkoutMethod === "cash"
+            ? "bg-slate-950 text-yellow-400 border-slate-950 shadow-sm"
+            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+        }`}
+      >
+        <Banknote className="w-4 h-4" />
+        Cash
+      </button>
+    </div>
 
   </div>
 
@@ -11762,11 +12371,49 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     </div>
   )}
 
+  {checkoutMethod === "cash" && (
+    <div className="space-y-3">
+      <div className="rounded-2xl bg-slate-950 text-white p-4 border border-slate-800">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-yellow-400">
+            Cash on Delivery
+          </p>
+          <span className="text-[9px] font-bold bg-yellow-400/15 text-yellow-300 px-2 py-1 rounded-full">
+            Pay on delivery
+          </span>
+        </div>
+        <p className="text-xs text-slate-300 leading-relaxed">
+          Your order will be placed now. Pay the total in cash when the merchandise is delivered or when you collect it from the club.
+        </p>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-[9px] text-slate-400 font-bold uppercase block">
+          Contact Phone Number
+        </label>
+        <div className="relative">
+          <Phone className="absolute left-3 top-3.5 w-3.5 h-3.5 text-slate-400" />
+          <input
+            type="tel"
+            placeholder="0712345678"
+            value={checkoutPhone}
+            onChange={(e) => setCheckoutPhone(e.target.value)}
+            className="w-full text-xs pl-8 pr-3 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10"
+            required
+          />
+        </div>
+        <span className="text-[8px] text-slate-400 block">
+          We will call or text this number about delivery.
+        </span>
+      </div>
+    </div>
+  )}
+
   {/* Order Amount */}
   <div className="flex items-center justify-between px-1 pt-1">
 
     <span className="text-xs font-bold text-slate-600">
-      Amount to Pay
+      {checkoutMethod === "cash" ? "Total Due on Delivery" : "Amount to Pay"}
     </span>
 
     <span className="text-lg font-black text-emerald-600">
@@ -11780,13 +12427,23 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     type="submit"
     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all duration-300 cursor-pointer shadow-md hover:shadow-lg flex items-center justify-center gap-2"
   >
-    <Check className="w-4 h-4" />
-    Confirm M-Pesa Payment
+    {checkoutMethod === "cash" ? (
+      <>
+        <Banknote className="w-4 h-4" />
+        Place Cash Order
+      </>
+    ) : (
+      <>
+        <Check className="w-4 h-4" />
+        Confirm M-Pesa Payment
+      </>
+    )}
   </button>
 
   <p className="text-[8px] text-center text-slate-400 leading-relaxed">
-    Your order will be recorded after checkout. Keep your M-Pesa confirmation
-    message for reference.
+    {checkoutMethod === "cash"
+      ? "Your order is saved immediately. Payment is collected in cash on delivery or pickup."
+      : "Your order will be recorded after checkout. Keep your M-Pesa confirmation message for reference."}
   </p>
 
 </form>

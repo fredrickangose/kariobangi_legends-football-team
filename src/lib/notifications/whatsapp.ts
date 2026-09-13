@@ -185,6 +185,7 @@ export async function sendOrderWhatsApp(
 ) {
   if (
     isWhatsAppLogMode() &&
+    process.env.WHATSAPP_NOTIFY_MODE !== "live" &&
     !isMetaWhatsAppConfigured() &&
     !isAfricasTalkingWhatsAppConfigured()
   ) {

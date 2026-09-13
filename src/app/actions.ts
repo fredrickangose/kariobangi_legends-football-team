@@ -141,6 +141,8 @@ export async function submitDonation(data: {
       currency,
       message: data.message || "",
       purpose: data.purpose,
+      paymentStatus: currency === "KES" ? "pledge" : "pledge",
+      paymentMethod: currency === "KES" ? "mpesa" : "international",
       createdAt: new Date(),
     });
 
@@ -1525,6 +1527,79 @@ export async function updateOrderStatus(
         error instanceof Error
           ? error.message
           : "Unable to update order status.",
+    };
+  }
+}
+
+export async function markOrderCashPaid(orderId: number) {
+  try {
+    await ensureDatabaseSchema();
+
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return { success: false, error: "Invalid order ID." };
+    }
+
+    const [existingOrder] = await db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!existingOrder) {
+      return { success: false, error: "Order not found." };
+    }
+
+    if (String(existingOrder.paymentMethod || "").toLowerCase() !== "cash") {
+      return {
+        success: false,
+        error: "Only cash orders can be marked as cash received.",
+      };
+    }
+
+    if (String(existingOrder.paymentStatus || "").toLowerCase() === "paid") {
+      return { success: true, order: existingOrder, message: "Order is already paid." };
+    }
+
+    const [updatedOrder] = await db
+      .update(orders)
+      .set({
+        paymentStatus: "paid",
+        adminSeenAt: existingOrder.adminSeenAt ?? new Date(),
+      })
+      .where(eq(orders.id, orderId))
+      .returning();
+
+    if (!updatedOrder) {
+      return { success: false, error: "Unable to update order payment status." };
+    }
+
+    await notifyBuyerOrderUpdate(
+      updatedOrder.phoneNumber,
+      updatedOrder.id,
+      "payment_confirmed"
+    );
+
+    revalidatePath("/");
+
+    return {
+      success: true,
+      order: updatedOrder,
+      message: "Cash payment recorded.",
+    };
+  } catch (error) {
+    console.error("Mark order cash paid failed:", error);
+
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to mark cash payment as received.",
     };
   }
 }

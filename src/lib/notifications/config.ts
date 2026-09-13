@@ -130,16 +130,61 @@ export function getWhatsAppProvider():
   return null;
 }
 
+export function getOrderAdminPhones(): string[] {
+  const raw =
+    process.env.ORDER_ADMIN_PHONES ||
+    process.env.ADMIN_RESET_PHONES ||
+    process.env.ADMIN_RESET_PHONE ||
+    "";
+
+  return raw
+    .split(",")
+    .map((phone) => phone.trim())
+    .filter(Boolean);
+}
+
+export function isSmsLive(): boolean {
+  return isSmsConfigured();
+}
+
+export function isWhatsAppLive(): boolean {
+  return (
+    isMetaWhatsAppConfigured() || isAfricasTalkingWhatsAppConfigured()
+  );
+}
+
+/** True when at least one buyer notification channel can send real messages. */
+export function isBuyerNotificationsLive(): boolean {
+  const channels = getNotificationChannels();
+
+  return (
+    (channels.includes("sms") && isSmsLive()) ||
+    (channels.includes("whatsapp") && isWhatsAppLive())
+  );
+}
+
 export function getNotificationConfigSummary() {
   const channels = getNotificationChannels();
   const whatsappProvider = getWhatsAppProvider();
+  const smsLive = isSmsLive();
+  const whatsappLive = isWhatsAppLive();
+  const adminPhones = getOrderAdminPhones();
 
   return {
     channels,
     sms: isSmsConfigured(),
+    smsLive,
     whatsapp: isWhatsAppConfigured(),
+    whatsappLive,
     whatsappPhone: getWhatsAppBusinessPhoneDisplay(),
     whatsappProvider,
+    whatsappLogMode: isWhatsAppLogMode() && !whatsappLive,
     trackingUrlConfigured: Boolean(getSiteBaseUrl()),
+    buyerNotificationsLive: isBuyerNotificationsLive(),
+    adminAlertPhones: adminPhones.length,
+    adminAlertsLive:
+      adminPhones.length > 0 &&
+      ((channels.includes("sms") && smsLive) ||
+        (channels.includes("whatsapp") && whatsappLive)),
   };
 }

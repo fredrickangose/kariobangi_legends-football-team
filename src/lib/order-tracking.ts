@@ -2,7 +2,7 @@ export const ORDER_FULFILLMENT_STEPS = [
   {
     key: "processing",
     label: "Order Received",
-    description: "Payment confirmed. Our team is preparing your merchandise.",
+    description: "Our team is preparing your merchandise.",
   },
   {
     key: "shipped",
@@ -77,6 +77,29 @@ export function getOrderStatusMessage(orderId: number, status: string): string {
     : "Track progress on our website shop page.";
 
   return `Kariobangi Legends FC: Your order #${orderId} is now ${label.toUpperCase()}. ${trackingText} Asante for your support!`;
+}
+
+export function getCashOrderPlacedMessage(
+  orderId: number,
+  totalAmount: number
+): string {
+  const trackingUrl = getOrderTrackingUrl(orderId);
+  const trackingText = trackingUrl
+    ? `Track here: ${trackingUrl}`
+    : "Track your order on our website Account tab.";
+
+  return `Kariobangi Legends FC: Cash order #${orderId} received for Ksh ${totalAmount.toLocaleString()}. Pay in cash on delivery or pickup. ${trackingText} Asante!`;
+}
+
+export function getAdminCashOrderAlertMessage(input: {
+  orderId: number;
+  customerName: string;
+  totalAmount: number;
+  phoneNumber: string;
+  deliveryAddress?: string | null;
+}): string {
+  const address = input.deliveryAddress?.trim() || "No address provided";
+  return `New CASH order #${input.orderId}: ${input.customerName}, Ksh ${input.totalAmount.toLocaleString()}, ${input.phoneNumber}. Deliver to: ${address}. Mark cash received in Admin when paid.`;
 }
 
 export function getFulfillmentStepIndex(status: string): number {

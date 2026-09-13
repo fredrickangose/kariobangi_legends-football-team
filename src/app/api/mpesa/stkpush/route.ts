@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { db } from "@/db";
-import { orders, orderItems } from "@/db/schema";
+import { db, ensureDatabaseSchema } from "@/db";
+import { orders } from "@/db/schema";
 import { verifyCustomerToken } from "@/lib/customer-auth";
+import { createPendingOrder } from "@/lib/create-pending-order";
+import type { CheckoutCartItem } from "@/lib/order-customization";
+import { validateAndPriceCheckoutCart } from "@/lib/validate-checkout-cart.server";
 
 function getTimestamp() {
   const now = new Date();
@@ -19,12 +22,16 @@ function getTimestamp() {
 
 export async function POST(request: Request) {
   try {
+    await ensureDatabaseSchema();
+
     const body = await request.json();
 
     const phone = String(body.phone || "").trim();
-    const amount = Number(body.amount);
     const name = String(body.name || "").trim();
-    const cart = Array.isArray(body.cart) ? body.cart : [];
+    const deliveryAddress = String(body.deliveryAddress || "").trim();
+    const cart = Array.isArray(body.cart)
+      ? (body.cart as CheckoutCartItem[])
+      : [];
 
     if (!name) {
       return NextResponse.json(
@@ -46,21 +53,11 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!amount || amount <= 0) {
+    if (!deliveryAddress) {
       return NextResponse.json(
         {
           success: false,
-          error: "A valid payment amount is required.",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (cart.length === 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Your cart is empty.",
+          error: "Delivery address is required.",
         },
         { status: 400 }
       );
@@ -97,33 +94,6 @@ export async function POST(request: Request) {
     console.log("M-PESA base URL:", baseUrl);
     console.log("M-PESA shortcode:", shortcode);
 
-    // --------------------------------------------------
-    // 1. FORMAT PHONE NUMBER
-    // --------------------------------------------------
-
-    let formattedPhone = phone.replace(/\s+/g, "");
-
-    if (formattedPhone.startsWith("+254")) {
-      formattedPhone = formattedPhone.substring(1);
-    } else if (formattedPhone.startsWith("254")) {
-      // Already correctly formatted
-    } else if (formattedPhone.startsWith("0")) {
-      formattedPhone = `254${formattedPhone.substring(1)}`;
-    } else {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Invalid M-PESA phone number. Use a number such as 0712345678.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // --------------------------------------------------
-    // 2. CREATE PENDING ORDER
-    // --------------------------------------------------
-
     const cookieStore = await cookies();
     const customerId = verifyCustomerToken(
       cookieStore.get("kariobangi_customer")?.value
@@ -140,48 +110,48 @@ export async function POST(request: Request) {
       );
     }
 
-    const [order] = await db
-      .insert(orders)
-      .values({
-        customerId: customerId,
-        customerName: name,
-        phoneNumber: formattedPhone,
-        totalAmount: Math.round(amount),
-        paymentMethod: "mpesa",
-        paymentStatus: "pending",
-      })
-      .returning({
-        id: orders.id,
-      });
-
-    if (!order) {
-      throw new Error("Unable to create customer order.");
+    const pricedCart = await validateAndPriceCheckoutCart(cart);
+    if (!pricedCart.ok) {
+      return NextResponse.json(
+        { success: false, error: pricedCart.error },
+        { status: 400 }
+      );
     }
 
-    console.log("Created pending order:", order.id);
+    let orderId: number;
+    let formattedPhone: string;
+    const amount = pricedCart.totalAmount;
+    const validatedCart = pricedCart.cart;
+
+    try {
+      const createdOrder = await createPendingOrder({
+        customerId,
+        customerName: name,
+        phone,
+        deliveryAddress,
+        amount,
+        paymentMethod: "mpesa",
+        cart: validatedCart,
+      });
+      orderId = createdOrder.orderId;
+      formattedPhone = createdOrder.formattedPhone;
+    } catch (orderError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            orderError instanceof Error
+              ? orderError.message
+              : "Unable to create customer order.",
+        },
+        { status: 400 }
+      );
+    }
+
+    console.log("Created pending order:", orderId);
 
     // --------------------------------------------------
-    // 3. SAVE ORDER ITEMS
-    // --------------------------------------------------
-
-    const itemsToInsert = cart.map((item: any) => ({
-      orderId: order.id,
-      merchandiseId: Number(item.merchId),
-      productName: String(item.name || ""),
-      size: String(item.size || ""),
-      quantity: Number(item.quantity) || 1,
-      unitPrice: Number(item.price) || 0,
-    }));
-
-    await db.insert(orderItems).values(itemsToInsert);
-
-    console.log(
-      "Saved order items for order:",
-      order.id
-    );
-
-    // --------------------------------------------------
-    // 4. GET M-PESA ACCESS TOKEN
+    // GET M-PESA ACCESS TOKEN
     // --------------------------------------------------
 
     const credentials = Buffer.from(
@@ -302,7 +272,7 @@ export async function POST(request: Request) {
           PartyB: shortcode,
           PhoneNumber: formattedPhone,
           CallBackURL: callbackUrl,
-          AccountReference: `KL-${order.id}`,
+          AccountReference: `KL-${orderId}`,
           TransactionDesc: name
             ? `Kariobangi Legends order - ${name}`
             : "Kariobangi Legends order",
@@ -360,7 +330,7 @@ export async function POST(request: Request) {
         .where(
           require("drizzle-orm").eq(
             orders.id,
-            order.id
+            orderId
           )
         );
 
@@ -393,13 +363,13 @@ export async function POST(request: Request) {
       .where(
         require("drizzle-orm").eq(
           orders.id,
-          order.id
+          orderId
         )
       );
 
     console.log(
       "M-PESA request IDs saved for order:",
-      order.id
+      orderId
     );
 
     // --------------------------------------------------
@@ -412,7 +382,7 @@ export async function POST(request: Request) {
       message:
         "M-PESA payment request sent successfully. Please check your phone.",
 
-      orderId: order.id,
+      orderId,
 
       merchantRequestID:
         stkData.MerchantRequestID,
