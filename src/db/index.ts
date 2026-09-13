@@ -94,6 +94,38 @@ export async function ensureDatabaseSchema() {
         );
       `);
 
+      await pool.query(`
+        ALTER TABLE merchandise
+        ADD COLUMN IF NOT EXISTS stock_status text DEFAULT 'available';
+      `);
+
+      await pool.query(`
+        UPDATE merchandise
+        SET stock_status = 'available'
+        WHERE stock_status IS NULL OR stock_status = '';
+      `);
+
+      await pool.query(`
+        ALTER TABLE merchandise
+        ALTER COLUMN stock_status SET DEFAULT 'available';
+      `);
+
+      await pool.query(`
+        ALTER TABLE orders
+        ADD COLUMN IF NOT EXISTS admin_seen_at timestamp;
+      `);
+
+      await pool.query(`
+        ALTER TABLE orders
+        ADD COLUMN IF NOT EXISTS archived_at timestamp;
+      `);
+
+      await pool.query(`
+        UPDATE orders
+        SET admin_seen_at = created_at
+        WHERE admin_seen_at IS NULL;
+      `);
+
       schemaEnsured = true;
     })().catch((error) => {
       schemaEnsurePromise = null;

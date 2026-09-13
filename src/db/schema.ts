@@ -41,7 +41,8 @@ export const merchandise = pgTable("merchandise", {
   price: integer("price").notNull(), // price in Kenya Shillings (Ksh)
   imageUrl: text("image_url").notNull(),
   sizes: text("sizes").notNull(), // e.g., 'S, M, L, XL'
-  kitType: text("kit_type").notNull(), // 'home' (black), 'away-green', 'away-white', 'accessory'
+  kitType: text("kit_type").notNull(), // jersey, scarf, jumper, cap, socks, tracksuit, shorts, bag, other
+  stockStatus: text("stock_status").default("available").notNull(), // available, out_of_stock, coming_soon
 });
 
 export const donations = pgTable("donations", {
@@ -147,6 +148,9 @@ export const orders = pgTable("orders", {
   transactionDate: text("transaction_date"),
 
   deliveryAddress: text("delivery_address"),
+
+  adminSeenAt: timestamp("admin_seen_at"),
+  archivedAt: timestamp("archived_at"),
 
   createdAt: timestamp("created_at")
     .defaultNow()

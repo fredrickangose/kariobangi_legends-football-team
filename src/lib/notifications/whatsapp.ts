@@ -1,6 +1,17 @@
 import { normalizeKenyaPhone } from "@/lib/order-tracking";
+import {
+  getWhatsAppBusinessPhone,
+  isAfricasTalkingWhatsAppConfigured,
+  isMetaWhatsAppConfigured,
+  isWhatsAppLogMode,
+} from "@/lib/notifications/config";
 
-export async function sendOrderWhatsApp(
+function toInternationalPhone(phone: string): string {
+  const normalized = normalizeKenyaPhone(phone);
+  return normalized.startsWith("+") ? normalized : `+${normalized}`;
+}
+
+async function sendViaMetaCloudApi(
   phoneNumber: string,
   message: string,
   templateValues?: {
@@ -85,6 +96,7 @@ export async function sendOrderWhatsApp(
     return {
       sent: true,
       channel: "whatsapp" as const,
+      provider: "meta" as const,
       providerResponse: data,
     };
   } catch (error) {
@@ -95,4 +107,117 @@ export async function sendOrderWhatsApp(
       reason: "WhatsApp request error",
     };
   }
+}
+
+async function sendViaAfricasTalking(
+  phoneNumber: string,
+  message: string
+) {
+  const apiKey = process.env.AFRICAS_TALKING_API_KEY;
+  const username = process.env.AFRICAS_TALKING_USERNAME;
+  const waNumber = getWhatsAppBusinessPhone();
+
+  if (!apiKey || !username || !waNumber) {
+    return {
+      sent: false,
+      channel: "whatsapp" as const,
+      reason: "Africa's Talking WhatsApp is not configured",
+    };
+  }
+
+  try {
+    const response = await fetch(
+      "https://chat.africastalking.com/whatsapp/message/send",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          apiKey,
+        },
+        body: JSON.stringify({
+          username,
+          waNumber: toInternationalPhone(waNumber),
+          phoneNumber: toInternationalPhone(phoneNumber),
+          body: {
+            message,
+          },
+        }),
+      }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      console.error("Africa's Talking WhatsApp failed:", data);
+      return {
+        sent: false,
+        channel: "whatsapp" as const,
+        reason: "WhatsApp request failed",
+        providerResponse: data,
+      };
+    }
+
+    return {
+      sent: true,
+      channel: "whatsapp" as const,
+      provider: "africas_talking" as const,
+      providerResponse: data,
+    };
+  } catch (error) {
+    console.error("Africa's Talking WhatsApp error:", error);
+    return {
+      sent: false,
+      channel: "whatsapp" as const,
+      reason: "WhatsApp request error",
+    };
+  }
+}
+
+export async function sendOrderWhatsApp(
+  phoneNumber: string,
+  message: string,
+  templateValues?: {
+    orderId: string;
+    statusLabel: string;
+    trackingUrl?: string | null;
+  }
+) {
+  if (
+    isWhatsAppLogMode() &&
+    !isMetaWhatsAppConfigured() &&
+    !isAfricasTalkingWhatsAppConfigured()
+  ) {
+    console.log(
+      `[WhatsApp from ${getWhatsAppBusinessPhone()} → ${toInternationalPhone(phoneNumber)}] ${message}`
+    );
+
+    return {
+      sent: true,
+      channel: "whatsapp" as const,
+      provider: "log" as const,
+    };
+  }
+
+  if (isMetaWhatsAppConfigured()) {
+    const metaResult = await sendViaMetaCloudApi(
+      phoneNumber,
+      message,
+      templateValues
+    );
+
+    if (metaResult.sent) {
+      return metaResult;
+    }
+  }
+
+  if (isAfricasTalkingWhatsAppConfigured()) {
+    return sendViaAfricasTalking(phoneNumber, message);
+  }
+
+  return {
+    sent: false,
+    channel: "whatsapp" as const,
+    reason: "WhatsApp is not configured",
+  };
 }

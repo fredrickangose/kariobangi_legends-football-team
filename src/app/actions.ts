@@ -16,7 +16,7 @@ import {
   customers,
 } from "@/db/schema";
 import { seedDatabaseIfNeeded } from "@/db/seed";
-import { desc, asc, eq, or } from "drizzle-orm";
+import { desc, asc, eq, or, and, isNull, isNotNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { normalizeKenyaPhone } from "@/lib/order-tracking";
@@ -30,6 +30,8 @@ import {
   verifyFullAdminToken,
   verifyNewsEditorToken,
 } from "@/lib/admin-auth";
+import { normalizeMerchandiseCategory } from "@/lib/merchandise-categories";
+import { normalizeMerchandiseStockStatus } from "@/lib/merchandise-stock";
 
 async function requireFullAdmin() {
   const cookieStore = await cookies();
@@ -204,6 +206,47 @@ export async function addPlayer(data: {
     return {
       success: true,
       message: "Player added successfully!",
+      player,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
+export async function updatePlayerJerseyNumber(
+  playerId: number,
+  jerseyNumber: number
+) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const parsed = Number(jerseyNumber);
+    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 99) {
+      return {
+        success: false,
+        error: "Jersey number must be between 1 and 99.",
+      };
+    }
+
+    const [player] = await db
+      .update(players)
+      .set({ jerseyNumber: parsed })
+      .where(eq(players.id, playerId))
+      .returning();
+
+    if (!player) {
+      return { success: false, error: "Player not found." };
+    }
+
+    return {
+      success: true,
+      message: "Player jersey number updated.",
       player,
     };
   } catch (error) {
@@ -704,6 +747,7 @@ export async function addMerchandise(data: {
   imageUrl: string;
   sizes: string;
   kitType: string;
+  stockStatus?: string;
 }) {
   try {
     const auth = await requireFullAdmin();
@@ -721,7 +765,8 @@ export async function addMerchandise(data: {
       price: Number(data.price),
       imageUrl: data.imageUrl || "/images/shop-home-jersey.jpg",
       sizes: data.sizes || "S, M, L, XL",
-      kitType: data.kitType || "jersey",
+      kitType: normalizeMerchandiseCategory(data.kitType || "jersey"),
+      stockStatus: normalizeMerchandiseStockStatus(data.stockStatus),
     }).returning();
 
     return {
@@ -738,6 +783,110 @@ export async function addMerchandise(data: {
     };
   }
 }
+export async function updateMerchandisePrice(merchId: number, price: number) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const normalizedPrice = Number(price);
+    if (!Number.isFinite(normalizedPrice) || normalizedPrice <= 0) {
+      return { success: false, error: "Enter a valid price greater than zero." };
+    }
+
+    const [item] = await db
+      .update(merchandise)
+      .set({ price: Math.round(normalizedPrice) })
+      .where(eq(merchandise.id, merchId))
+      .returning();
+
+    if (!item) {
+      return { success: false, error: "Merchandise item not found." };
+    }
+
+    return {
+      success: true,
+      message: "Product price updated successfully!",
+      item,
+    };
+  } catch (error) {
+    console.error("Update merchandise price failed:", error);
+
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
+export async function updateMerchandiseCategory(merchId: number, kitType: string) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const [item] = await db
+      .update(merchandise)
+      .set({ kitType: normalizeMerchandiseCategory(kitType) })
+      .where(eq(merchandise.id, merchId))
+      .returning();
+
+    if (!item) {
+      return { success: false, error: "Merchandise item not found." };
+    }
+
+    return {
+      success: true,
+      message: "Product moved to the new category successfully!",
+      item,
+    };
+  } catch (error) {
+    console.error("Update merchandise category failed:", error);
+
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
+export async function updateMerchandiseStockStatus(
+  merchId: number,
+  stockStatus: string
+) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const [item] = await db
+      .update(merchandise)
+      .set({ stockStatus: normalizeMerchandiseStockStatus(stockStatus) })
+      .where(eq(merchandise.id, merchId))
+      .returning();
+
+    if (!item) {
+      return { success: false, error: "Merchandise item not found." };
+    }
+
+    return {
+      success: true,
+      message: "Product stock status updated successfully!",
+      item,
+    };
+  } catch (error) {
+    console.error("Update merchandise stock status failed:", error);
+
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
 export async function updateMerchandiseImage(
   merchId: number,
   imageUrl: string
@@ -791,6 +940,31 @@ export async function deleteMerchandise(merchId: number) {
     };
   } catch (error) {
     console.error("Delete merchandise failed:", error);
+
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
+export async function clearAllMerchandise() {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const existing = await db.select({ id: merchandise.id }).from(merchandise);
+    await db.delete(merchandise);
+
+    return {
+      success: true,
+      message: `Cleared ${existing.length} item(s) from the fan shop. You can now upload fresh merchandise.`,
+      removedCount: existing.length,
+    };
+  } catch (error) {
+    console.error("Clear all merchandise failed:", error);
 
     return {
       success: false,
@@ -962,42 +1136,64 @@ export async function deleteManagement(managementId: number) {
 
 // ========== ORDERS ==========
 
+async function attachOrderItems<T extends { id: number }>(orderList: T[]) {
+  return Promise.all(
+    orderList.map(async (order) => {
+      const items = await db
+        .select()
+        .from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+
+      return {
+        ...order,
+        items,
+      };
+    })
+  );
+}
+
 export async function getOrders() {
   try {
+    await ensureDatabaseSchema();
+
     const auth = await requireFullAdmin();
     if (!auth.ok) {
       return {
         success: false,
         error: auth.error,
         orders: [],
+        archivedOrders: [],
+        unseenCount: 0,
       };
     }
-    
 
-    
+    const [activeOrderList, archivedOrderList, unseenRows] = await Promise.all([
+      db
+        .select()
+        .from(orders)
+        .where(isNull(orders.archivedAt))
+        .orderBy(desc(orders.createdAt)),
+      db
+        .select()
+        .from(orders)
+        .where(isNotNull(orders.archivedAt))
+        .orderBy(desc(orders.createdAt)),
+      db
+        .select({ id: orders.id })
+        .from(orders)
+        .where(and(isNull(orders.archivedAt), isNull(orders.adminSeenAt))),
+    ]);
 
-    const orderList = await db
-      .select()
-      .from(orders)
-      .orderBy(desc(orders.createdAt));
-
-    const ordersWithItems = await Promise.all(
-      orderList.map(async (order) => {
-        const items = await db
-          .select()
-          .from(orderItems)
-          .where(eq(orderItems.orderId, order.id));
-
-        return {
-          ...order,
-          items,
-        };
-      })
-    );
+    const [ordersWithItems, archivedOrdersWithItems] = await Promise.all([
+      attachOrderItems(activeOrderList),
+      attachOrderItems(archivedOrderList),
+    ]);
 
     return {
       success: true,
       orders: ordersWithItems,
+      archivedOrders: archivedOrdersWithItems,
+      unseenCount: unseenRows.length,
     };
   } catch (error) {
     console.error("Get orders failed:", error);
@@ -1009,6 +1205,130 @@ export async function getOrders() {
           ? error.message
           : "Unable to retrieve orders.",
       orders: [],
+      archivedOrders: [],
+      unseenCount: 0,
+    };
+  }
+}
+
+export async function markAdminOrdersSeen() {
+  try {
+    await ensureDatabaseSchema();
+
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    await db
+      .update(orders)
+      .set({ adminSeenAt: new Date() })
+      .where(and(isNull(orders.archivedAt), isNull(orders.adminSeenAt)));
+
+    return { success: true };
+  } catch (error) {
+    console.error("Mark admin orders seen failed:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to mark orders as read.",
+    };
+  }
+}
+
+export async function archiveOrder(orderId: number) {
+  try {
+    await ensureDatabaseSchema();
+
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return {
+        success: false,
+        error: "Invalid order ID.",
+      };
+    }
+
+    const archivedOrder = await db
+      .update(orders)
+      .set({
+        archivedAt: new Date(),
+        adminSeenAt: new Date(),
+      })
+      .where(and(eq(orders.id, orderId), isNull(orders.archivedAt)))
+      .returning();
+
+    if (archivedOrder.length === 0) {
+      return {
+        success: false,
+        error: "Order not found or already archived.",
+      };
+    }
+
+    revalidatePath("/");
+
+    return {
+      success: true,
+      order: archivedOrder[0],
+    };
+  } catch (error) {
+    console.error("Archive order failed:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Unable to archive order.",
+    };
+  }
+}
+
+export async function restoreOrder(orderId: number) {
+  try {
+    await ensureDatabaseSchema();
+
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return {
+        success: false,
+        error: "Invalid order ID.",
+      };
+    }
+
+    const restoredOrder = await db
+      .update(orders)
+      .set({
+        archivedAt: null,
+      })
+      .where(and(eq(orders.id, orderId), isNotNull(orders.archivedAt)))
+      .returning();
+
+    if (restoredOrder.length === 0) {
+      return {
+        success: false,
+        error: "Order not found or not in history.",
+      };
+    }
+
+    revalidatePath("/");
+
+    return {
+      success: true,
+      order: restoredOrder[0],
+    };
+  } catch (error) {
+    console.error("Restore order failed:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Unable to restore order.",
     };
   }
 }
@@ -1109,10 +1429,35 @@ export async function updateOrderStatus(
       };
     }
 
+    const [existingOrder] = await db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!existingOrder) {
+      return {
+        success: false,
+        error: "Order not found.",
+      };
+    }
+
+    if (
+      orderStatus !== "cancelled" &&
+      String(existingOrder.paymentStatus || "").toLowerCase() !== "paid"
+    ) {
+      return {
+        success: false,
+        error:
+          "Delivery progress can only be updated after payment is confirmed.",
+      };
+    }
+
     const updatedOrder = await db
       .update(orders)
       .set({
         orderStatus,
+        adminSeenAt: existingOrder.adminSeenAt ?? new Date(),
       })
       .where(eq(orders.id, orderId))
       .returning();

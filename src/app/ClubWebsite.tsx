@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Settings,
+  Pencil,
   Home,
   BookOpen,
   Users,
@@ -104,6 +105,20 @@ import {
   isClubHomeVenue,
 } from "@/lib/venue-directions";
 import {
+  getMerchandiseCategoriesWithItems,
+  getMerchandiseCategoryLabel,
+  getMerchandiseCategoryMeta,
+  groupMerchandiseByCategory,
+  MERCHANDISE_CATEGORIES,
+  normalizeMerchandiseCategory,
+} from "@/lib/merchandise-categories";
+import {
+  getMerchandiseStockStatusMeta,
+  isMerchandiseAvailable,
+  MERCHANDISE_STOCK_STATUSES,
+  normalizeMerchandiseStockStatus,
+} from "@/lib/merchandise-stock";
+import {
   submitDonation,
   submitFanMessage,
   addPlayer,
@@ -115,12 +130,17 @@ import {
   deleteGalleryImage,
   deleteTeamHighlight,
   updatePlayerPosition,
+  updatePlayerJerseyNumber,
   updatePlayerImage,
   updateNewsImage,
   updateGalleryImage,
   addMerchandise,
   updateMerchandiseImage,
+  updateMerchandisePrice,
+  updateMerchandiseStockStatus,
+  updateMerchandiseCategory,
   deleteMerchandise,
+  clearAllMerchandise,
   addManagement,
   updateManagement,
   updateManagementRole,
@@ -130,6 +150,9 @@ import {
   deleteFixture,
   getOrders,
   updateOrderStatus,
+  markAdminOrdersSeen,
+  archiveOrder,
+  restoreOrder,
   trackOrder,
   getNotificationSetup,
 } from "./actions";
@@ -187,6 +210,7 @@ interface MerchandiseItem {
   imageUrl: string;
   sizes: string;
   kitType: string;
+  stockStatus?: string | null;
 }
 
 interface Donation {
@@ -337,6 +361,246 @@ function HighlightVideoCard({
             Delete Video
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+type NavDropdownItemConfig = {
+  tabId: string;
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
+
+function NavDropdownItem({
+  label,
+  description,
+  icon: Icon,
+  isActive,
+  onClick,
+}: {
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group/item w-full text-left rounded-xl px-3 py-3 transition-all duration-200 flex items-center gap-3 ${
+        isActive
+          ? "bg-emerald-50 ring-1 ring-emerald-200/80 shadow-sm shadow-emerald-600/5"
+          : "hover:bg-white hover:shadow-md hover:shadow-slate-950/5 ring-1 ring-transparent hover:ring-slate-200/80"
+      }`}
+    >
+      <span
+        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-200 ${
+          isActive
+            ? "bg-gradient-to-br from-emerald-600 to-emerald-700 text-white shadow-md shadow-emerald-600/30"
+            : "bg-slate-100 text-slate-600 group-hover/item:bg-slate-950 group-hover/item:text-yellow-400"
+        }`}
+      >
+        <Icon className="w-4 h-4" />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span
+          className={`block text-sm font-bold tracking-tight ${
+            isActive ? "text-emerald-800" : "text-slate-900 group-hover/item:text-slate-950"
+          }`}
+        >
+          {label}
+        </span>
+        <span className="block text-[11px] text-slate-500 mt-0.5 leading-snug">{description}</span>
+      </span>
+      <ArrowRight
+        className={`w-4 h-4 shrink-0 transition-all duration-200 ${
+          isActive
+            ? "text-emerald-600 opacity-100 translate-x-0"
+            : "text-slate-300 opacity-0 -translate-x-1 group-hover/item:opacity-100 group-hover/item:translate-x-0 group-hover/item:text-emerald-600"
+        }`}
+      />
+    </button>
+  );
+}
+
+function NavDropdownPanel({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="absolute left-0 top-full pt-3 opacity-0 invisible translate-y-2 scale-[0.97] group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 group-hover:scale-100 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] z-50 pointer-events-none group-hover:pointer-events-auto">
+      <div className="relative w-[19rem] overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_28px_70px_-24px_rgba(15,23,42,0.45)] ring-1 ring-slate-950/5">
+        <div className="absolute top-0 right-0 w-28 h-28 bg-gradient-to-bl from-yellow-400/25 via-emerald-500/10 to-transparent pointer-events-none" />
+        <div className="relative px-4 py-3.5 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 text-white">
+          <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-emerald-400/60 to-transparent" />
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-400/90 mb-1">Explore</p>
+          <p className="text-sm font-black tracking-tight">{title}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">{subtitle}</p>
+        </div>
+        <div className="relative p-2 space-y-0.5 bg-gradient-to-b from-slate-50/90 to-white">{children}</div>
+        <div className="px-4 py-2 bg-slate-50/80 border-t border-slate-100">
+          <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400 text-center">
+            Kariobangi Legends FC
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DesktopNavDropdown({
+  label,
+  isActive,
+  triggerClassName,
+  title,
+  subtitle,
+  items,
+  activeTab,
+  onNavigate,
+}: {
+  label: string;
+  isActive: boolean;
+  triggerClassName: (isActive: boolean) => string;
+  title: string;
+  subtitle: string;
+  items: NavDropdownItemConfig[];
+  activeTab: string;
+  onNavigate: (tab: string) => void;
+}) {
+  return (
+    <div className="relative group">
+      <button type="button" className={triggerClassName(isActive)}>
+        {label}
+        <ChevronDown className="w-3 h-3 transition-transform duration-300 group-hover:rotate-180 opacity-80" />
+      </button>
+      <NavDropdownPanel title={title} subtitle={subtitle}>
+        {items.map((item) => (
+          <NavDropdownItem
+            key={item.tabId}
+            label={item.label}
+            description={item.description}
+            icon={item.icon}
+            isActive={activeTab === item.tabId}
+            onClick={() => onNavigate(item.tabId)}
+          />
+        ))}
+      </NavDropdownPanel>
+    </div>
+  );
+}
+
+function MobileNavSection({
+  title,
+  subtitle,
+  items,
+  activeTab,
+  onNavigate,
+  onAccount,
+}: {
+  title: string;
+  subtitle?: string;
+  items: Array<{
+    id: string;
+    label: string;
+    description: string;
+    icon: React.ComponentType<{ className?: string }>;
+    isAccount?: boolean;
+  }>;
+  activeTab: string;
+  onNavigate: (tab: string) => void;
+  onAccount?: () => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="relative px-4 py-3 bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white">
+        <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-emerald-400/50 to-transparent" />
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">{title}</p>
+        {subtitle ? <p className="text-[11px] text-slate-400 mt-0.5">{subtitle}</p> : null}
+      </div>
+      <div className="p-2 space-y-1">
+        {items.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              type="button"
+              key={tab.id}
+              onClick={() => (tab.isAccount && onAccount ? onAccount() : onNavigate(tab.id))}
+              className={`group/item w-full text-left rounded-xl px-3 py-3 transition-all flex items-center gap-3 ${
+                isActive
+                  ? "bg-emerald-50 ring-1 ring-emerald-200/80 shadow-sm"
+                  : "hover:bg-slate-50 ring-1 ring-transparent hover:ring-slate-200/70"
+              }`}
+            >
+              <span
+                className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-all ${
+                  isActive
+                    ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/25"
+                    : "bg-slate-100 text-slate-600 group-hover/item:bg-slate-950 group-hover/item:text-yellow-400"
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span
+                  className={`block text-xs font-bold uppercase tracking-wide ${
+                    isActive ? "text-emerald-800" : "text-slate-800"
+                  }`}
+                >
+                  {tab.label}
+                </span>
+                <span className="block text-[10px] text-slate-500 mt-0.5">{tab.description}</span>
+              </span>
+              <ArrowRight
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  isActive ? "text-emerald-600" : "text-slate-300 group-hover/item:text-emerald-600"
+                }`}
+              />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MerchandiseAdminThumbnail({ item }: { item: MerchandiseItem }) {
+  const hasImage = item.imageUrl.startsWith("/") || item.imageUrl.startsWith("http");
+  const categoryMeta = getMerchandiseCategoryMeta(item.kitType);
+  const stockMeta = getMerchandiseStockStatusMeta(item.stockStatus);
+
+  return (
+    <div className="relative w-full h-56 sm:h-64 bg-gradient-to-b from-white to-slate-100 border-b border-slate-100 flex items-center justify-center p-5 sm:p-6 overflow-hidden">
+      {hasImage ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={item.imageUrl}
+          alt={item.name}
+          className="max-w-full max-h-full w-auto h-auto object-contain drop-shadow-sm"
+        />
+      ) : (
+        <div className="text-center space-y-2">
+          <ShoppingBag className="w-12 h-12 text-slate-300 mx-auto" />
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">No photo uploaded</p>
+        </div>
+      )}
+      <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
+        <span className="bg-slate-950/90 text-yellow-400 text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full">
+          {categoryMeta.label}
+        </span>
+        <span
+          className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${stockMeta.badgeClass}`}
+        >
+          {stockMeta.label}
+        </span>
       </div>
     </div>
   );
@@ -749,17 +1013,21 @@ function SquadPlayerCard({
   player,
   showAdminControls,
   isUpdatingPosition,
+  isUpdatingJersey,
   onReplaceImage,
   onDelete,
   onPositionChange,
+  onJerseyChange,
   onShopClick,
 }: {
   player: Player;
   showAdminControls: boolean;
   isUpdatingPosition: boolean;
+  isUpdatingJersey: boolean;
   onReplaceImage: (id: number, imageUrl: string) => void;
   onDelete: (id: number, name: string) => void;
   onPositionChange: (id: number, position: string) => void;
+  onJerseyChange: (id: number, jerseyNumber: number) => void;
   onShopClick: () => void;
 }) {
   const positionInOptions = SQUAD_POSITION_OPTIONS.some(
@@ -812,6 +1080,28 @@ function SquadPlayerCard({
 
         {showAdminControls && (
           <div className="space-y-1.5 pt-1 border-t border-dashed border-slate-200">
+            <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">
+              Admin · Jersey no.
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={99}
+              defaultValue={player.jerseyNumber}
+              key={`jersey-${player.id}-${player.jerseyNumber}`}
+              disabled={isUpdatingJersey}
+              onBlur={(e) => {
+                const next = parseInt(e.target.value, 10);
+                if (
+                  Number.isInteger(next) &&
+                  next > 0 &&
+                  next !== player.jerseyNumber
+                ) {
+                  onJerseyChange(player.id, next);
+                }
+              }}
+              className="w-full p-1.5 rounded-md border border-slate-200 bg-white text-[10px] font-semibold text-slate-700 disabled:opacity-50"
+            />
             <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">
               Admin · Squad section
             </label>
@@ -1295,6 +1585,10 @@ type AdminBusyAction =
   | "gallery"
   | "highlights"
   | "merch"
+  | "merch-clear"
+  | "merch-price"
+  | "merch-stock"
+  | "merch-category"
   | "replace-image"
   | null;
 
@@ -1507,6 +1801,7 @@ useEffect(() => {
   const [adminResetNewPassword, setAdminResetNewPassword] = useState("");
   const [adminResetConfirmPassword, setAdminResetConfirmPassword] = useState("");
   const [showNewspaperPasswordReset, setShowNewspaperPasswordReset] = useState(false);
+  const [listedShopItemsOpen, setListedShopItemsOpen] = useState(false);
   const [newspaperResetAdminPassword, setNewspaperResetAdminPassword] = useState("");
   const [newspaperResetNewPassword, setNewspaperResetNewPassword] = useState("");
   const [newspaperResetConfirmPassword, setNewspaperResetConfirmPassword] = useState("");
@@ -1517,6 +1812,10 @@ useEffect(() => {
   const [newspaperPassword, setNewspaperPassword] = useState("");
   const canManageClubContent = adminRole === "admin";
   const [adminOrders, setAdminOrders] = useState<any[]>([]);
+  const [adminArchivedOrders, setAdminArchivedOrders] = useState<any[]>([]);
+  const [adminUnseenOrderCount, setAdminUnseenOrderCount] = useState(0);
+  const [showArchivedOrders, setShowArchivedOrders] = useState(false);
+  const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
 const [isLoadingOrders, setIsLoadingOrders] = useState<boolean>(false);
 const [adminInboxThreads, setAdminInboxThreads] = useState<
   Array<{
@@ -1557,6 +1856,8 @@ const [notificationConfig, setNotificationConfig] = useState<{
   channels: string[];
   sms: boolean;
   whatsapp: boolean;
+  whatsappPhone?: string;
+  whatsappProvider?: "meta" | "africas_talking" | "log" | null;
   trackingUrlConfigured: boolean;
 } | null>(null);
 
@@ -1593,6 +1894,7 @@ const [notificationConfig, setNotificationConfig] = useState<{
   const [adminPlayerAssists, setAdminPlayerAssists] = useState<string>("0");
   const [adminPlayerFile, setAdminPlayerFile] = useState<File | null>(null);
   const [updatingPlayerPositionId, setUpdatingPlayerPositionId] = useState<number | null>(null);
+  const [updatingPlayerJerseyId, setUpdatingPlayerJerseyId] = useState<number | null>(null);
 
   const [adminOpponent, setAdminOpponent] = useState<string>("");
   const [adminOpponentLogoFile, setAdminOpponentLogoFile] = useState<File | null>(null);
@@ -1663,7 +1965,12 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
   const [adminMerchPrice, setAdminMerchPrice] = useState<string>("");
   const [adminMerchFile, setAdminMerchFile] = useState<File | null>(null);
   const [adminMerchSizes, setAdminMerchSizes] = useState<string>("S, M, L, XL");
-  const [adminMerchType, setAdminMerchType] = useState<string>("home");
+  const [adminMerchType, setAdminMerchType] = useState<string>("jersey");
+  const [adminMerchStockStatus, setAdminMerchStockStatus] = useState<string>("available");
+  const [selectedShopCategory, setSelectedShopCategory] = useState<string>("All");
+  const [editingMerchPriceId, setEditingMerchPriceId] = useState<number | null>(null);
+  const [merchPriceDraft, setMerchPriceDraft] = useState<string>("");
+  const [merchAdminPriceDrafts, setMerchAdminPriceDrafts] = useState<Record<number, string>>({});
 
   // Image replace modal state
   const [replaceImageId, setReplaceImageId] = useState<number | null>(null);
@@ -1734,6 +2041,16 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
 
   // Add item to cart
   const addToCart = (item: MerchandiseItem, size: string) => {
+    if (!isMerchandiseAvailable(item.stockStatus)) {
+      showToast(
+        getMerchandiseStockStatusMeta(item.stockStatus).label === "Out of Stock"
+          ? "This item is currently out of stock."
+          : "This item will be updated soon and is not available to order yet.",
+        "error"
+      );
+      return;
+    }
+
     const existingIndex = cart.findIndex((i) => i.merchId === item.id && i.size === size);
     if (existingIndex > -1) {
       const updated = [...cart];
@@ -2022,6 +2339,8 @@ const loadAdminOrders = async () => {
 
     if (result.success) {
       setAdminOrders(result.orders || []);
+      setAdminArchivedOrders(result.archivedOrders || []);
+      setAdminUnseenOrderCount(result.unseenCount ?? 0);
     } else {
       console.error("Unable to load admin orders:", result.error);
       showToast(result.error || "Unable to load orders.", "error");
@@ -2626,11 +2945,13 @@ const handleTrackOrder = (e: React.FormEvent) => {
   });
 };
 
-const handleUpdateOrderStatus = (
+const handleUpdateOrderStatus = async (
   orderId: number,
   orderStatus: "processing" | "shipped" | "delivered" | "cancelled"
 ) => {
-  startTransition(async () => {
+  setUpdatingOrderId(orderId);
+
+  try {
     const result = await updateOrderStatus(orderId, orderStatus);
 
     if (result.success) {
@@ -2639,7 +2960,51 @@ const handleUpdateOrderStatus = (
     } else {
       showToast(result.error || "Unable to update order status.", "error");
     }
-  });
+  } finally {
+    setUpdatingOrderId(null);
+  }
+};
+
+const handleArchiveOrder = async (orderId: number) => {
+  if (
+    !window.confirm(
+      `Remove order #${orderId} from the active list? It will stay in order history.`
+    )
+  ) {
+    return;
+  }
+
+  setUpdatingOrderId(orderId);
+
+  try {
+    const result = await archiveOrder(orderId);
+
+    if (result.success) {
+      showToast(`Order #${orderId} moved to history.`);
+      await loadAdminOrders();
+    } else {
+      showToast(result.error || "Unable to archive order.", "error");
+    }
+  } finally {
+    setUpdatingOrderId(null);
+  }
+};
+
+const handleRestoreOrder = async (orderId: number) => {
+  setUpdatingOrderId(orderId);
+
+  try {
+    const result = await restoreOrder(orderId);
+
+    if (result.success) {
+      showToast(`Order #${orderId} restored to the active list.`);
+      await loadAdminOrders();
+    } else {
+      showToast(result.error || "Unable to restore order.", "error");
+    }
+  } finally {
+    setUpdatingOrderId(null);
+  }
 };
 
 useEffect(() => {
@@ -2686,6 +3051,20 @@ useEffect(() => {
     setAdminPanelView("content");
   }
 }, [adminRole]);
+
+useEffect(() => {
+  if (
+    adminPanelView === "orders" &&
+    isAdminAuthenticated &&
+    adminRole !== "news_editor"
+  ) {
+    void markAdminOrdersSeen().then((result) => {
+      if (result.success) {
+        setAdminUnseenOrderCount(0);
+      }
+    });
+  }
+}, [adminPanelView, isAdminAuthenticated, adminRole]);
 
 useEffect(() => {
   if (activeTab !== "admin") {
@@ -3445,6 +3824,29 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     }
   };
 
+  const handleUpdatePlayerJersey = async (
+    playerId: number,
+    jerseyNumber: number
+  ) => {
+    setUpdatingPlayerJerseyId(playerId);
+    try {
+      const res = await updatePlayerJerseyNumber(playerId, jerseyNumber);
+      if (res.success && res.player) {
+        setClubData((prev) => ({
+          ...prev,
+          players: prev.players.map((player) =>
+            player.id === res.player.id ? res.player : player
+          ),
+        }));
+        showToast(res.message || "Jersey number updated.");
+      } else {
+        showToast(res.error || "Failed to update jersey number.", "error");
+      }
+    } finally {
+      setUpdatingPlayerJerseyId(null);
+    }
+  };
+
   const openSquadPlayerShop = () => {
     setActiveTab("shop");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -3614,6 +4016,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
         imageUrl,
         sizes: adminMerchSizes,
         kitType: adminMerchType,
+        stockStatus: adminMerchStockStatus,
       });
 
       if (res.success && res.item) {
@@ -3622,8 +4025,10 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
           merchandise: [...prev.merchandise, res.item],
         }));
         showToast(res.message || "Merchandise added to shop!");
+        setListedShopItemsOpen(true);
         setAdminMerchName("");
         setAdminMerchDesc("");
+        setAdminMerchStockStatus("available");
         setAdminMerchPrice("");
         setAdminMerchFile(null);
       } else {
@@ -3650,20 +4055,128 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     }
   };
 
+  const handleClearAllMerchandise = async () => {
+    if (clubData.merchandise.length === 0) {
+      showToast("The shop is already empty.", "error");
+      return;
+    }
+    if (
+      !confirm(
+        `Remove all ${clubData.merchandise.length} product(s) from the fan shop? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    setAdminBusy("merch-clear");
+    try {
+      const res = await clearAllMerchandise();
+      if (res.success) {
+        setClubData((prev) => ({ ...prev, merchandise: [] }));
+        showToast(res.message || "Shop cleared.");
+      } else {
+        showToast(res.error || "Failed to clear shop.", "error");
+      }
+    } finally {
+      setAdminBusy(null);
+    }
+  };
+
+  const handleUpdateMerchandisePrice = async (id: number, priceValue: string) => {
+    const price = Number(priceValue);
+    if (!Number.isFinite(price) || price <= 0) {
+      showToast("Enter a valid price greater than zero.", "error");
+      return;
+    }
+
+    setAdminBusy("merch-price");
+    try {
+      const res = await updateMerchandisePrice(id, price);
+      if (res.success && res.item) {
+        setClubData((prev) => ({
+          ...prev,
+          merchandise: prev.merchandise.map((item) =>
+            item.id === id ? res.item! : item
+          ),
+        }));
+        setEditingMerchPriceId(null);
+        setMerchPriceDraft("");
+        setMerchAdminPriceDrafts((prev) => ({
+          ...prev,
+          [id]: String(res.item!.price),
+        }));
+        showToast(res.message || "Price updated.");
+      } else {
+        showToast(res.error || "Failed to update price.", "error");
+      }
+    } finally {
+      setAdminBusy(null);
+    }
+  };
+
+  const startEditingMerchPrice = (item: MerchandiseItem) => {
+    setEditingMerchPriceId(item.id);
+    setMerchPriceDraft(String(item.price));
+  };
+
+  const handleUpdateMerchandiseStockStatus = async (id: number, stockStatus: string) => {
+    setAdminBusy("merch-stock");
+    try {
+      const res = await updateMerchandiseStockStatus(id, stockStatus);
+      if (res.success && res.item) {
+        setClubData((prev) => ({
+          ...prev,
+          merchandise: prev.merchandise.map((item) =>
+            item.id === id ? res.item! : item
+          ),
+        }));
+        showToast(res.message || "Stock status updated.");
+      } else {
+        showToast(res.error || "Failed to update stock status.", "error");
+      }
+    } finally {
+      setAdminBusy(null);
+    }
+  };
+
+  const handleUpdateMerchandiseCategory = async (id: number, kitType: string) => {
+    const currentItem = clubData.merchandise.find((item) => item.id === id);
+    if (currentItem && normalizeMerchandiseCategory(currentItem.kitType) === kitType) {
+      return;
+    }
+
+    setAdminBusy("merch-category");
+    try {
+      const res = await updateMerchandiseCategory(id, kitType);
+      if (res.success && res.item) {
+        setClubData((prev) => ({
+          ...prev,
+          merchandise: prev.merchandise.map((item) =>
+            item.id === id ? res.item! : item
+          ),
+        }));
+        showToast(res.message || "Category updated.");
+      } else {
+        showToast(res.error || "Failed to move category.", "error");
+      }
+    } finally {
+      setAdminBusy(null);
+    }
+  };
+
   // Product photo display — shows real photo or a styled fallback
   const renderProductPhoto = (item: MerchandiseItem) => {
     // If imageUrl is a real path (starts with /), show the image
     if (item.imageUrl.startsWith("/") || item.imageUrl.startsWith("http")) {
       return (
-        <div className="h-72 relative bg-slate-100 overflow-hidden group">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={item.imageUrl}
-            alt={item.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-          />
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/80 to-transparent p-4">
-            <span className="text-yellow-400 text-sm font-black">Ksh {item.price.toLocaleString()}</span>
+        <div className="relative h-80 bg-gradient-to-b from-slate-50 to-slate-100 overflow-hidden group">
+          <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={item.imageUrl}
+              alt={item.name}
+              className="max-w-full max-h-full w-auto h-auto object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out"
+            />
           </div>
         </div>
       );
@@ -3671,17 +4184,26 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 
     // Fallback CSS product card for items without real photos
     const kitColors: Record<string, { bg: string; border: string; accent: string; label: string }> = {
+      jersey: { bg: "bg-slate-900", border: "border-yellow-500", accent: "text-yellow-500", label: "OFFICIAL JERSEY" },
+      scarf: { bg: "bg-gradient-to-r from-slate-950 via-emerald-600 to-slate-950", border: "border-yellow-500", accent: "text-white", label: "SUPPORTER SCARF" },
+      jumper: { bg: "bg-slate-800", border: "border-emerald-500", accent: "text-emerald-300", label: "CLUB JUMPER" },
+      cap: { bg: "bg-amber-500", border: "border-slate-950", accent: "text-slate-950", label: "CLUB CAP" },
+      socks: { bg: "bg-emerald-700", border: "border-white", accent: "text-white", label: "MATCH SOCKS" },
+      tracksuit: { bg: "bg-slate-900", border: "border-emerald-500", accent: "text-emerald-400", label: "TRACKSUIT" },
+      shorts: { bg: "bg-emerald-600", border: "border-yellow-400", accent: "text-white", label: "TRAINING SHORTS" },
+      bag: { bg: "bg-slate-700", border: "border-yellow-500", accent: "text-yellow-400", label: "KIT BAG" },
+      other: { bg: "bg-amber-500", border: "border-slate-950", accent: "text-slate-950", label: "CLUB MERCH" },
       home: { bg: "bg-slate-900", border: "border-yellow-500", accent: "text-yellow-500", label: "RESILIENCE BLACK" },
       "away-green": { bg: "bg-emerald-600", border: "border-white", accent: "text-white", label: "HOPE GREEN" },
       "away-white": { bg: "bg-white", border: "border-emerald-500", accent: "text-emerald-600", label: "PURE WHITE" },
-      scarf: { bg: "bg-gradient-to-r from-slate-950 via-emerald-600 to-slate-950", border: "border-yellow-500", accent: "text-white", label: "SUPPORTER SCARF" },
       accessory: { bg: "bg-amber-500", border: "border-slate-950", accent: "text-slate-950", label: "ACCESSORY" },
     };
 
-    const colors = kitColors[item.kitType] || kitColors.accessory;
+    const colors =
+      kitColors[normalizeMerchandiseCategory(item.kitType)] || kitColors.other;
 
     return (
-      <div className={`h-72 ${colors.bg} ${colors.border} border-2 flex flex-col items-center justify-center relative`}>
+      <div className={`h-80 ${colors.bg} ${colors.border} border-2 flex flex-col items-center justify-center relative`}>
         <div className="text-center space-y-3">
           <Shield className={`w-16 h-16 ${colors.accent} mx-auto`} />
           <p className={`text-sm font-black ${colors.accent} tracking-widest`}>KLFC</p>
@@ -3744,6 +4266,166 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     }
   };
 
+  const renderMerchandiseProductGrid = (items: MerchandiseItem[]) => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {items.map((item) => {
+        const sizesArray = item.sizes.split(",").map((s) => s.trim());
+        const categoryMeta = getMerchandiseCategoryMeta(item.kitType);
+        const stockMeta = getMerchandiseStockStatusMeta(item.stockStatus);
+        const isAvailable = isMerchandiseAvailable(item.stockStatus);
+
+        return (
+          <div
+            key={item.id}
+            className={`bg-white rounded-3xl overflow-hidden border shadow-sm hover:shadow-md transition flex flex-col justify-between ${
+              isAvailable ? "border-slate-100" : "border-slate-200 opacity-95"
+            }`}
+          >
+            <div className="relative">
+              {renderProductPhoto(item)}
+              {canManageClubContent && (
+                <div className="absolute top-3 right-3 flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => openReplaceImage(item.id, "merch", item.imageUrl)}
+                    className="bg-white/90 backdrop-blur-sm p-1.5 rounded-lg text-blue-600 hover:bg-white shadow cursor-pointer"
+                    title="Replace product photo"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteMerchandise(item.id, item.name)}
+                    className="bg-white/90 backdrop-blur-sm p-1.5 rounded-lg text-rose-500 hover:bg-white shadow cursor-pointer"
+                    title="Remove item from shop"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 pt-4 flex flex-wrap gap-2">
+              <span className="bg-slate-950 text-yellow-400 text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full">
+                {categoryMeta.label}
+              </span>
+              <span
+                className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${stockMeta.badgeClass}`}
+              >
+                {stockMeta.label}
+              </span>
+            </div>
+
+            <div className="p-5 pt-3 space-y-4">
+              <div className="space-y-1">
+                <div className="flex justify-between items-start gap-2">
+                  <h3 className="font-extrabold text-slate-950 text-base leading-snug flex-1">
+                    {item.name}
+                  </h3>
+                  {canManageClubContent && editingMerchPriceId === item.id ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input
+                        type="number"
+                        min={1}
+                        value={merchPriceDraft}
+                        onChange={(e) => setMerchPriceDraft(e.target.value)}
+                        className="w-20 px-2 py-1 rounded-lg border border-emerald-200 text-[11px] font-bold text-slate-900 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateMerchandisePrice(item.id, merchPriceDraft)}
+                        disabled={adminBusy === "merch-price"}
+                        className="px-2 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-bold uppercase hover:bg-emerald-700 disabled:opacity-50 cursor-pointer"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingMerchPriceId(null);
+                          setMerchPriceDraft("");
+                        }}
+                        className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600 text-[10px] font-bold uppercase hover:bg-slate-200 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded whitespace-nowrap">
+                        Ksh {item.price.toLocaleString()}
+                      </span>
+                      {canManageClubContent && (
+                        <button
+                          type="button"
+                          onClick={() => startEditingMerchPrice(item)}
+                          className="p-1 rounded-md text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer"
+                          title="Edit price"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 line-clamp-2">{item.description}</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-slate-400 font-bold uppercase">Select Size</p>
+                <div className="flex gap-2 flex-wrap">
+                  {sizesArray.map((size) => (
+                    <button
+                      key={size}
+                      type="button"
+                      disabled={!isAvailable}
+                      onClick={() =>
+                        setSelectedSizes((prev) => ({
+                          ...prev,
+                          [item.id]: size,
+                        }))
+                      }
+                      className={`px-2.5 py-1 text-[11px] rounded-lg font-bold transition ${
+                        !isAvailable
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : (selectedSizes[item.id] || sizesArray[0]) === size
+                            ? "bg-slate-950 text-yellow-400 cursor-pointer"
+                            : "bg-slate-50 text-slate-600 hover:bg-slate-100 cursor-pointer"
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={!isAvailable}
+                onClick={() => addToCart(item, selectedSizes[item.id] || sizesArray[0])}
+                className={`w-full font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm ${
+                  isAvailable
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                    : stockMeta.id === "out_of_stock"
+                      ? "bg-rose-100 text-rose-700 cursor-not-allowed"
+                      : "bg-amber-100 text-amber-800 cursor-not-allowed"
+                }`}
+              >
+                {isAvailable ? (
+                  <>
+                    <ShoppingBag className="w-4 h-4" /> {stockMeta.buttonLabel}
+                  </>
+                ) : (
+                  stockMeta.buttonLabel
+                )}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   const categoryGallery =
     selectedGalleryCategory === "All"
       ? clubData.gallery
@@ -3761,6 +4443,68 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
       ? highlights
       : highlights.filter((item) => item.category === selectedHighlightCategory);
   }, [clubData.highlights, selectedHighlightCategory]);
+
+  const merchandiseByCategory = useMemo(
+    () => groupMerchandiseByCategory(clubData.merchandise),
+    [clubData.merchandise]
+  );
+
+  const shopCategoriesWithItems = useMemo(
+    () => getMerchandiseCategoriesWithItems(clubData.merchandise),
+    [clubData.merchandise]
+  );
+
+  const visibleShopCategories = useMemo(() => {
+    if (selectedShopCategory === "All") {
+      return shopCategoriesWithItems;
+    }
+
+    const category = MERCHANDISE_CATEGORIES.find((entry) => entry.id === selectedShopCategory);
+    return category ? [category] : [];
+  }, [selectedShopCategory, shopCategoriesWithItems]);
+
+  const navAccountAction = useMemo(() => {
+    if (customerProfile) {
+      return {
+        label: "My Account",
+        mobileLabel: "My Account",
+        title: `Signed in as ${customerProfile.fullName}`,
+        signedIn: true,
+        kind: "fan" as const,
+      };
+    }
+
+    if (isAdminAuthenticated) {
+      if (adminRole === "news_editor") {
+        return {
+          label: "Press Desk",
+          mobileLabel: "Press Account",
+          title: "Signed in as newspaper / press partner",
+          signedIn: true,
+          kind: "press" as const,
+        };
+      }
+
+      return {
+        label: "Admin Panel",
+        mobileLabel: "Admin Panel",
+        title: "Signed in as club administrator",
+        signedIn: true,
+        kind: "admin" as const,
+      };
+    }
+
+    return {
+      label: "Sign In",
+      mobileLabel: "Sign In",
+      title: "Sign in to your fan or official account",
+      signedIn: false,
+      kind: "guest" as const,
+    };
+  }, [customerProfile, isAdminAuthenticated, adminRole]);
+
+  const navAccountIsActive =
+    activeTab === "account" || (isAdminAuthenticated && activeTab === "admin");
 
     useEffect(() => {
   if (!selectedGalleryImage) return;
@@ -3807,6 +4551,11 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
   };
 
   const openAccountTab = (preferRegister = false) => {
+    if (isAdminAuthenticated) {
+      goToTab("admin");
+      return;
+    }
+
     if (!customerProfile) {
       setAccountView(preferRegister ? "register" : "login");
     }
@@ -3840,7 +4589,9 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     }`;
 
   const desktopNavTriggerClass = (isActive: boolean) =>
-    `${desktopNavLinkClass(isActive)} flex items-center gap-1`;
+    `${desktopNavLinkClass(isActive)} flex items-center gap-1 ${
+      isActive ? "" : "group-hover:bg-white group-hover:shadow-sm group-hover:ring-1 group-hover:ring-emerald-200/50"
+    }`;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-emerald-600 selection:text-white overflow-x-hidden">
@@ -3926,7 +4677,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
             </button>
 
             {/* Desktop navigation */}
-            <nav className="hidden lg:flex items-center gap-1 p-1 rounded-2xl bg-slate-50/80 border border-slate-200/70">
+            <nav className="hidden lg:flex items-center gap-0.5 p-1 rounded-2xl bg-white/70 border border-slate-200/80 shadow-sm backdrop-blur-sm">
 
               <button
                 type="button"
@@ -3936,54 +4687,29 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                 Home
               </button>
 
-              <div className="relative group">
-                <button
-                  type="button"
-                  className={desktopNavTriggerClass(["history", "management"].includes(activeTab))}
-                >
-                  Club
-                  <ChevronDown className="w-3 h-3 transition-transform duration-300 group-hover:rotate-180" />
-                </button>
-
-                <div className="absolute left-0 top-full pt-2 opacity-0 invisible translate-y-1 group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 transition-all duration-200 z-50">
-                  <div className="w-64 bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200/80 shadow-2xl shadow-slate-950/10 p-2">
-                    <button
-                      type="button"
-                      onClick={() => goToTab("history")}
-                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
-                    >
-                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
-                        <BookOpen className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
-                      </span>
-                      <span>
-                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
-                          Our Story
-                        </span>
-                        <span className="block text-[10px] text-slate-500 mt-0.5">
-                          Club history and journey
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => goToTab("management")}
-                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
-                    >
-                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
-                        <Shield className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
-                      </span>
-                      <span>
-                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
-                          Management
-                        </span>
-                        <span className="block text-[10px] text-slate-500 mt-0.5">
-                          Leadership and technical team
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <DesktopNavDropdown
+                label="Club"
+                isActive={["history", "management"].includes(activeTab)}
+                triggerClassName={desktopNavTriggerClass}
+                title="Club"
+                subtitle="Identity, leadership, and our journey"
+                activeTab={activeTab}
+                onNavigate={goToTab}
+                items={[
+                  {
+                    tabId: "history",
+                    label: "Our Story",
+                    description: "Club history and journey from Kariobangi",
+                    icon: BookOpen,
+                  },
+                  {
+                    tabId: "management",
+                    label: "Management",
+                    description: "Leadership board and technical staff",
+                    icon: Shield,
+                  },
+                ]}
+              />
 
               <button
                 type="button"
@@ -3993,37 +4719,23 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                 Squad
               </button>
 
-              <div className="relative group">
-                <button
-                  type="button"
-                  className={desktopNavTriggerClass(activeTab === "fixtures")}
-                >
-                  Matches
-                  <ChevronDown className="w-3 h-3 transition-transform duration-300 group-hover:rotate-180" />
-                </button>
-
-                <div className="absolute left-0 top-full pt-2 opacity-0 invisible translate-y-1 group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 transition-all duration-200 z-50">
-                  <div className="w-64 bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200/80 shadow-2xl shadow-slate-950/10 p-2">
-                    <button
-                      type="button"
-                      onClick={() => goToTab("fixtures")}
-                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
-                    >
-                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
-                        <CalendarDays className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
-                      </span>
-                      <span>
-                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
-                          Fixtures & Results
-                        </span>
-                        <span className="block text-[10px] text-slate-500 mt-0.5">
-                          Upcoming and completed matches
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <DesktopNavDropdown
+                label="Matches"
+                isActive={activeTab === "fixtures"}
+                triggerClassName={desktopNavTriggerClass}
+                title="Matches"
+                subtitle="Fixtures, results, and matchday info"
+                activeTab={activeTab}
+                onNavigate={goToTab}
+                items={[
+                  {
+                    tabId: "fixtures",
+                    label: "Fixtures & Results",
+                    description: "Upcoming fixtures and completed results",
+                    icon: CalendarDays,
+                  },
+                ]}
+              />
 
               <button
                 type="button"
@@ -4033,54 +4745,29 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                 News
               </button>
 
-              <div className="relative group">
-                <button
-                  type="button"
-                  className={desktopNavTriggerClass(["gallery", "highlights"].includes(activeTab))}
-                >
-                  Media
-                  <ChevronDown className="w-3 h-3 transition-transform duration-300 group-hover:rotate-180" />
-                </button>
-
-                <div className="absolute left-0 top-full pt-2 opacity-0 invisible translate-y-1 group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 transition-all duration-200 z-50">
-                  <div className="w-64 bg-white/95 backdrop-blur-xl rounded-2xl border border-slate-200/80 shadow-2xl shadow-slate-950/10 p-2">
-                    <button
-                      type="button"
-                      onClick={() => goToTab("gallery")}
-                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
-                    >
-                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
-                        <Images className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
-                      </span>
-                      <span>
-                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
-                          Gallery
-                        </span>
-                        <span className="block text-[10px] text-slate-500 mt-0.5">
-                          Matchday, training, and community photos
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => goToTab("highlights")}
-                      className="w-full text-left px-3 py-3 rounded-xl hover:bg-emerald-50 transition-all group/item flex items-start gap-3"
-                    >
-                      <span className="w-9 h-9 rounded-lg bg-slate-100 group-hover/item:bg-emerald-100 flex items-center justify-center shrink-0">
-                        <Film className="w-4 h-4 text-slate-600 group-hover/item:text-emerald-700" />
-                      </span>
-                      <span>
-                        <span className="block text-xs font-bold text-slate-900 group-hover/item:text-emerald-800">
-                          Highlights
-                        </span>
-                        <span className="block text-[10px] text-slate-500 mt-0.5">
-                          Goals, skills, and official video clips
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <DesktopNavDropdown
+                label="Media"
+                isActive={["gallery", "highlights"].includes(activeTab)}
+                triggerClassName={desktopNavTriggerClass}
+                title="Media"
+                subtitle="Photos, videos, and matchday moments"
+                activeTab={activeTab}
+                onNavigate={goToTab}
+                items={[
+                  {
+                    tabId: "gallery",
+                    label: "Gallery",
+                    description: "Matchday, training, and community photos",
+                    icon: Images,
+                  },
+                  {
+                    tabId: "highlights",
+                    label: "Highlights",
+                    description: "Goals, skills, and official video clips",
+                    icon: Film,
+                  },
+                ]}
+              />
 
               <button
                 type="button"
@@ -4121,18 +4808,26 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                 type="button"
                 onClick={() => openAccountTab()}
                 className={`flex items-center gap-2 border font-bold text-[10px] uppercase tracking-wider px-2.5 sm:px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer shrink-0 ${
-                  activeTab === "account"
-                    ? "border-emerald-300 bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
-                    : customerProfile
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                  navAccountIsActive
+                    ? navAccountAction.kind === "admin" || navAccountAction.kind === "press"
+                      ? "border-slate-800 bg-slate-950 text-yellow-400 shadow-md shadow-slate-950/20"
+                      : "border-emerald-300 bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
+                    : navAccountAction.kind === "admin"
+                      ? "border-slate-900 bg-slate-950 text-yellow-400 hover:bg-slate-900"
+                      : navAccountAction.kind === "press"
+                        ? "border-slate-800 bg-slate-900 text-emerald-300 hover:bg-slate-800"
+                        : navAccountAction.signedIn
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
                 }`}
-                title={customerProfile ? "View your orders" : "Sign in to your account"}
+                title={navAccountAction.title}
               >
-                <User className="w-4 h-4 shrink-0" />
-                <span className="max-[380px]:sr-only">
-                  {customerProfile ? "My Orders" : "Sign In"}
-                </span>
+                {navAccountAction.kind === "admin" ? (
+                  <Settings className="w-4 h-4 shrink-0" />
+                ) : (
+                  <User className="w-4 h-4 shrink-0" />
+                )}
+                <span className="max-[380px]:sr-only">{navAccountAction.label}</span>
               </button>
 
               <button
@@ -4187,7 +4882,11 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {[
                         { id: "home", label: "Home", icon: Home },
-                        { id: "account", label: customerProfile ? "My Orders" : "Sign In", icon: User },
+                        {
+                          id: "account",
+                          label: navAccountAction.mobileLabel,
+                          icon: navAccountAction.kind === "admin" ? Settings : User,
+                        },
                         { id: "news", label: "Club News", icon: Newspaper },
                         { id: "shop", label: "Merchandise Shop", icon: ShoppingBag },
                         { id: "donors", label: "Donations", icon: HeartHandshake },
@@ -4216,96 +4915,74 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
-                      Club
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {[
-                        { id: "history", label: "Our Story", icon: BookOpen },
-                        { id: "management", label: "Management", icon: Shield },
-                        { id: "squad", label: "Squad", icon: Users },
-                        { id: "fixtures", label: "Matches", icon: CalendarDays },
-                      ].map((tab) => {
-                        const Icon = tab.icon;
-                        const isActive = activeTab === tab.id;
-                        return (
-                          <button
-                            type="button"
-                            key={tab.id}
-                            onClick={() => goToTab(tab.id)}
-                            className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
-                              isActive
-                                ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
-                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
-                            }`}
-                          >
-                            <Icon className="w-4 h-4 shrink-0" />
-                            <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <MobileNavSection
+                    title="Club"
+                    subtitle="Story, leadership, squad, and matches"
+                    activeTab={activeTab}
+                    onNavigate={goToTab}
+                    items={[
+                      {
+                        id: "history",
+                        label: "Our Story",
+                        description: "Club history and journey",
+                        icon: BookOpen,
+                      },
+                      {
+                        id: "management",
+                        label: "Management",
+                        description: "Leadership and technical team",
+                        icon: Shield,
+                      },
+                      {
+                        id: "squad",
+                        label: "Squad",
+                        description: "First team and youth players",
+                        icon: Users,
+                      },
+                      {
+                        id: "fixtures",
+                        label: "Matches",
+                        description: "Fixtures and results",
+                        icon: CalendarDays,
+                      },
+                    ]}
+                  />
 
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
-                      Media
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {[
-                        { id: "gallery", label: "Gallery", icon: Images },
-                        { id: "highlights", label: "Highlights", icon: Film },
-                      ].map((tab) => {
-                        const Icon = tab.icon;
-                        const isActive = activeTab === tab.id;
-                        return (
-                          <button
-                            type="button"
-                            key={tab.id}
-                            onClick={() => goToTab(tab.id)}
-                            className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
-                              isActive
-                                ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
-                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
-                            }`}
-                          >
-                            <Icon className="w-4 h-4 shrink-0" />
-                            <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <MobileNavSection
+                    title="Media"
+                    subtitle="Photos and official video highlights"
+                    activeTab={activeTab}
+                    onNavigate={goToTab}
+                    items={[
+                      {
+                        id: "gallery",
+                        label: "Gallery",
+                        description: "Matchday and community photos",
+                        icon: Images,
+                      },
+                      {
+                        id: "highlights",
+                        label: "Highlights",
+                        description: "Goals, skills, and video clips",
+                        icon: Film,
+                      },
+                    ]}
+                  />
 
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
-                      Fan Zone
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {[
-                        { id: "fanzone", label: "Supporter Board", icon: MessageCircle },
-                      ].map((tab) => {
-                        const Icon = tab.icon;
-                        const isActive = activeTab === tab.id;
-                        return (
-                          <button
-                            type="button"
-                            key={tab.id}
-                            onClick={() => goToTab(tab.id)}
-                            className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
-                              isActive
-                                ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
-                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
-                            }`}
-                          >
-                            <Icon className="w-4 h-4 shrink-0" />
-                            <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <MobileNavSection
+                    title="Fan Zone"
+                    subtitle="Connect with fellow supporters"
+                    activeTab={activeTab}
+                    onNavigate={goToTab}
+                    items={[
+                      {
+                        id: "fanzone",
+                        label: "Supporter Board",
+                        description: "Messages from the Legends family",
+                        icon: MessageCircle,
+                      },
+                    ]}
+                  />
 
                   <div className="flex flex-col sm:flex-row gap-2 pt-1">
                     <button
@@ -6221,11 +6898,13 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                           player={player}
                           showAdminControls={canManageClubContent}
                           isUpdatingPosition={updatingPlayerPositionId === player.id}
+                          isUpdatingJersey={updatingPlayerJerseyId === player.id}
                           onReplaceImage={(id, imageUrl) =>
                             openReplaceImage(id, "player", imageUrl)
                           }
                           onDelete={handleDeletePlayer}
                           onPositionChange={handleUpdatePlayerPosition}
+                          onJerseyChange={handleUpdatePlayerJersey}
                           onShopClick={openSquadPlayerShop}
                         />
                       ))}
@@ -6251,11 +6930,13 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                         player={player}
                         showAdminControls={canManageClubContent}
                         isUpdatingPosition={updatingPlayerPositionId === player.id}
+                        isUpdatingJersey={updatingPlayerJerseyId === player.id}
                         onReplaceImage={(id, imageUrl) =>
                           openReplaceImage(id, "player", imageUrl)
                         }
                         onDelete={handleDeletePlayer}
                         onPositionChange={handleUpdatePlayerPosition}
+                        onJerseyChange={handleUpdatePlayerJersey}
                         onShopClick={openSquadPlayerShop}
                       />
                     ))}
@@ -6595,6 +7276,73 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
               </p>
             </div>
 
+            {clubData.merchandise.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 sm:p-14 text-center space-y-3">
+                <ShoppingBag className="w-10 h-10 text-slate-300 mx-auto" />
+                <h3 className="text-lg font-black text-slate-950">No merchandise listed yet</h3>
+                <p className="text-sm text-slate-500 max-w-md mx-auto">
+                  {canManageClubContent
+                    ? "The fan shop is empty. Use the Admin Panel to upload fresh jerseys and merch."
+                    : "New official kit and club merchandise will appear here soon. Check back shortly."}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-8">
+                <div className="flex gap-2 flex-wrap bg-white p-2.5 rounded-2xl border border-slate-100 shadow-sm">
+                  {["All", ...shopCategoriesWithItems.map((category) => category.id)].map((categoryId) => (
+                    <button
+                      key={categoryId}
+                      type="button"
+                      onClick={() => setSelectedShopCategory(categoryId)}
+                      className={`px-4 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer ${
+                        selectedShopCategory === categoryId
+                          ? "bg-slate-950 text-yellow-400 shadow-md shadow-slate-950/10"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                      }`}
+                    >
+                      {categoryId === "All"
+                        ? "All Items"
+                        : MERCHANDISE_CATEGORIES.find((category) => category.id === categoryId)?.label ??
+                          categoryId}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="space-y-10">
+                  {visibleShopCategories.length === 0 ? (
+                    <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center space-y-2">
+                      <p className="text-sm font-bold text-slate-700">No items in this category yet.</p>
+                      <p className="text-xs text-slate-500">
+                        Choose another category or upload new merchandise from the Admin Panel.
+                      </p>
+                    </div>
+                  ) : null}
+                  {visibleShopCategories.map((category) => {
+                    const categoryItems = merchandiseByCategory.get(category.id) ?? [];
+                    if (categoryItems.length === 0) return null;
+
+                    return (
+                      <section key={category.id} className="space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 border-b border-slate-100 pb-4">
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
+                              Shop Category
+                            </p>
+                            <h3 className="text-2xl font-black text-slate-950">{category.label}</h3>
+                            <p className="text-sm text-slate-500">{category.description}</p>
+                          </div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            {categoryItems.length} item{categoryItems.length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+                        {renderMerchandiseProductGrid(categoryItems)}
+                      </section>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Track order */}
             <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -6615,7 +7363,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                   className="shrink-0 inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer"
                 >
                   <User className="w-4 h-4" />
-                  {customerProfile ? "My Orders" : "Sign In / Register"}
+                  {navAccountAction.signedIn ? navAccountAction.label : "Sign In / Register"}
                 </button>
               </div>
 
@@ -6688,112 +7436,6 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                   />
                 </div>
               )}
-            </div>
-
-            {/* Shop banner */}
-            <div className="bg-slate-950 text-white rounded-3xl p-6 sm:p-8 border border-yellow-500/20 flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="space-y-1.5">
-                <p className="text-xs text-yellow-400 font-bold uppercase tracking-wider">
-                  Support the Slums, Wear the Brand
-                </p>
-                <h3 className="text-xl sm:text-2xl font-black">
-                  Resilience Black & Hope Green Kits Available Now!
-                </h3>
-                <p className="text-xs text-slate-300">
-                  Shipped within Nairobi County or pickup at Kariobangi North Ground. International shipping available.
-                </p>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 px-4 py-3 rounded-2xl text-center">
-                <span className="text-slate-400 text-[10px] font-bold uppercase block">
-                  Kit Price
-                </span>
-                <span className="text-yellow-400 text-xl font-black block">Ksh 1,800</span>
-                <span className="text-slate-400 text-[9px] block">approx. $14 USD</span>
-              </div>
-            </div>
-
-            {/* Items Grid — Real Product Photos with Admin Controls */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {clubData.merchandise.map((item) => {
-                const sizesArray = item.sizes.split(",").map((s) => s.trim());
-                
-
-                return (
-                  <div
-                    key={item.id}
-                    className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-md transition flex flex-col justify-between"
-                  >
-                    {/* Product Photo — real photo or styled fallback */}
-                    <div className="relative">
-                      {renderProductPhoto(item)}
-                      {/* Admin controls overlay */}
-                      <div className="absolute top-3 right-3 flex gap-1.5">
-                        <button
-                          onClick={() => openReplaceImage(item.id, "merch", item.imageUrl)}
-                          className="bg-white/90 backdrop-blur-sm p-1.5 rounded-lg text-blue-600 hover:bg-white shadow cursor-pointer"
-                          title="Replace product photo"
-                        >
-                          <Camera className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteMerchandise(item.id, item.name)}
-                          className="bg-white/90 backdrop-blur-sm p-1.5 rounded-lg text-rose-500 hover:bg-white shadow cursor-pointer"
-                          title="Remove item from shop"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="p-5 space-y-4">
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-start gap-2">
-                          <h3 className="font-extrabold text-slate-950 text-base leading-snug flex-1">
-                            {item.name}
-                          </h3>
-                          <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded whitespace-nowrap">
-                            Ksh {item.price.toLocaleString()}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 line-clamp-2">{item.description}</p>
-                      </div>
-<div className="space-y-1.5">
-  <p className="text-[10px] text-slate-400 font-bold uppercase">
-    Select Size
-  </p>
-
-  <div className="flex gap-2 flex-wrap">
-    {sizesArray.map((size) => (
-      <button
-        key={size}
-        onClick={() =>
-          setSelectedSizes((prev) => ({
-            ...prev,
-            [item.id]: size,
-          }))
-        }
-        className={`px-2.5 py-1 text-[11px] rounded-lg font-bold transition cursor-pointer ${
-          (selectedSizes[item.id] || sizesArray[0]) === size
-            ? "bg-slate-950 text-yellow-400"
-            : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-        }`}
-      >
-        {size}
-      </button>
-    ))}
-                        </div>
-                      </div>
-
-                      <button
-  onClick={() => addToCart(item, selectedSizes[item.id] || sizesArray[0])}
-  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
->
-  <ShoppingBag className="w-4 h-4" /> Add to Cart · M-Pesa Ready
-</button>
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           </div>
         )}
@@ -8342,9 +8984,9 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                   >
                     <ShoppingBag className="w-4 h-4" />
                     Orders
-                    {adminOrderStats.totalOrders > 0 && (
+                    {adminUnseenOrderCount > 0 && (
                       <span className="min-w-5 h-5 px-1 rounded-full bg-emerald-600 text-white text-[10px] font-black flex items-center justify-center">
-                        {adminOrderStats.totalOrders}
+                        {adminUnseenOrderCount}
                       </span>
                     )}
                   </button>
@@ -8473,10 +9115,10 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     {squadPlayersSorted.length > 0 && (
                       <div className="pt-4 border-t border-slate-100 space-y-3">
                         <h4 className="font-bold text-sm text-slate-950">
-                          Update Player Positions
+                          Update Squad Players
                         </h4>
                         <p className="text-[11px] text-slate-500 leading-relaxed">
-                          Move players between squad sections. Changes appear on the public Squad page immediately.
+                          Change jersey numbers and move players between squad sections. Updates appear on the public Squad page immediately.
                         </p>
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                           {squadPlayersSorted.map((player) => {
@@ -8498,6 +9140,26 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                                     {!positionInOptions && ` · ${player.position}`}
                                   </p>
                                 </div>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={99}
+                                  defaultValue={player.jerseyNumber}
+                                  key={`admin-jersey-${player.id}-${player.jerseyNumber}`}
+                                  disabled={updatingPlayerJerseyId === player.id}
+                                  onBlur={(e) => {
+                                    const next = parseInt(e.target.value, 10);
+                                    if (
+                                      Number.isInteger(next) &&
+                                      next > 0 &&
+                                      next !== player.jerseyNumber
+                                    ) {
+                                      void handleUpdatePlayerJersey(player.id, next);
+                                    }
+                                  }}
+                                  className="w-full sm:w-20 p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+                                  aria-label={`Jersey number for ${player.name}`}
+                                />
                                 <select
                                   value={player.position}
                                   onChange={(e) =>
@@ -9425,12 +10087,31 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 
                   {/* Action 5: Add Merchandise to Shop */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
-                    <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
-                      <ShoppingBag className="w-5 h-5 text-yellow-500" /> Add Jersey / Merch to Shop
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      Upload a product photo URL so fans can see and buy the jersey via M-Pesa checkout.
-                    </p>
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                      <div className="space-y-1">
+                        <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
+                          <ShoppingBag className="w-5 h-5 text-yellow-500" /> Add Jersey / Merch to Shop
+                        </h3>
+                        <p className="text-[11px] text-slate-500">
+                          Upload product photos so fans can browse and buy via M-Pesa checkout.
+                          {clubData.merchandise.length > 0
+                            ? ` ${clubData.merchandise.length} item(s) currently listed.`
+                            : " The shop is empty — add your first item below."}
+                        </p>
+                      </div>
+                      {clubData.merchandise.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleClearAllMerchandise}
+                          disabled={adminBusy === "merch-clear"}
+                          className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-[10px] font-bold uppercase tracking-wider hover:bg-rose-100 transition cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          {adminBusy === "merch-clear" ? "Clearing..." : "Clear All Shop Items"}
+                        </button>
+                      )}
+                    </div>
+
                     <form onSubmit={handleAddMerchandise} className="space-y-3 text-xs">
                       <div className="space-y-1">
                         <label className="font-bold text-slate-500">Product Name</label>
@@ -9467,7 +10148,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                         />
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <div className="space-y-1">
                           <label className="font-bold text-slate-500">Price (Ksh)</label>
                           <input
@@ -9490,17 +10171,31 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="font-bold text-slate-500">Kit Type</label>
+                          <label className="font-bold text-slate-500">Category</label>
                           <select
                             value={adminMerchType}
                             onChange={(e) => setAdminMerchType(e.target.value)}
                             className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
                           >
-                            <option value="home">Home Jersey (Black)</option>
-                            <option value="away-green">Away Jersey (Green)</option>
-                            <option value="away-white">Away Jersey (White)</option>
-                            <option value="jersey">Other Jersey</option>
-                            <option value="accessory">Accessory</option>
+                            {MERCHANDISE_CATEGORIES.map((category) => (
+                              <option key={category.id} value={category.id}>
+                                {category.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Stock Status</label>
+                          <select
+                            value={adminMerchStockStatus}
+                            onChange={(e) => setAdminMerchStockStatus(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
+                          >
+                            {MERCHANDISE_STOCK_STATUSES.map((status) => (
+                              <option key={status.id} value={status.id}>
+                                {status.label}
+                              </option>
+                            ))}
                           </select>
                         </div>
                       </div>
@@ -9513,6 +10208,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                         {adminBusy === "merch" ? "Adding Item..." : "Add to Fan Shop"}
                       </button>
                     </form>
+
                   </div>
                   </>
                   )}
@@ -9585,6 +10281,161 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     </form>
                   </div>
                 </div>
+
+                {adminRole !== "news_editor" && clubData.merchandise.length > 0 && (
+                  <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                    <button
+                      type="button"
+                      aria-expanded={listedShopItemsOpen}
+                      onClick={() => setListedShopItemsOpen((open) => !open)}
+                      className="w-full p-6 flex items-start justify-between gap-4 text-left hover:bg-slate-50/80 transition cursor-pointer"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <h3 className="font-black text-lg text-slate-950 flex items-center gap-2">
+                          <ShoppingBag className="w-5 h-5 text-yellow-500 shrink-0" />
+                          Listed Shop Items
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                            {clubData.merchandise.length} item
+                            {clubData.merchandise.length !== 1 ? "s" : ""}
+                          </span>
+                        </h3>
+                        <p className="text-sm text-slate-600">
+                          {listedShopItemsOpen
+                            ? "Update category, stock status, and price for each product below."
+                            : "Open this section when you want to move items between categories or edit stock and prices."}
+                        </p>
+                      </div>
+                      <span className="shrink-0 w-10 h-10 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-600">
+                        <ChevronDown
+                          className={`w-5 h-5 transition-transform duration-300 ${
+                            listedShopItemsOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </span>
+                    </button>
+
+                    {listedShopItemsOpen && (
+                    <div className="px-6 pb-6 pt-0 space-y-5 border-t border-slate-100">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                      {clubData.merchandise.map((item) => (
+                        <div
+                          key={item.id}
+                          className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col"
+                        >
+                          <MerchandiseAdminThumbnail item={item} />
+
+                          <div className="p-4 sm:p-5 space-y-4 flex-1 flex flex-col">
+                            <div className="space-y-1">
+                              <p className="text-base font-black text-slate-950 leading-snug">{item.name}</p>
+                              <p className="text-xs text-slate-500 line-clamp-2">{item.description}</p>
+                              <p className="text-sm font-bold text-emerald-700 pt-1">
+                                Ksh {item.price.toLocaleString()}
+                              </p>
+                            </div>
+
+                            <div className="space-y-3 mt-auto">
+                              <div className="space-y-1.5">
+                                <label
+                                  htmlFor={`merch-category-${item.id}`}
+                                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-500"
+                                >
+                                  Category
+                                </label>
+                                <select
+                                  id={`merch-category-${item.id}`}
+                                  value={normalizeMerchandiseCategory(item.kitType)}
+                                  onChange={(e) =>
+                                    handleUpdateMerchandiseCategory(item.id, e.target.value)
+                                  }
+                                  disabled={adminBusy === "merch-category"}
+                                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                                >
+                                  {MERCHANDISE_CATEGORIES.map((category) => (
+                                    <option key={category.id} value={category.id}>
+                                      {category.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label
+                                  htmlFor={`merch-stock-${item.id}`}
+                                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-500"
+                                >
+                                  Stock Status
+                                </label>
+                                <select
+                                  id={`merch-stock-${item.id}`}
+                                  value={normalizeMerchandiseStockStatus(item.stockStatus)}
+                                  onChange={(e) =>
+                                    handleUpdateMerchandiseStockStatus(item.id, e.target.value)
+                                  }
+                                  disabled={adminBusy === "merch-stock"}
+                                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                                >
+                                  {MERCHANDISE_STOCK_STATUSES.map((status) => (
+                                    <option key={status.id} value={status.id}>
+                                      {status.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label
+                                  htmlFor={`merch-price-${item.id}`}
+                                  className="block text-[10px] font-bold uppercase tracking-wider text-slate-500"
+                                >
+                                  Price (Ksh)
+                                </label>
+                                <div className="flex gap-2">
+                                  <input
+                                    id={`merch-price-${item.id}`}
+                                    type="number"
+                                    min={1}
+                                    value={merchAdminPriceDrafts[item.id] ?? String(item.price)}
+                                    onChange={(e) =>
+                                      setMerchAdminPriceDrafts((prev) => ({
+                                        ...prev,
+                                        [item.id]: e.target.value,
+                                      }))
+                                    }
+                                    className="flex-1 min-w-0 px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleUpdateMerchandisePrice(
+                                        item.id,
+                                        merchAdminPriceDrafts[item.id] ?? String(item.price)
+                                      )
+                                    }
+                                    disabled={adminBusy === "merch-price"}
+                                    className="shrink-0 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-emerald-700 disabled:opacity-50 cursor-pointer"
+                                  >
+                                    Update
+                                  </button>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMerchandise(item.id, item.name)}
+                                className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-[10px] font-bold uppercase tracking-wider hover:bg-rose-100 transition cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Delete Item
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    </div>
+                    )}
+                  </div>
+                )}
 
                 {adminRole === "admin" && (
                   <div className="bg-white rounded-3xl border border-emerald-100 shadow-sm p-6 sm:p-8 space-y-5 max-w-2xl">
@@ -9983,7 +10834,17 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
             Buyer notifications:
           </span>{" "}
           SMS {notificationConfig.sms ? "ready" : "not configured"} • WhatsApp{" "}
-          {notificationConfig.whatsapp ? "ready" : "not configured"}
+          {notificationConfig.whatsapp
+            ? `ready from ${notificationConfig.whatsappPhone || "0796230743"}${
+                notificationConfig.whatsappProvider === "africas_talking"
+                  ? " (Africa's Talking)"
+                  : notificationConfig.whatsappProvider === "meta"
+                    ? " (Meta Cloud)"
+                    : notificationConfig.whatsappProvider === "log"
+                      ? " (log mode until API keys are added)"
+                      : ""
+              }`
+            : "not configured — add Africa's Talking or Meta WhatsApp credentials"}
           {notificationConfig.trackingUrlConfigured
             ? " • Tracking links enabled"
             : " • Add NEXT_PUBLIC_SITE_URL for tracking links"}
@@ -10201,6 +11062,26 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                   )}
 
                 </div>
+
+                <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-3">
+                    Delivery Progress
+                  </p>
+                  <OrderProgressTimeline
+                    orderStatus={order.orderStatus}
+                    paymentStatus={order.paymentStatus}
+                    mpesaReceiptNumber={order.mpesaReceiptNumber}
+                    items={order.items}
+                    totalAmount={order.totalAmount}
+                    createdAt={order.createdAt}
+                    compact
+                    interactive
+                    disabled={updatingOrderId === order.id}
+                    onStatusChange={(nextStatus) =>
+                      handleUpdateOrderStatus(order.id, nextStatus)
+                    }
+                  />
+                </div>
               </div>
               
 
@@ -10255,13 +11136,13 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 
                   <div>
                     <p className="text-slate-400">
-                      Delivery Progress
+                      Quick Status
                     </p>
 
                     <select
                       value={order.orderStatus || "processing"}
                       onChange={(e) =>
-                        handleUpdateOrderStatus(
+                        void handleUpdateOrderStatus(
                           order.id,
                           e.target.value as
                             | "processing"
@@ -10270,21 +11151,36 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                             | "cancelled"
                         )
                       }
-                      disabled={isPending || status !== "paid"}
+                      disabled={updatingOrderId === order.id}
                       className="mt-1 w-full bg-slate-900 border border-slate-700 text-white text-xs font-bold rounded-lg px-2 py-2 cursor-pointer disabled:opacity-50"
                     >
-                      <option value="processing">Processing</option>
-                      <option value="shipped">Shipped</option>
-                      <option value="delivered">Delivered</option>
+                      <option value="processing" disabled={status !== "paid"}>
+                        Processing
+                      </option>
+                      <option value="shipped" disabled={status !== "paid"}>
+                        Shipped
+                      </option>
+                      <option value="delivered" disabled={status !== "paid"}>
+                        Delivered
+                      </option>
                       <option value="cancelled">Cancelled</option>
                     </select>
 
                     {status !== "paid" && (
                       <p className="text-[10px] text-slate-400 mt-1">
-                        Update delivery after payment is confirmed.
+                        Fulfillment unlocks after payment. Cancel is always available.
                       </p>
                     )}
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleArchiveOrder(order.id)}
+                    disabled={updatingOrderId === order.id}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-black uppercase tracking-wider rounded-lg px-2 py-2 transition cursor-pointer disabled:opacity-50"
+                  >
+                    Remove from List
+                  </button>
 
                 </div>
               </div>
@@ -10294,6 +11190,89 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
         );
       })}
     </div>
+    </div>
+  )}
+
+  {adminArchivedOrders.length > 0 && (
+    <div className="border-t border-slate-100">
+      <button
+        type="button"
+        onClick={() => setShowArchivedOrders((open) => !open)}
+        className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-slate-50 transition cursor-pointer"
+      >
+        <div>
+          <p className="font-black text-sm text-slate-800">
+            Order History
+          </p>
+          <p className="text-[11px] text-slate-500 mt-1">
+            {adminArchivedOrders.length} archived order
+            {adminArchivedOrders.length === 1 ? "" : "s"} kept for reference
+          </p>
+        </div>
+        <ChevronDown
+          className={`w-4 h-4 text-slate-400 transition-transform ${
+            showArchivedOrders ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+
+      {showArchivedOrders && (
+        <div className="divide-y divide-slate-100 border-t border-slate-100 bg-slate-50/40">
+          {adminArchivedOrders.map((order) => {
+            const status =
+              String(order.paymentStatus || "pending").toLowerCase();
+
+            return (
+              <div
+                key={order.id}
+                className="p-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4"
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <span className="font-black text-slate-800">
+                      Order #{order.id}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-200 text-slate-700">
+                      Archived
+                    </span>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-700">
+                      {getOrderStatusLabel(order.orderStatus || "processing")}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-white text-slate-600 border border-slate-200">
+                      {status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    {order.customerName} • {order.phoneNumber} • Ksh{" "}
+                    {Number(order.totalAmount || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Placed{" "}
+                    {order.createdAt
+                      ? new Date(order.createdAt).toLocaleString()
+                      : "—"}
+                    {order.archivedAt && (
+                      <>
+                        {" "}
+                        • Archived{" "}
+                        {new Date(order.archivedAt).toLocaleString()}
+                      </>
+                    )}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleRestoreOrder(order.id)}
+                  disabled={updatingOrderId === order.id}
+                  className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider rounded-xl px-4 py-2.5 transition cursor-pointer disabled:opacity-50"
+                >
+                  {updatingOrderId === order.id ? "Restoring..." : "Restore to List"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   )}
 </div>
@@ -10399,8 +11378,8 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                         <div key={idx} className="flex gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
                           {/* Mini kit render */}
                           <div className="w-16 h-16 flex-shrink-0 bg-slate-950 rounded-xl flex items-center justify-center border border-slate-800">
-                            <span className="text-[10px] text-yellow-400 font-bold uppercase">
-                              {item.kitType === "home" ? "Home" : "Away"}
+                            <span className="text-[10px] text-yellow-400 font-bold uppercase text-center px-1">
+                              {getMerchandiseCategoryLabel(item.kitType)}
                             </span>
                           </div>
 
