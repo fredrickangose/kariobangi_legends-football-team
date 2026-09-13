@@ -67,6 +67,7 @@ export const SHAREABLE_TABS = new Set([
   "shop",
   "donors",
   "account",
+  "admin",
   "squad",
   "management",
   "gallery",

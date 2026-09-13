@@ -259,6 +259,145 @@ export async function updatePlayerJerseyNumber(
   }
 }
 
+export async function updatePlayer(
+  playerId: number,
+  data: {
+    name: string;
+    position: string;
+    jerseyNumber: number;
+    bio?: string;
+    appearances?: number;
+    goals?: number;
+    assists?: number;
+    imageUrl?: string;
+  }
+) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const name = data.name.trim();
+    if (!name) {
+      return { success: false, error: "Player name is required." };
+    }
+
+    const position = data.position.trim();
+    if (!position) {
+      return { success: false, error: "Position is required." };
+    }
+
+    const parsedJersey = Number(data.jerseyNumber);
+    if (!Number.isInteger(parsedJersey) || parsedJersey <= 0 || parsedJersey > 99) {
+      return {
+        success: false,
+        error: "Jersey number must be between 1 and 99.",
+      };
+    }
+
+    const [player] = await db
+      .update(players)
+      .set({
+        name,
+        position,
+        jerseyNumber: parsedJersey,
+        bio: data.bio || "",
+        appearances: Number(data.appearances || 0),
+        goals: Number(data.goals || 0),
+        assists: Number(data.assists || 0),
+        ...(data.imageUrl !== undefined ? { imageUrl: data.imageUrl } : {}),
+      })
+      .where(eq(players.id, playerId))
+      .returning();
+
+    if (!player) {
+      return { success: false, error: "Player not found." };
+    }
+
+    return {
+      success: true,
+      message: "Player updated successfully.",
+      player,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
+export async function updatePlayerName(playerId: number, name: string) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return { success: false, error: "Player name is required." };
+    }
+
+    const [player] = await db
+      .update(players)
+      .set({ name: trimmed })
+      .where(eq(players.id, playerId))
+      .returning();
+
+    if (!player) {
+      return { success: false, error: "Player not found." };
+    }
+
+    return {
+      success: true,
+      message: "Player name updated.",
+      player,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
+export async function updateManagementName(managementId: number, name: string) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return { success: false, error: "Official name is required." };
+    }
+
+    const [member] = await db
+      .update(management)
+      .set({ name: trimmed })
+      .where(eq(management.id, managementId))
+      .returning();
+
+    if (!member) {
+      return { success: false, error: "Management official not found." };
+    }
+
+    return {
+      success: true,
+      message: "Management name updated.",
+      member,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
 export async function updatePlayerPosition(
   playerId: number,
   position: string

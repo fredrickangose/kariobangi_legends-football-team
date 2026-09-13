@@ -131,9 +131,12 @@ import {
   deleteNews,
   deleteGalleryImage,
   deleteTeamHighlight,
+  updatePlayer,
+  updatePlayerName,
   updatePlayerPosition,
   updatePlayerJerseyNumber,
   updatePlayerImage,
+  updateManagementName,
   updateManagementImage,
   updateNewsImage,
   updateGalleryImage,
@@ -1060,6 +1063,36 @@ function PassportPhoto({
   );
 }
 
+function preventAdminListScrollChaining(
+  event: React.KeyboardEvent<HTMLDivElement>
+) {
+  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
+    return;
+  }
+
+  const target = event.target as HTMLElement | null;
+  if (
+    target &&
+    (target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.tagName === "SELECT")
+  ) {
+    return;
+  }
+
+  const container = event.currentTarget;
+  const atTop = container.scrollTop <= 0;
+  const atBottom =
+    container.scrollTop + container.clientHeight >= container.scrollHeight - 1;
+
+  if (
+    (event.key === "ArrowUp" && atTop) ||
+    (event.key === "ArrowDown" && atBottom)
+  ) {
+    event.preventDefault();
+  }
+}
+
 function AdminCollapsibleSection({
   title,
   description,
@@ -1144,7 +1177,7 @@ function AdminCollapsibleSection({
 
   if (variant === "panel") {
     return (
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden h-fit self-start w-full">
         {toggleButton}
         {isOpen && (
           <div className="px-6 pb-6 pt-0 space-y-5 border-t border-slate-100">
@@ -1170,6 +1203,7 @@ function SquadPlayerCard({
   isUpdatingJersey,
   onReplaceImage,
   onDelete,
+  onEdit,
   onPositionChange,
   onJerseyChange,
   onShopClick,
@@ -1180,6 +1214,7 @@ function SquadPlayerCard({
   isUpdatingJersey: boolean;
   onReplaceImage: (id: number, imageUrl: string) => void;
   onDelete: (id: number, name: string) => void;
+  onEdit: (player: Player) => void;
   onPositionChange: (id: number, position: string) => void;
   onJerseyChange: (id: number, jerseyNumber: number) => void;
   onShopClick: () => void;
@@ -1283,6 +1318,13 @@ function SquadPlayerCard({
                 className="flex-1 bg-slate-950 text-yellow-400 font-bold py-1.5 rounded-md text-[8px] uppercase tracking-wider hover:bg-slate-900 cursor-pointer flex items-center justify-center gap-1"
               >
                 <Camera className="w-3 h-3" /> Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => onEdit(player)}
+                className="flex-1 bg-white border border-slate-200 text-slate-700 font-bold py-1.5 rounded-md text-[8px] uppercase tracking-wider hover:bg-slate-50 cursor-pointer flex items-center justify-center gap-1"
+              >
+                Edit
               </button>
               <button
                 type="button"
@@ -2214,6 +2256,9 @@ const [adminManagementResponsibilities, setAdminManagementResponsibilities] = us
 const [adminManagementOrder, setAdminManagementOrder] = useState<string>("0");
 const [adminManagementFile, setAdminManagementFile] = useState<File | null>(null);
 const [editingManagementId, setEditingManagementId] = useState<number | null>(null);
+const [editingPlayerId, setEditingPlayerId] = useState<number | null>(null);
+const [updatingPlayerNameId, setUpdatingPlayerNameId] = useState<number | null>(null);
+const [updatingManagementNameId, setUpdatingManagementNameId] = useState<number | null>(null);
 const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number | null>(null);
   // Merchandise admin state
   const [adminMerchName, setAdminMerchName] = useState<string>("");
@@ -3534,6 +3579,10 @@ useEffect(() => {
     return;
   }
 
+  if (activeTab === "admin") {
+    return;
+  }
+
   window.scrollTo({ top: 0, behavior: "smooth" });
 }, [activeTab]);
 
@@ -3739,7 +3788,34 @@ useIdleSessionLock({
   }
 };
 
-  // Admin Add Player
+  const resetAdminPlayerForm = () => {
+    setEditingPlayerId(null);
+    setAdminPlayerName("");
+    setAdminPlayerPos("Centre Back");
+    setAdminPlayerJersey("");
+    setAdminPlayerBio("");
+    setAdminPlayerApps("0");
+    setAdminPlayerGoals("0");
+    setAdminPlayerAssists("0");
+    setAdminPlayerFile(null);
+  };
+
+  const handleAdminEditPlayer = (player: Player) => {
+    setEditingPlayerId(player.id);
+    setAdminPanelView("content");
+    setPlayerPanelOpen(true);
+    setSquadUpdatesOpen(false);
+    setAdminPlayerName(player.name);
+    setAdminPlayerPos(player.position);
+    setAdminPlayerJersey(String(player.jerseyNumber));
+    setAdminPlayerBio(player.bio || "");
+    setAdminPlayerApps(String(player.appearances ?? 0));
+    setAdminPlayerGoals(String(player.goals ?? 0));
+    setAdminPlayerAssists(String(player.assists ?? 0));
+    setAdminPlayerFile(null);
+    setActiveTab("admin");
+  };
+
   const handleAdminAddPlayer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adminPlayerName || !adminPlayerJersey) {
@@ -3770,18 +3846,64 @@ useIdleSessionLock({
           players: [...prev.players, res.player],
         }));
         showToast("Player added successfully!");
-        setAdminPlayerName("");
-        setAdminPlayerJersey("");
-        setAdminPlayerBio("");
-        setAdminPlayerApps("0");
-        setAdminPlayerGoals("0");
-        setAdminPlayerAssists("0");
-        setAdminPlayerFile(null);
+        resetAdminPlayerForm();
       } else {
         showToast(res.error || "Error adding player", "error");
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Error uploading player photo", "error");
+    } finally {
+      setAdminBusy(null);
+    }
+  };
+
+  const handleAdminUpdatePlayer = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!editingPlayerId) {
+      showToast("No player selected for editing.", "error");
+      return;
+    }
+
+    if (!adminPlayerName || !adminPlayerJersey) {
+      showToast("Player name and jersey number are required", "error");
+      return;
+    }
+
+    setAdminBusy("player");
+    try {
+      const currentPlayer = clubData.players.find(
+        (player) => player.id === editingPlayerId
+      );
+      const imageUrl = adminPlayerFile
+        ? await uploadSelectedImage(adminPlayerFile, "players")
+        : currentPlayer?.imageUrl || "";
+
+      const res = await updatePlayer(editingPlayerId, {
+        name: adminPlayerName,
+        position: adminPlayerPos,
+        jerseyNumber: parseInt(adminPlayerJersey),
+        bio: adminPlayerBio,
+        appearances: parseInt(adminPlayerApps) || 0,
+        goals: parseInt(adminPlayerGoals) || 0,
+        assists: parseInt(adminPlayerAssists) || 0,
+        imageUrl,
+      });
+
+      if (res.success && res.player) {
+        setClubData((prev) => ({
+          ...prev,
+          players: prev.players.map((player) =>
+            player.id === res.player.id ? res.player : player
+          ),
+        }));
+        showToast("Player updated successfully!");
+        resetAdminPlayerForm();
+      } else {
+        showToast(res.error || "Error updating player", "error");
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Error updating player", "error");
     } finally {
       setAdminBusy(null);
     }
@@ -4185,11 +4307,6 @@ const handleEditFixture = (
   setAdminManagementFile(null);
 
   setActiveTab("admin");
-
-  window.scrollTo({
-    top: 0,
-    behavior: "smooth",
-  });
 };
 const handleCancelManagementEdit = () => {
   setEditingManagementId(null);
@@ -4311,8 +4428,6 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
       setAdminManagementResponsibilities("");
       setAdminManagementOrder("0");
       setAdminManagementFile(null);
-      setActiveTab("management");
-      window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       showToast(res.error || "Error updating management official", "error");
     }
@@ -4336,6 +4451,9 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
         ...prev,
         players: prev.players.filter((player) => player.id !== id),
       }));
+      if (editingPlayerId === id) {
+        resetAdminPlayerForm();
+      }
       showToast(res.message || "Player deleted.");
     } else {
       showToast(res.error || "Failed to delete.", "error");
@@ -4382,6 +4500,61 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
       }
     } finally {
       setUpdatingPlayerJerseyId(null);
+    }
+  };
+
+  const handleUpdatePlayerName = async (playerId: number, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      showToast("Player name cannot be empty.", "error");
+      return;
+    }
+
+    setUpdatingPlayerNameId(playerId);
+    try {
+      const res = await updatePlayerName(playerId, trimmed);
+      if (res.success && res.player) {
+        setClubData((prev) => ({
+          ...prev,
+          players: prev.players.map((player) =>
+            player.id === res.player.id ? res.player : player
+          ),
+        }));
+        showToast(res.message || "Player name updated.");
+      } else {
+        showToast(res.error || "Failed to update player name.", "error");
+      }
+    } finally {
+      setUpdatingPlayerNameId(null);
+    }
+  };
+
+  const handleUpdateManagementName = async (
+    managementId: number,
+    name: string
+  ) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      showToast("Official name cannot be empty.", "error");
+      return;
+    }
+
+    setUpdatingManagementNameId(managementId);
+    try {
+      const res = await updateManagementName(managementId, trimmed);
+      if (res.success && res.member) {
+        setClubData((prev) => ({
+          ...prev,
+          management: prev.management.map((member) =>
+            member.id === res.member.id ? res.member : member
+          ),
+        }));
+        showToast(res.message || "Management name updated.");
+      } else {
+        showToast(res.error || "Failed to update management name.", "error");
+      }
+    } finally {
+      setUpdatingManagementNameId(null);
     }
   };
 
@@ -5067,9 +5240,19 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     activeTab === "account" || (isAdminAuthenticated && activeTab === "admin");
 
     useEffect(() => {
-  if (!selectedGalleryImage) return;
+  if (!selectedGalleryImage || activeTab !== "gallery") return;
 
   const handleKeyDown = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (
+      target &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT")
+    ) {
+      return;
+    }
+
     const currentIndex = filteredGallery.findIndex(
       (image) => image.id === selectedGalleryImage.id
     );
@@ -5102,7 +5285,30 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
   return () => {
     window.removeEventListener("keydown", handleKeyDown);
   };
-}, [selectedGalleryImage, filteredGallery]);
+}, [selectedGalleryImage, filteredGallery, activeTab]);
+
+useEffect(() => {
+  if (activeTab !== "admin") return;
+
+  const handleAdminKeyDown = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (
+      target &&
+      (target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT")
+    ) {
+      return;
+    }
+
+    if (event.key === "Home") {
+      event.preventDefault();
+    }
+  };
+
+  window.addEventListener("keydown", handleAdminKeyDown);
+  return () => window.removeEventListener("keydown", handleAdminKeyDown);
+}, [activeTab]);
 
   const goToTab = (tab: string) => {
     setActiveTab(tab);
@@ -7486,6 +7692,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                             openReplaceImage(id, "player", imageUrl)
                           }
                           onDelete={handleDeletePlayer}
+                          onEdit={handleAdminEditPlayer}
                           onPositionChange={handleUpdatePlayerPosition}
                           onJerseyChange={handleUpdatePlayerJersey}
                           onShopClick={openSquadPlayerShop}
@@ -7518,6 +7725,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                           openReplaceImage(id, "player", imageUrl)
                         }
                         onDelete={handleDeletePlayer}
+                        onEdit={handleAdminEditPlayer}
                         onPositionChange={handleUpdatePlayerPosition}
                         onJerseyChange={handleUpdatePlayerJersey}
                         onShopClick={openSquadPlayerShop}
@@ -9507,7 +9715,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 
         {/* ================= TAB: ADMIN PANEL ================= */}
         {activeTab === "admin" && (
-          <div className="space-y-8">
+          <div className="space-y-8" data-admin-panel>
             <div className="max-w-2xl">
               <h2 className="text-3xl font-black text-slate-950 tracking-tight">
                 {adminRole === "news_editor"
@@ -9577,7 +9785,6 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     type="button"
                     onClick={() => {
                       setAdminPanelView("content");
-                      window.scrollTo({ top: 0, behavior: "smooth" });
                     }}
                     className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer ${
                       adminPanelView === "content"
@@ -9592,7 +9799,6 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     onClick={() => {
                       setAdminPanelView("inbox");
                       loadAdminInboxThreads();
-                      window.scrollTo({ top: 0, behavior: "smooth" });
                     }}
                     className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-2 ${
                       adminPanelView === "inbox"
@@ -9613,7 +9819,6 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     onClick={() => {
                       setAdminPanelView("orders");
                       loadAdminOrders();
-                      window.scrollTo({ top: 0, behavior: "smooth" });
                     }}
                     className={`px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer flex items-center gap-2 ${
                       adminPanelView === "orders"
@@ -9634,15 +9839,16 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 
                 {adminPanelView === "content" && (
                   <>
-                <div className={`grid grid-cols-1 ${adminRole === "news_editor" ? "max-w-2xl" : "lg:grid-cols-2"} gap-8`}>
-                  {adminRole !== "news_editor" && (
+                <div className={`grid grid-cols-1 ${adminRole === "news_editor" ? "max-w-2xl" : "lg:grid-cols-2"} gap-8 items-start`}>
+                  {adminRole !== "news_editor" ? (
                   <>
+                  <div className="space-y-8 min-w-0">
                   {/* Action 1: Squad Players */}
                   <AdminCollapsibleSection
                     variant="panel"
-                    title="Squad Players"
+                    title={editingPlayerId ? "Edit Squad Player" : "Squad Players"}
                     description={`Add new players and update the squad. Photos up to ${MEDIA_UPLOAD_RULES.maxFileSizeLabel} each.`}
-                    closedDescription="Open this panel to add players or update jersey numbers and squad sections."
+                    closedDescription="Open this panel to add players or update names, jersey numbers, and squad sections."
                     isOpen={playerPanelOpen}
                     onToggle={() => setPlayerPanelOpen((open) => !open)}
                     icon={UserPlus}
@@ -9654,7 +9860,12 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                       ) : undefined
                     }
                   >
-                    <form onSubmit={handleAdminAddPlayer} className="space-y-3 text-xs">
+                    <form
+                      onSubmit={
+                        editingPlayerId ? handleAdminUpdatePlayer : handleAdminAddPlayer
+                      }
+                      className="space-y-3 text-xs"
+                    >
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <label className="font-bold text-slate-500">Name</label>
@@ -9756,15 +9967,31 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                         disabled={adminBusy === "player"}
                         className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
                       >
-                        {adminBusy === "player" ? "Adding Player..." : "Insert Player into PostgreSQL"}
+                        {adminBusy === "player"
+                          ? editingPlayerId
+                            ? "Updating Player..."
+                            : "Adding Player..."
+                          : editingPlayerId
+                            ? "Update Player"
+                            : "Insert Player into PostgreSQL"}
                       </button>
+
+                      {editingPlayerId && (
+                        <button
+                          type="button"
+                          onClick={resetAdminPlayerForm}
+                          className="w-full border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-50 transition cursor-pointer"
+                        >
+                          Cancel Edit
+                        </button>
+                      )}
                     </form>
 
                     {squadPlayersSorted.length > 0 && (
                       <AdminCollapsibleSection
                         title="Update Squad Players"
-                        description="Change jersey numbers and move players between squad sections."
-                        closedDescription="Open this panel to update jersey numbers and squad sections for existing players."
+                        description="Edit player names, jersey numbers, and squad sections."
+                        closedDescription="Open this panel to update names, jersey numbers, and squad sections for existing players."
                         isOpen={squadUpdatesOpen}
                         onToggle={() => setSquadUpdatesOpen((open) => !open)}
                         icon={Users}
@@ -9775,7 +10002,10 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                           </span>
                         }
                       >
-                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                        <div
+                          className="space-y-2 max-h-72 overflow-y-auto pr-1"
+                          onKeyDown={preventAdminListScrollChaining}
+                        >
                           {squadPlayersSorted.map((player) => {
                             const positionInOptions = SQUAD_POSITION_OPTIONS.some(
                               (option) => option.value === player.position
@@ -9784,56 +10014,74 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                             return (
                               <div
                                 key={player.id}
-                                className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-2.5 rounded-xl border border-slate-100 bg-slate-50/70"
+                                className="flex flex-col gap-2 p-2.5 rounded-xl border border-slate-100 bg-slate-50/70"
                               >
-                                <div className="min-w-0 flex-1">
-                                  <p className="font-bold text-slate-900 text-xs truncate">
-                                    #{player.jerseyNumber} {player.name}
-                                  </p>
-                                  <p className="text-[10px] text-slate-500 font-semibold">
-                                    Currently: {getSquadPositionBadge(player.position)}
-                                    {!positionInOptions && ` · ${player.position}`}
-                                  </p>
-                                </div>
                                 <input
-                                  type="number"
-                                  min={1}
-                                  max={99}
-                                  defaultValue={player.jerseyNumber}
-                                  key={`admin-jersey-${player.id}-${player.jerseyNumber}`}
-                                  disabled={updatingPlayerJerseyId === player.id}
+                                  type="text"
+                                  defaultValue={player.name}
+                                  key={`admin-name-${player.id}-${player.name}`}
+                                  disabled={updatingPlayerNameId === player.id}
                                   onBlur={(e) => {
-                                    const next = parseInt(e.target.value, 10);
-                                    if (
-                                      Number.isInteger(next) &&
-                                      next > 0 &&
-                                      next !== player.jerseyNumber
-                                    ) {
-                                      void handleUpdatePlayerJersey(player.id, next);
+                                    const next = e.target.value.trim();
+                                    if (next && next !== player.name) {
+                                      void handleUpdatePlayerName(player.id, next);
                                     }
                                   }}
-                                  className="w-full sm:w-20 p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
-                                  aria-label={`Jersey number for ${player.name}`}
+                                  className="w-full p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-900 disabled:opacity-50"
+                                  aria-label={`Name for player #${player.jerseyNumber}`}
                                 />
-                                <select
-                                  value={player.position}
-                                  onChange={(e) =>
-                                    handleUpdatePlayerPosition(player.id, e.target.value)
-                                  }
-                                  disabled={updatingPlayerPositionId === player.id}
-                                  className="w-full sm:w-44 p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
-                                >
-                                  {!positionInOptions && (
-                                    <option value={player.position}>
-                                      {player.position} (assign)
-                                    </option>
-                                  )}
-                                  {SQUAD_POSITION_OPTIONS.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.groupHeading}
-                                    </option>
-                                  ))}
-                                </select>
+                                <p className="text-[10px] text-slate-500 font-semibold">
+                                  Currently: {getSquadPositionBadge(player.position)}
+                                  {!positionInOptions && ` · ${player.position}`}
+                                </p>
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={99}
+                                    defaultValue={player.jerseyNumber}
+                                    key={`admin-jersey-${player.id}-${player.jerseyNumber}`}
+                                    disabled={updatingPlayerJerseyId === player.id}
+                                    onBlur={(e) => {
+                                      const next = parseInt(e.target.value, 10);
+                                      if (
+                                        Number.isInteger(next) &&
+                                        next > 0 &&
+                                        next !== player.jerseyNumber
+                                      ) {
+                                        void handleUpdatePlayerJersey(player.id, next);
+                                      }
+                                    }}
+                                    className="w-full sm:w-20 p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+                                    aria-label={`Jersey number for ${player.name}`}
+                                  />
+                                  <select
+                                    value={player.position}
+                                    onChange={(e) =>
+                                      handleUpdatePlayerPosition(player.id, e.target.value)
+                                    }
+                                    disabled={updatingPlayerPositionId === player.id}
+                                    className="w-full sm:flex-1 p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-700 disabled:opacity-50"
+                                  >
+                                    {!positionInOptions && (
+                                      <option value={player.position}>
+                                        {player.position} (assign)
+                                      </option>
+                                    )}
+                                    {SQUAD_POSITION_OPTIONS.map((option) => (
+                                      <option key={option.value} value={option.value}>
+                                        {option.groupHeading}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdminEditPlayer(player)}
+                                    className="w-full sm:w-auto px-3 py-2 rounded-lg border border-slate-200 bg-white text-[10px] font-bold uppercase tracking-wider text-slate-700 hover:bg-slate-50 cursor-pointer"
+                                  >
+                                    Full Edit
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}
@@ -9841,224 +10089,6 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                       </AdminCollapsibleSection>
                     )}
                   </AdminCollapsibleSection>
-
-                  {/* Action 2: Add Fixture (Dynamically updates upcoming games) */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
-                    <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
-                      <Calendar className="w-5 h-5 text-yellow-500" /> Log / Update Match Game
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      Instantly updates the upcoming match banner on the Home page and the Match Center. Upload opponent logos directly from your device.
-                    </p>
-                    <form
-  onSubmit={
-    editingFixtureId
-      ? handleAdminUpdateFixture
-      : handleAdminAddFixture
-  }
-  className="space-y-3 text-xs"
->
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="font-bold text-slate-500">Opponent Team</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. Ligi Ndogo SC"
-                            value={adminOpponent}
-                            onChange={(e) => setAdminOpponent(e.target.value)}
-                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
-                            required
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div className="space-y-1">
-                            <label className="font-bold text-slate-500">Match Date</label>
-                            <input
-                              type="date"
-                              value={adminMatchDate}
-                              onChange={(e) => setAdminMatchDate(e.target.value)}
-                              className="w-full p-2.5 rounded-lg border border-slate-200 bg-white focus:ring-1 focus:ring-emerald-500"
-                              required
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="font-bold text-slate-500">Kick-off Time (optional)</label>
-                            <input
-                              type="time"
-                              value={adminMatchTime}
-                              onChange={(e) => setAdminMatchTime(e.target.value)}
-                              className="w-full p-2.5 rounded-lg border border-slate-200 bg-white focus:ring-1 focus:ring-emerald-500"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {adminMatchDate && (
-                        <p className="text-[10px] text-slate-500">
-                          Scheduled for{" "}
-                          <span className="font-bold text-slate-700">
-                            {formatKickoff(combineFixtureDateTime(adminMatchDate, adminMatchTime))}
-                            {adminMatchTime ? ` at ${adminMatchTime}` : ""}
-                          </span>
-                        </p>
-                      )}
-
-                      <div className="space-y-1">
-                        <label className="font-bold text-slate-500">
-                          Opponent Team Logo (optional)
-                        </label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) =>
-                            setAdminOpponentLogoFile(e.target.files?.[0] || null)
-                          }
-                          className="block w-full text-sm text-slate-600 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-950 file:text-yellow-400 hover:file:bg-slate-800 cursor-pointer"
-                        />
-                        <p className="text-[10px] text-slate-500">
-                          Upload directly from your computer or phone gallery. No image link required.
-                        </p>
-                        {adminOpponentLogoFile && (
-                          <p className="text-[10px] text-emerald-600 font-semibold">
-                            Selected: {adminOpponentLogoFile.name}
-                          </p>
-                        )}
-                        {(adminOpponentLogoUrl || adminOpponentLogoFile) && (
-                          <div className="flex items-center gap-3 p-2.5 bg-slate-50 rounded-lg border border-slate-100">
-                            <div className="w-12 h-12 rounded-full overflow-hidden bg-white border border-slate-200 flex items-center justify-center shrink-0">
-                              {adminOpponentLogoFile ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={URL.createObjectURL(adminOpponentLogoFile)}
-                                  alt="Opponent logo preview"
-                                  className="w-full h-full object-contain p-1"
-                                />
-                              ) : (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={adminOpponentLogoUrl}
-                                  alt="Current opponent logo"
-                                  className="w-full h-full object-contain p-1"
-                                />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] font-bold text-slate-700 uppercase tracking-wide">
-                                Logo preview
-                              </p>
-                              <p className="text-[10px] text-slate-500 truncate">
-                                {adminOpponentLogoFile
-                                  ? "New upload ready to save"
-                                  : "Current saved logo"}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAdminOpponentLogoFile(null);
-                                setAdminOpponentLogoUrl("");
-                              }}
-                              className="text-[10px] font-bold uppercase tracking-wider text-rose-600 hover:text-rose-700 cursor-pointer px-2 py-1"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <label className="font-bold text-slate-500">Venue</label>
-                          <input
-                            type="text"
-                            value={adminVenue}
-                            onChange={(e) => setAdminVenue(e.target.value)}
-                            className="w-full p-2.5 rounded-lg border border-slate-200"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="font-bold text-slate-500">Match Type</label>
-                          <select
-                            value={adminMatchType}
-                            onChange={(e) => setAdminMatchType(e.target.value)}
-                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
-                          >
-                            {MATCH_TYPES.map((type) => (
-                              <option key={type.value} value={type.value}>
-                                {type.label}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="text-[10px] text-slate-500">
-                            Only league matches count toward season stats.
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="font-bold text-slate-500">Match Status</label>
-                          <select
-                            value={adminStatus}
-                            onChange={(e) => setAdminStatus(e.target.value)}
-                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
-                          >
-                            {MATCH_STATUSES.map((status) => (
-                              <option key={status.value} value={status.value}>
-                                {status.label} ({status.badge})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="font-bold text-slate-500">Home/Away</label>
-                          <select
-                            value={adminIsHome ? "home" : "away"}
-                            onChange={(e) => setAdminIsHome(e.target.value === "home")}
-                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
-                          >
-                            <option value="home">Home (Legends host)</option>
-                            <option value="away">Away Match</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {(adminStatus === "completed" || adminStatus === "live") && (
-                        <div className="grid grid-cols-2 gap-3 bg-slate-50 p-2.5 rounded-lg">
-                          <div className="space-y-1">
-                            <label className="font-bold text-slate-500">Home Score</label>
-                            <input
-                              type="number"
-                              value={adminHomeScore}
-                              onChange={(e) => setAdminHomeScore(e.target.value)}
-                              className="w-full p-2 rounded border border-slate-200 bg-white"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="font-bold text-slate-500">Away Score</label>
-                            <input
-                              type="number"
-                              value={adminAwayScore}
-                              onChange={(e) => setAdminAwayScore(e.target.value)}
-                              className="w-full p-2 rounded border border-slate-200 bg-white"
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      <button
-                        type="submit"
-                        disabled={adminBusy === "fixture"}
-                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
-                      >
-                       {adminBusy === "fixture"
-  ? editingFixtureId
-    ? "Updating Match..."
-    : "Adding Fixture..."
-  : editingFixtureId
-    ? "Update Match Result"
-    : "Save Match Fixture"}
-                      </button>
-                    </form>
-                  </div>
 
                   {/* Action 3: Club Management */}
                   <AdminCollapsibleSection
@@ -10278,8 +10308,8 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 {managementMembersSorted.length > 0 && (
   <AdminCollapsibleSection
     title="Quick Role Updates"
-    description="Move officials between departments and roles without opening the full edit form."
-    closedDescription="Open this panel to quickly reassign management roles and departments."
+    description="Edit official names and move them between departments and roles."
+    closedDescription="Open this panel to quickly edit names, roles, and departments."
     isOpen={managementUpdatesOpen}
     onToggle={() => setManagementUpdatesOpen((open) => !open)}
     icon={Shield}
@@ -10290,7 +10320,10 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
       </span>
     }
   >
-    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+    <div
+      className="space-y-2 max-h-72 overflow-y-auto pr-1"
+      onKeyDown={preventAdminListScrollChaining}
+    >
       {managementMembersSorted.map((member) => {
         const positionOptions = getManagementPositionOptions(member.category);
         const positionInOptions = positionOptions.some(
@@ -10302,9 +10335,20 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
             key={member.id}
             className="flex flex-col gap-2 p-2.5 rounded-xl border border-slate-100 bg-slate-50/70"
           >
-            <p className="font-bold text-slate-900 text-xs truncate">
-              {member.name}
-            </p>
+            <input
+              type="text"
+              defaultValue={member.name}
+              key={`mgmt-name-${member.id}-${member.name}`}
+              disabled={updatingManagementNameId === member.id}
+              onBlur={(e) => {
+                const next = e.target.value.trim();
+                if (next && next !== member.name) {
+                  void handleUpdateManagementName(member.id, next);
+                }
+              }}
+              className="w-full p-2 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-900 disabled:opacity-50"
+              aria-label={`Name for ${member.position}`}
+            />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <select
                 value={member.category}
@@ -10355,6 +10399,227 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
   </AdminCollapsibleSection>
 )}
                   </AdminCollapsibleSection>
+
+
+                  </div>
+                  <div className="space-y-8 min-w-0">
+                  {/* Action 2: Add Fixture (Dynamically updates upcoming games) */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                    <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
+                      <Calendar className="w-5 h-5 text-yellow-500" /> Log / Update Match Game
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Instantly updates the upcoming match banner on the Home page and the Match Center. Upload opponent logos directly from your device.
+                    </p>
+                    <form
+  onSubmit={
+    editingFixtureId
+      ? handleAdminUpdateFixture
+      : handleAdminAddFixture
+  }
+  className="space-y-3 text-xs"
+>
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Opponent Team</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Ligi Ndogo SC"
+                            value={adminOpponent}
+                            onChange={(e) => setAdminOpponent(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+                            required
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="font-bold text-slate-500">Match Date</label>
+                            <input
+                              type="date"
+                              value={adminMatchDate}
+                              onChange={(e) => setAdminMatchDate(e.target.value)}
+                              className="w-full p-2.5 rounded-lg border border-slate-200 bg-white focus:ring-1 focus:ring-emerald-500"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="font-bold text-slate-500">Kick-off Time (optional)</label>
+                            <input
+                              type="time"
+                              value={adminMatchTime}
+                              onChange={(e) => setAdminMatchTime(e.target.value)}
+                              className="w-full p-2.5 rounded-lg border border-slate-200 bg-white focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {adminMatchDate && (
+                        <p className="text-[10px] text-slate-500">
+                          Scheduled for{" "}
+                          <span className="font-bold text-slate-700">
+                            {formatKickoff(combineFixtureDateTime(adminMatchDate, adminMatchTime))}
+                            {adminMatchTime ? ` at ${adminMatchTime}` : ""}
+                          </span>
+                        </p>
+                      )}
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-500">
+                          Opponent Team Logo (optional)
+                        </label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) =>
+                            setAdminOpponentLogoFile(e.target.files?.[0] || null)
+                          }
+                          className="block w-full text-sm text-slate-600 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-950 file:text-yellow-400 hover:file:bg-slate-800 cursor-pointer"
+                        />
+                        <p className="text-[10px] text-slate-500">
+                          Upload directly from your computer or phone gallery. No image link required.
+                        </p>
+                        {adminOpponentLogoFile && (
+                          <p className="text-[10px] text-emerald-600 font-semibold">
+                            Selected: {adminOpponentLogoFile.name}
+                          </p>
+                        )}
+                        {(adminOpponentLogoUrl || adminOpponentLogoFile) && (
+                          <div className="flex items-center gap-3 p-2.5 bg-slate-50 rounded-lg border border-slate-100">
+                            <div className="w-12 h-12 rounded-full overflow-hidden bg-white border border-slate-200 flex items-center justify-center shrink-0">
+                              {adminOpponentLogoFile ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={URL.createObjectURL(adminOpponentLogoFile)}
+                                  alt="Opponent logo preview"
+                                  className="w-full h-full object-contain p-1"
+                                />
+                              ) : (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={adminOpponentLogoUrl}
+                                  alt="Current opponent logo"
+                                  className="w-full h-full object-contain p-1"
+                                />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-bold text-slate-700 uppercase tracking-wide">
+                                Logo preview
+                              </p>
+                              <p className="text-[10px] text-slate-500 truncate">
+                                {adminOpponentLogoFile
+                                  ? "New upload ready to save"
+                                  : "Current saved logo"}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAdminOpponentLogoFile(null);
+                                setAdminOpponentLogoUrl("");
+                              }}
+                              className="text-[10px] font-bold uppercase tracking-wider text-rose-600 hover:text-rose-700 cursor-pointer px-2 py-1"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Venue</label>
+                          <input
+                            type="text"
+                            value={adminVenue}
+                            onChange={(e) => setAdminVenue(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Match Type</label>
+                          <select
+                            value={adminMatchType}
+                            onChange={(e) => setAdminMatchType(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
+                          >
+                            {MATCH_TYPES.map((type) => (
+                              <option key={type.value} value={type.value}>
+                                {type.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[10px] text-slate-500">
+                            Only league matches count toward season stats.
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Match Status</label>
+                          <select
+                            value={adminStatus}
+                            onChange={(e) => setAdminStatus(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
+                          >
+                            {MATCH_STATUSES.map((status) => (
+                              <option key={status.value} value={status.value}>
+                                {status.label} ({status.badge})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Home/Away</label>
+                          <select
+                            value={adminIsHome ? "home" : "away"}
+                            onChange={(e) => setAdminIsHome(e.target.value === "home")}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
+                          >
+                            <option value="home">Home (Legends host)</option>
+                            <option value="away">Away Match</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {(adminStatus === "completed" || adminStatus === "live") && (
+                        <div className="grid grid-cols-2 gap-3 bg-slate-50 p-2.5 rounded-lg">
+                          <div className="space-y-1">
+                            <label className="font-bold text-slate-500">Home Score</label>
+                            <input
+                              type="number"
+                              value={adminHomeScore}
+                              onChange={(e) => setAdminHomeScore(e.target.value)}
+                              className="w-full p-2 rounded border border-slate-200 bg-white"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="font-bold text-slate-500">Away Score</label>
+                            <input
+                              type="number"
+                              value={adminAwayScore}
+                              onChange={(e) => setAdminAwayScore(e.target.value)}
+                              className="w-full p-2 rounded border border-slate-200 bg-white"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={adminBusy === "fixture"}
+                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
+                      >
+                       {adminBusy === "fixture"
+  ? editingFixtureId
+    ? "Updating Match..."
+    : "Adding Fixture..."
+  : editingFixtureId
+    ? "Update Match Result"
+    : "Save Match Fixture"}
+                      </button>
+                    </form>
+                  </div>
 
 {/* Action 3: Add Gallery Image */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-5 overflow-hidden">
@@ -10884,8 +11149,6 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     </form>
 
                   </div>
-                  </>
-                  )}
 
                   {/* Action 4: Publish News */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
@@ -10954,6 +11217,82 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                       </button>
                     </form>
                   </div>
+
+                  </div>
+                  </>
+                  ) : (
+                  <div className="space-y-8 min-w-0">
+                  {/* Action 4: Publish News */}
+                  <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                    <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
+                      <BookOpen className="w-5 h-5 text-emerald-600" /> Publish Official Club News
+                    </h3>
+                    {adminRole === "news_editor" && (
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Submit match reports, press releases, and community updates. Other site sections remain locked for press accounts.
+                      </p>
+                    )}
+                    <form onSubmit={handleAdminAddNews} className="space-y-3 text-xs">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-500 block">News Headline / Title</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Community Support Fuels Promotion Dream"
+                          value={adminNewsTitle}
+                          onChange={(e) => setAdminNewsTitle(e.target.value)}
+                          className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500 text-sm font-semibold"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-500 block">Brief Summary (One-liner)</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. A brief summary of Mr. Erick Otieno Atanga's meeting with stakeholders."
+                          value={adminNewsSummary}
+                          onChange={(e) => setAdminNewsSummary(e.target.value)}
+                          className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-500 block">Article Body / Content</label>
+                        <textarea
+                          rows={3}
+                          placeholder="Full article body..."
+                          value={adminNewsContent}
+                          onChange={(e) => setAdminNewsContent(e.target.value)}
+                          className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-500 block">Article Photo (optional)</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => setAdminNewsFile(e.target.files?.[0] || null)}
+                          className="block w-full text-sm text-slate-600 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-950 file:text-yellow-400 hover:file:bg-slate-800 cursor-pointer"
+                        />
+                        {adminNewsFile && <p className="text-[10px] text-emerald-600 font-semibold">Selected: {adminNewsFile.name}</p>}
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={adminBusy === "news"}
+                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
+                      >
+                        {adminBusy === "news" ? "Publishing..." : "Publish Article to News Feed"}
+                      </button>
+                    </form>
+                  </div>
+
+                  </div>
+                  )}
+
                 </div>
 
                 {adminRole !== "news_editor" && clubData.merchandise.length > 0 && (
@@ -11196,7 +11535,6 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     onClick={() => {
                       setAdminPanelView("orders");
                       loadAdminOrders();
-                      window.scrollTo({ top: 0, behavior: "smooth" });
                     }}
                     className="shrink-0 bg-slate-950 text-yellow-400 px-5 py-3 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer flex items-center gap-2"
                   >
