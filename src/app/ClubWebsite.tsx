@@ -132,6 +132,7 @@ import {
   updatePlayerPosition,
   updatePlayerJerseyNumber,
   updatePlayerImage,
+  updateManagementImage,
   updateNewsImage,
   updateGalleryImage,
   addMerchandise,
@@ -1009,6 +1010,109 @@ function PassportPhoto({
   );
 }
 
+function AdminCollapsibleSection({
+  title,
+  description,
+  closedDescription,
+  isOpen,
+  onToggle,
+  badge,
+  icon: Icon,
+  variant = "nested",
+  children,
+}: {
+  title: string;
+  description?: string;
+  closedDescription: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  badge?: React.ReactNode;
+  icon?: React.ComponentType<{ className?: string }>;
+  variant?: "nested" | "panel";
+  children: React.ReactNode;
+}) {
+  const hint = isOpen ? description : closedDescription;
+
+  const toggleButton = (
+    <button
+      type="button"
+      aria-expanded={isOpen}
+      onClick={onToggle}
+      className={
+        variant === "panel"
+          ? "w-full p-6 flex items-start justify-between gap-4 text-left hover:bg-slate-50/80 transition cursor-pointer"
+          : "w-full flex items-start justify-between gap-3 text-left group cursor-pointer py-1"
+      }
+    >
+      <div className="space-y-1 min-w-0">
+        <h4
+          className={
+            variant === "panel"
+              ? "font-black text-lg text-slate-950 flex items-center gap-2 flex-wrap"
+              : "font-bold text-sm text-slate-950 flex items-center gap-2 flex-wrap"
+          }
+        >
+          {Icon && (
+            <Icon
+              className={
+                variant === "panel"
+                  ? "w-5 h-5 shrink-0"
+                  : "w-4 h-4 shrink-0 text-emerald-600"
+              }
+            />
+          )}
+          {title}
+          {badge}
+        </h4>
+        {hint && (
+          <p
+            className={
+              variant === "panel"
+                ? "text-sm text-slate-600"
+                : "text-[11px] text-slate-500 leading-relaxed"
+            }
+          >
+            {hint}
+          </p>
+        )}
+      </div>
+      <span
+        className={
+          variant === "panel"
+            ? "shrink-0 w-10 h-10 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-600"
+            : "shrink-0 w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 group-hover:border-emerald-200"
+        }
+      >
+        <ChevronDown
+          className={`w-4 h-4 transition-transform duration-300 ${
+            isOpen ? "rotate-180" : ""
+          }`}
+        />
+      </span>
+    </button>
+  );
+
+  if (variant === "panel") {
+    return (
+      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+        {toggleButton}
+        {isOpen && (
+          <div className="px-6 pb-6 pt-0 space-y-5 border-t border-slate-100">
+            {children}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-4 border-t border-slate-100">
+      {toggleButton}
+      {isOpen && <div className="mt-3 space-y-3">{children}</div>}
+    </div>
+  );
+}
+
 function SquadPlayerCard({
   player,
   showAdminControls,
@@ -1162,6 +1266,7 @@ function ManagementMemberCard({
   isUpdatingRole,
   onEdit,
   onDelete,
+  onReplaceImage,
   onRoleChange,
 }: {
   member: ManagementMember;
@@ -1170,6 +1275,7 @@ function ManagementMemberCard({
   isUpdatingRole: boolean;
   onEdit: (member: ManagementMember) => void;
   onDelete: (id: number) => void;
+  onReplaceImage: (id: number, imageUrl: string) => void;
   onRoleChange: (id: number, category: string, position: string) => void;
 }) {
   const positionOptions = getManagementPositionOptions(member.category);
@@ -1267,10 +1373,17 @@ function ManagementMemberCard({
             <div className="flex gap-1">
               <button
                 type="button"
-                onClick={() => onEdit(member)}
+                onClick={() => onReplaceImage(member.id, member.imageUrl || "")}
                 className="flex-1 bg-slate-950 text-yellow-400 font-bold py-1.5 rounded-md text-[8px] uppercase tracking-wider hover:bg-slate-900 cursor-pointer flex items-center justify-center gap-1"
               >
                 <Camera className="w-3 h-3" />
+                Photo
+              </button>
+              <button
+                type="button"
+                onClick={() => onEdit(member)}
+                className="flex-1 bg-white border border-slate-200 text-slate-700 font-bold py-1.5 rounded-md text-[8px] uppercase tracking-wider hover:bg-slate-50 cursor-pointer flex items-center justify-center gap-1"
+              >
                 Edit
               </button>
               <button
@@ -1802,6 +1915,11 @@ useEffect(() => {
   const [adminResetConfirmPassword, setAdminResetConfirmPassword] = useState("");
   const [showNewspaperPasswordReset, setShowNewspaperPasswordReset] = useState(false);
   const [listedShopItemsOpen, setListedShopItemsOpen] = useState(false);
+  const [playerPanelOpen, setPlayerPanelOpen] = useState(false);
+  const [managementPanelOpen, setManagementPanelOpen] = useState(false);
+  const [squadUpdatesOpen, setSquadUpdatesOpen] = useState(false);
+  const [managementUpdatesOpen, setManagementUpdatesOpen] = useState(false);
+  const [publishedHighlightsOpen, setPublishedHighlightsOpen] = useState(false);
   const [newspaperResetAdminPassword, setNewspaperResetAdminPassword] = useState("");
   const [newspaperResetNewPassword, setNewspaperResetNewPassword] = useState("");
   const [newspaperResetConfirmPassword, setNewspaperResetConfirmPassword] = useState("");
@@ -1974,7 +2092,9 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
 
   // Image replace modal state
   const [replaceImageId, setReplaceImageId] = useState<number | null>(null);
-  const [replaceImageType, setReplaceImageType] = useState<"player" | "gallery" | "news" | "merch">("gallery");
+  const [replaceImageType, setReplaceImageType] = useState<
+    "player" | "management" | "gallery" | "news" | "merch"
+  >("gallery");
   const [replaceImageFile, setReplaceImageFile] = useState<File | null>(null);
   const [replaceImageNewCaption, setReplaceImageNewCaption] = useState<string>("");
 
@@ -3066,11 +3186,30 @@ useEffect(() => {
   }
 }, [adminPanelView, isAdminAuthenticated, adminRole]);
 
+const collapseAdminUpdatePanels = useCallback(() => {
+  setPlayerPanelOpen(false);
+  setManagementPanelOpen(false);
+  setSquadUpdatesOpen(false);
+  setManagementUpdatesOpen(false);
+  setPublishedHighlightsOpen(false);
+  setListedShopItemsOpen(false);
+  setShowArchivedOrders(false);
+  setSelectedInboxCustomerId(null);
+  setSelectedInboxCustomer(null);
+  setAdminInboxMessages([]);
+  setAdminReplyDraft("");
+}, []);
+
+useEffect(() => {
+  collapseAdminUpdatePanels();
+}, [adminPanelView, collapseAdminUpdatePanels]);
+
 useEffect(() => {
   if (activeTab !== "admin") {
     setAdminPanelView("content");
+    collapseAdminUpdatePanels();
   }
-}, [activeTab]);
+}, [activeTab, collapseAdminUpdatePanels]);
 
 const handleCustomerIdleLock = useCallback(async () => {
   if (!customerProfile) {
@@ -3633,6 +3772,8 @@ const handleEditFixture = (
   member: ManagementMember
 ) => {
   setEditingManagementId(member.id);
+  setAdminPanelView("content");
+  setManagementPanelOpen(true);
 
   setAdminManagementName(member.name);
   setAdminManagementPosition(member.position);
@@ -3895,7 +4036,12 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
   };
 
   // ========== IMAGE REPLACE HANDLERS ==========
-  const openReplaceImage = (id: number, type: "player" | "gallery" | "news" | "merch", currentUrl: string, currentCaption?: string) => {
+  const openReplaceImage = (
+    id: number,
+    type: "player" | "management" | "gallery" | "news" | "merch",
+    currentUrl: string,
+    currentCaption?: string
+  ) => {
     setReplaceImageId(id);
     setReplaceImageType(type);
     setReplaceImageFile(null);
@@ -3910,13 +4056,16 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 
     setAdminBusy("replace-image");
     try {
-      const folder = replaceImageType === "player"
-        ? "players"
-        : replaceImageType === "gallery"
-        ? "gallery"
-        : replaceImageType === "news"
-        ? "news"
-        : "merch";
+      const folder =
+        replaceImageType === "player"
+          ? "players"
+          : replaceImageType === "management"
+            ? "management"
+            : replaceImageType === "gallery"
+              ? "gallery"
+              : replaceImageType === "news"
+                ? "news"
+                : "merch";
       const imageUrl = await uploadSelectedImage(replaceImageFile, folder);
       let success = false;
       let message = "Image replaced successfully!";
@@ -3933,6 +4082,20 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
             ...prev,
             players: prev.players.map((player) =>
               player.id === updatedPlayer.id ? updatedPlayer : player
+            ),
+          }));
+        }
+      } else if (replaceImageType === "management") {
+        const res = await updateManagementImage(replaceImageId, imageUrl);
+        success = Boolean(res.success);
+        message = res.message || message;
+        errorMessage = res.error || errorMessage;
+        if (res.success && res.member) {
+          const updatedMember = res.member;
+          setClubData((prev) => ({
+            ...prev,
+            management: prev.management.map((member) =>
+              member.id === updatedMember.id ? updatedMember : member
             ),
           }));
         }
@@ -6803,6 +6966,9 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     isUpdatingRole={updatingManagementRoleId === member.id}
                     onEdit={handleAdminEditManagement}
                     onDelete={handleAdminDeleteManagement}
+                    onReplaceImage={(id, imageUrl) =>
+                      openReplaceImage(id, "management", imageUrl)
+                    }
                     onRoleChange={handleUpdateManagementRole}
                   />
                 ))}
@@ -6830,6 +6996,9 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                   isUpdatingRole={updatingManagementRoleId === member.id}
                   onEdit={handleAdminEditManagement}
                   onDelete={handleAdminDeleteManagement}
+                  onReplaceImage={(id, imageUrl) =>
+                    openReplaceImage(id, "management", imageUrl)
+                  }
                   onRoleChange={handleUpdateManagementRole}
                 />
               ))}
@@ -8998,14 +9167,23 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                 <div className={`grid grid-cols-1 ${adminRole === "news_editor" ? "max-w-2xl" : "lg:grid-cols-2"} gap-8`}>
                   {adminRole !== "news_editor" && (
                   <>
-                  {/* Action 1: Add Player */}
-                  <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
-                    <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
-                      <UserPlus className="w-5 h-5 text-emerald-600" /> Add Player to Squad
-                    </h3>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Add unlimited players. Upload from your device. Full photo shown with no cropping (max {MEDIA_UPLOAD_RULES.maxFileSizeLabel} each).
-                    </p>
+                  {/* Action 1: Squad Players */}
+                  <AdminCollapsibleSection
+                    variant="panel"
+                    title="Squad Players"
+                    description={`Add new players and update the squad. Photos up to ${MEDIA_UPLOAD_RULES.maxFileSizeLabel} each.`}
+                    closedDescription="Open this panel to add players or update jersey numbers and squad sections."
+                    isOpen={playerPanelOpen}
+                    onToggle={() => setPlayerPanelOpen((open) => !open)}
+                    icon={UserPlus}
+                    badge={
+                      squadPlayersSorted.length > 0 ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                          {squadPlayersSorted.length} in squad
+                        </span>
+                      ) : undefined
+                    }
+                  >
                     <form onSubmit={handleAdminAddPlayer} className="space-y-3 text-xs">
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
@@ -9113,13 +9291,20 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     </form>
 
                     {squadPlayersSorted.length > 0 && (
-                      <div className="pt-4 border-t border-slate-100 space-y-3">
-                        <h4 className="font-bold text-sm text-slate-950">
-                          Update Squad Players
-                        </h4>
-                        <p className="text-[11px] text-slate-500 leading-relaxed">
-                          Change jersey numbers and move players between squad sections. Updates appear on the public Squad page immediately.
-                        </p>
+                      <AdminCollapsibleSection
+                        title="Update Squad Players"
+                        description="Change jersey numbers and move players between squad sections."
+                        closedDescription="Open this panel to update jersey numbers and squad sections for existing players."
+                        isOpen={squadUpdatesOpen}
+                        onToggle={() => setSquadUpdatesOpen((open) => !open)}
+                        icon={Users}
+                        badge={
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                            {squadPlayersSorted.length} player
+                            {squadPlayersSorted.length !== 1 ? "s" : ""}
+                          </span>
+                        }
+                      >
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                           {squadPlayersSorted.map((player) => {
                             const positionInOptions = SQUAD_POSITION_OPTIONS.some(
@@ -9183,9 +9368,9 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                             );
                           })}
                         </div>
-                      </div>
+                      </AdminCollapsibleSection>
                     )}
-                  </div>
+                  </AdminCollapsibleSection>
 
                   {/* Action 2: Add Fixture (Dynamically updates upcoming games) */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
@@ -9405,20 +9590,28 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     </form>
                   </div>
 
-                  {/* Action 3: Add Management Official */}
-<div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
-
-  <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
-    <UserPlus className="w-5 h-5 text-emerald-600" />
-    {editingManagementId
-      ? "Edit Club Management Official"
-      : "Add Club Management Official"}
-  </h3>
-
-  <p className="text-[11px] text-slate-500">
-    Add unlimited officials: Chairman, CEO, coaches, and more. Upload photos from your device; full image shown with no cropping (max {MEDIA_UPLOAD_RULES.maxFileSizeLabel} each).
-  </p>
-
+                  {/* Action 3: Club Management */}
+                  <AdminCollapsibleSection
+                    variant="panel"
+                    title={
+                      editingManagementId
+                        ? "Edit Management Official"
+                        : "Club Management"
+                    }
+                    description={`Add or edit officials — chairman, coaches, and more. Photos up to ${MEDIA_UPLOAD_RULES.maxFileSizeLabel} each.`}
+                    closedDescription="Open this panel to add officials or update management roles and departments."
+                    isOpen={managementPanelOpen}
+                    onToggle={() => setManagementPanelOpen((open) => !open)}
+                    icon={Shield}
+                    badge={
+                      managementMembersSorted.length > 0 ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                          {managementMembersSorted.length} official
+                          {managementMembersSorted.length !== 1 ? "s" : ""}
+                        </span>
+                      ) : undefined
+                    }
+                  >
  <form
   onSubmit={
     editingManagementId
@@ -9613,13 +9806,20 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
 </form>
 
 {managementMembersSorted.length > 0 && (
-  <div className="pt-4 border-t border-slate-100 space-y-3">
-    <h4 className="font-bold text-sm text-slate-950">
-      Quick Role Updates
-    </h4>
-    <p className="text-[11px] text-slate-500 leading-relaxed">
-      Move officials between departments and roles without opening the full edit form.
-    </p>
+  <AdminCollapsibleSection
+    title="Quick Role Updates"
+    description="Move officials between departments and roles without opening the full edit form."
+    closedDescription="Open this panel to quickly reassign management roles and departments."
+    isOpen={managementUpdatesOpen}
+    onToggle={() => setManagementUpdatesOpen((open) => !open)}
+    icon={Shield}
+    badge={
+      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+        {managementMembersSorted.length} official
+        {managementMembersSorted.length !== 1 ? "s" : ""}
+      </span>
+    }
+  >
     <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
       {managementMembersSorted.map((member) => {
         const positionOptions = getManagementPositionOptions(member.category);
@@ -9682,9 +9882,9 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
         );
       })}
     </div>
-  </div>
+  </AdminCollapsibleSection>
 )}
-</div>
+                  </AdminCollapsibleSection>
 
 {/* Action 3: Add Gallery Image */}
                   <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-5 overflow-hidden">
@@ -9996,16 +10196,20 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                     </form>
 
                     {(clubData.highlights ?? []).length > 0 && (
-                      <div className="pt-5 border-t border-slate-100 space-y-3">
-                        <div className="space-y-1">
-                          <h4 className="font-bold text-sm text-slate-950">
-                            Published Highlights
-                          </h4>
-                          <p className="text-[11px] text-slate-500 leading-relaxed">
-                            Review, preview, or remove highlight videos already live on the Media → Highlights page.
-                          </p>
-                        </div>
-
+                      <AdminCollapsibleSection
+                        title="Published Highlights"
+                        description="Review, preview, or remove highlight videos already live on the Media → Highlights page."
+                        closedDescription="Open this panel to manage highlight videos already published on the site."
+                        isOpen={publishedHighlightsOpen}
+                        onToggle={() => setPublishedHighlightsOpen((open) => !open)}
+                        icon={Film}
+                        badge={
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                            {(clubData.highlights ?? []).length} video
+                            {(clubData.highlights ?? []).length !== 1 ? "s" : ""}
+                          </span>
+                        }
+                      >
                         <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                           {(clubData.highlights ?? []).map((highlight) => (
                             <div
@@ -10081,7 +10285,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                             </div>
                           ))}
                         </div>
-                      </div>
+                      </AdminCollapsibleSection>
                     )}
                   </div>
 
@@ -10283,39 +10487,21 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                 </div>
 
                 {adminRole !== "news_editor" && clubData.merchandise.length > 0 && (
-                  <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-                    <button
-                      type="button"
-                      aria-expanded={listedShopItemsOpen}
-                      onClick={() => setListedShopItemsOpen((open) => !open)}
-                      className="w-full p-6 flex items-start justify-between gap-4 text-left hover:bg-slate-50/80 transition cursor-pointer"
-                    >
-                      <div className="space-y-1 min-w-0">
-                        <h3 className="font-black text-lg text-slate-950 flex items-center gap-2">
-                          <ShoppingBag className="w-5 h-5 text-yellow-500 shrink-0" />
-                          Listed Shop Items
-                          <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
-                            {clubData.merchandise.length} item
-                            {clubData.merchandise.length !== 1 ? "s" : ""}
-                          </span>
-                        </h3>
-                        <p className="text-sm text-slate-600">
-                          {listedShopItemsOpen
-                            ? "Update category, stock status, and price for each product below."
-                            : "Open this section when you want to move items between categories or edit stock and prices."}
-                        </p>
-                      </div>
-                      <span className="shrink-0 w-10 h-10 rounded-xl border border-slate-200 bg-white flex items-center justify-center text-slate-600">
-                        <ChevronDown
-                          className={`w-5 h-5 transition-transform duration-300 ${
-                            listedShopItemsOpen ? "rotate-180" : ""
-                          }`}
-                        />
+                  <AdminCollapsibleSection
+                    variant="panel"
+                    title="Listed Shop Items"
+                    description="Update category, stock status, and price for each product below."
+                    closedDescription="Open this panel to move items between categories or edit stock and prices."
+                    isOpen={listedShopItemsOpen}
+                    onToggle={() => setListedShopItemsOpen((open) => !open)}
+                    icon={ShoppingBag}
+                    badge={
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                        {clubData.merchandise.length} item
+                        {clubData.merchandise.length !== 1 ? "s" : ""}
                       </span>
-                    </button>
-
-                    {listedShopItemsOpen && (
-                    <div className="px-6 pb-6 pt-0 space-y-5 border-t border-slate-100">
+                    }
+                  >
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                       {clubData.merchandise.map((item) => (
                         <div
@@ -10432,9 +10618,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                         </div>
                       ))}
                     </div>
-                    </div>
-                    )}
-                  </div>
+                  </AdminCollapsibleSection>
                 )}
 
                 {adminRole === "admin" && (
@@ -11194,30 +11378,21 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
   )}
 
   {adminArchivedOrders.length > 0 && (
-    <div className="border-t border-slate-100">
-      <button
-        type="button"
-        onClick={() => setShowArchivedOrders((open) => !open)}
-        className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-slate-50 transition cursor-pointer"
+    <div className="px-6 pb-6">
+      <AdminCollapsibleSection
+        title="Order History"
+        description="Review archived orders kept for reference. Restore any order back to the active list if needed."
+        closedDescription="Open this panel to browse archived orders or restore them to the active list."
+        isOpen={showArchivedOrders}
+        onToggle={() => setShowArchivedOrders((open) => !open)}
+        icon={Package}
+        badge={
+          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+            {adminArchivedOrders.length} archived
+          </span>
+        }
       >
-        <div>
-          <p className="font-black text-sm text-slate-800">
-            Order History
-          </p>
-          <p className="text-[11px] text-slate-500 mt-1">
-            {adminArchivedOrders.length} archived order
-            {adminArchivedOrders.length === 1 ? "" : "s"} kept for reference
-          </p>
-        </div>
-        <ChevronDown
-          className={`w-4 h-4 text-slate-400 transition-transform ${
-            showArchivedOrders ? "rotate-180" : ""
-          }`}
-        />
-      </button>
-
-      {showArchivedOrders && (
-        <div className="divide-y divide-slate-100 border-t border-slate-100 bg-slate-50/40">
+        <div className="divide-y divide-slate-100 rounded-xl border border-slate-100 bg-slate-50/40 overflow-hidden">
           {adminArchivedOrders.map((order) => {
             const status =
               String(order.paymentStatus || "pending").toLowerCase();
@@ -11272,7 +11447,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
             );
           })}
         </div>
-      )}
+      </AdminCollapsibleSection>
     </div>
   )}
 </div>
@@ -11704,11 +11879,13 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
                 <Camera className="w-5 h-5 text-blue-600" />
                 {replaceImageType === "player"
                   ? "Replace Player Photo"
-                  : replaceImageType === "gallery"
-                  ? "Replace Gallery Photo"
-                  : replaceImageType === "merch"
-                  ? "Replace Product Photo"
-                  : "Replace News Article Photo"}
+                  : replaceImageType === "management"
+                    ? "Replace Management Photo"
+                    : replaceImageType === "gallery"
+                      ? "Replace Gallery Photo"
+                      : replaceImageType === "merch"
+                        ? "Replace Product Photo"
+                        : "Replace News Article Photo"}
               </h3>
               <button
                 onClick={() => setReplaceImageId(null)}

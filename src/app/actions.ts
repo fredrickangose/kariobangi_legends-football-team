@@ -328,6 +328,39 @@ export async function updatePlayerImage(
   }
 }
 
+export async function updateManagementImage(
+  managementId: number,
+  imageUrl: string
+) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const [member] = await db
+      .update(management)
+      .set({ imageUrl })
+      .where(eq(management.id, managementId))
+      .returning();
+
+    if (!member) {
+      return { success: false, error: "Management official not found." };
+    }
+
+    return {
+      success: true,
+      message: "Management photo replaced successfully!",
+      member,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: String(error),
+    };
+  }
+}
+
 export async function deletePlayer(playerId: number) {
   try {
     const auth = await requireFullAdmin();
