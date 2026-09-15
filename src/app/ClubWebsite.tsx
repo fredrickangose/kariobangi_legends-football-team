@@ -1077,8 +1077,8 @@ function PassportPhoto({
       className={`flex flex-col items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100 border border-dashed border-slate-200 text-slate-400 ${frameClass}`}
     >
       <User className={size === "sm" ? "w-5 h-5" : "w-6 h-6"} />
-      <p className="text-[8px] font-bold uppercase tracking-wider mt-1.5 px-2 text-center">
-        Passport photo
+      <p className="text-[8px] font-bold uppercase tracking-wider mt-1.5 px-2 text-center leading-tight">
+        Photo coming soon
       </p>
     </div>
   );
