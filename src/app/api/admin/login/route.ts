@@ -17,7 +17,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Admin authentication is not configured.",
+          error: "Sign in is not available right now.",
         },
         { status: 500 }
       );
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Admin session security is not configured.",
+          error: "Sign in is not available right now.",
         },
         { status: 500 }
       );
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     const response = NextResponse.json({
       success: true,
       role: "admin",
-      message: "Successfully authenticated as Admin Manager.",
+      message: "Signed in successfully.",
     });
 
     response.cookies.set("kariobangi_admin", token, {

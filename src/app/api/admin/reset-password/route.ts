@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "This phone number is not authorized for admin password reset.",
+          error: "This phone number cannot be used to reset the password.",
         },
         { status: 403 }
       );
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
 
       const smsResult = await sendOrderSms(
         phone,
-        `Kariobangi Legends admin reset code: ${resetCode}. Expires in 15 minutes.`
+        `Kariobangi Legends reset code: ${resetCode}. Expires in 15 minutes.`
       );
 
       if (!smsResult.sent) {
@@ -115,13 +115,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: "Admin password updated successfully. You can sign in now.",
+      message: "Password updated successfully. You can sign in now.",
     });
   } catch (error) {
     console.error("Admin reset password error:", error);
 
     return NextResponse.json(
-      { success: false, error: "Unable to reset admin password right now." },
+      { success: false, error: "Unable to reset the password right now." },
       { status: 500 }
     );
   }

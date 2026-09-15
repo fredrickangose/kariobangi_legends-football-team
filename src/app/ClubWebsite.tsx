@@ -963,12 +963,35 @@ function SocialIconLink({
   hoverClassName,
   children,
 }: {
-  href: string;
+  href?: string;
   label: string;
   title: string;
   hoverClassName: string;
   children: React.ReactNode;
 }) {
+  const className = `group relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-slate-900/80 text-white shadow-md backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${hoverClassName}`;
+  const content = (
+    <>
+      <span className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-gradient-to-br from-white/10 to-transparent" />
+      <span className="relative z-10 transition-transform duration-300 group-hover:scale-110">
+        {children}
+      </span>
+    </>
+  );
+
+  if (!href) {
+    return (
+      <button
+        type="button"
+        aria-label={label}
+        title={title}
+        className={`${className} cursor-default`}
+      >
+        {content}
+      </button>
+    );
+  }
+
   return (
     <a
       href={href}
@@ -976,17 +999,16 @@ function SocialIconLink({
       rel="noopener noreferrer"
       aria-label={label}
       title={title}
-      className={`group relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-slate-900/80 text-white shadow-md backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${hoverClassName}`}
+      className={className}
     >
-      <span className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-gradient-to-br from-white/10 to-transparent" />
-      <span className="relative z-10 transition-transform duration-300 group-hover:scale-110">
-        {children}
-      </span>
+      {content}
     </a>
   );
 }
 
 function SocialMediaLinks() {
+  const tiktokUrl = "";
+
   return (
     <div className="pt-2">
       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3">
@@ -1026,6 +1048,17 @@ function SocialMediaLinks() {
             <rect x="3.5" y="3.5" width="17" height="17" rx="5" />
             <circle cx="12" cy="12" r="4.2" />
             <circle cx="17.2" cy="6.8" r="1.1" fill="currentColor" stroke="none" />
+          </svg>
+        </SocialIconLink>
+
+        <SocialIconLink
+          href={tiktokUrl || undefined}
+          label="Kariobangi Legends on TikTok"
+          title={tiktokUrl ? "Follow Kariobangi Legends on TikTok" : "TikTok coming soon"}
+          hoverClassName="hover:border-[#25F4EE] hover:bg-black hover:shadow-[0_12px_30px_rgba(37,244,238,0.28)]"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden="true">
+            <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.81-2.81 2.89 2.89 0 0 1 2.8-2.94c.26 0 .51.03.75.1v-3.5a6.37 6.37 0 0 0-.75-.05A6.34 6.34 0 0 0 3.15 15.3a6.34 6.34 0 0 0 6.33 6.34 6.34 6.34 0 0 0 6.34-6.34V8.73a8.2 8.2 0 0 0 4.77 1.52V6.79a4.84 4.84 0 0 1-1-.1z" />
           </svg>
         </SocialIconLink>
       </div>
@@ -2146,7 +2179,7 @@ useEffect(() => {
   } | null>(null);
   const [customerOrders, setCustomerOrders] = useState<any[]>([]);
   const [isLoadingCustomerOrders, setIsLoadingCustomerOrders] = useState(false);
-  const [accountView, setAccountView] = useState<"login" | "register">("register");
+  const [accountView, setAccountView] = useState<"login" | "register">("login");
   const [pendingCheckoutAfterAuth, setPendingCheckoutAfterAuth] = useState(false);
   const [pendingMembershipAfterAuth, setPendingMembershipAfterAuth] = useState(false);
   const [fanMembership, setFanMembership] = useState<FanMembership | null>(null);
@@ -2207,8 +2240,6 @@ useEffect(() => {
   const [isNewspaperResetPending, setIsNewspaperResetPending] = useState(false);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
   const [adminRole, setAdminRole] = useState<"admin" | "news_editor" | null>(null);
-  const [newspaperUsername, setNewspaperUsername] = useState("newspaper");
-  const [newspaperPassword, setNewspaperPassword] = useState("");
   const canManageClubContent = adminRole === "admin";
   const [adminOrders, setAdminOrders] = useState<any[]>([]);
   const [adminMemberships, setAdminMemberships] = useState<
@@ -2876,7 +2907,8 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
   e.preventDefault();
 
   if (!customerProfile) {
-    redirectToCheckoutAuth(true);
+    setIsCartOpen(true);
+    showToast("Sign in or register in your cart to checkout.", "error");
     return;
   }
 
@@ -2932,7 +2964,7 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
 
         if (!response.ok || !data.success) {
           if (response.status === 401) {
-            redirectToCheckoutAuth(true);
+            showToast("Sign in again in your cart to complete checkout.", "error");
           }
           showToast(data.error || "Unable to place cash order.", "error");
           return;
@@ -2977,7 +3009,7 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
 
         if (!response.ok || !data.success) {
           if (response.status === 401) {
-            redirectToCheckoutAuth(true);
+            showToast("Sign in again in your cart to complete checkout.", "error");
           }
           showToast(
             data.error || "Unable to initiate M-PESA payment.",
@@ -3231,7 +3263,6 @@ const clearAdminState = () => {
   setIsAdminAuthenticated(false);
   setAdminRole(null);
   setAdminPassword("");
-  setNewspaperPassword("");
   setShowNewspaperPasswordReset(false);
   setNewspaperResetAdminPassword("");
   setNewspaperResetNewPassword("");
@@ -3609,8 +3640,10 @@ const handleCustomerLogout = async () => {
     clearCustomerState();
     setPendingCheckoutAfterAuth(false);
     setPendingMembershipAfterAuth(false);
-    returnToSignIn();
-    showToast("Signed out successfully. You can now sign in to another account.");
+    setActiveTab("home");
+    setMobileMenuOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    showToast("Signed out successfully.");
   }
 };
 
@@ -3701,7 +3734,7 @@ const handleAdminRequestReset = async (e?: React.FormEvent) => {
   e?.preventDefault();
 
   if (!adminResetPhone.trim()) {
-    showToast("Enter the authorized manager phone number.", "error");
+    showToast("Enter your phone number.", "error");
     return;
   }
 
@@ -3718,7 +3751,7 @@ const handleAdminRequestReset = async (e?: React.FormEvent) => {
 
     if (response.ok && data.success) {
       setAdminResetStep("confirm");
-      showToast("Reset code sent to the authorized manager phone.");
+      showToast("Reset code sent to your phone.");
     } else {
       showToast(data.error || "Unable to send reset code.", "error");
     }
@@ -3755,13 +3788,13 @@ const handleAdminCompleteReset = async (e: React.FormEvent) => {
       setAdminResetNewPassword("");
       setAdminResetConfirmPassword("");
       setShowAdminPasswordReset(false);
-      showToast("Admin password updated. Sign in with your new password.");
+      showToast("Password updated. Sign in with your new password.");
     } else {
-      showToast(data.error || "Unable to reset admin password.", "error");
+      showToast(data.error || "Unable to reset password.", "error");
     }
   } catch (error) {
     console.error("Admin reset failed:", error);
-    showToast("Unable to reset admin password right now.", "error");
+    showToast("Unable to reset password right now.", "error");
   } finally {
     setIsAdminResetPending(false);
   }
@@ -4067,6 +4100,12 @@ useEffect(() => {
   }
 }, [activeTab, collapseAdminUpdatePanels]);
 
+useEffect(() => {
+  if (activeTab === "admin" && !isAdminAuthenticated) {
+    returnToSignIn();
+  }
+}, [activeTab, isAdminAuthenticated]);
+
 const handleCustomerIdleLock = useCallback(async () => {
   if (!customerProfile) {
     return;
@@ -4080,10 +4119,10 @@ const handleCustomerIdleLock = useCallback(async () => {
 
   clearCustomerState();
   if (activeTab === "account") {
-    returnToSignIn();
+    setActiveTab("home");
   }
   showToast(
-    "Your fan account signed out after inactivity. Please sign in again.",
+    "Your fan account signed out after inactivity. Sign in again from Shop or Join to continue.",
     "error"
   );
 }, [customerProfile, activeTab]);
@@ -4093,6 +4132,7 @@ const handleAdminIdleLock = useCallback(async () => {
     return;
   }
 
+  const wasPressAccount = adminRole === "news_editor";
   await logoutAdminSession();
   if (activeTab === "admin") {
     returnToSignIn();
@@ -4101,7 +4141,7 @@ const handleAdminIdleLock = useCallback(async () => {
     "Admin signed out automatically after 5 minutes with no activity.",
     "error"
   );
-}, [isAdminAuthenticated, activeTab]);
+}, [isAdminAuthenticated, activeTab, adminRole]);
 
 const pingSession = useCallback(async () => {
   try {
@@ -4128,40 +4168,6 @@ useIdleSessionLock({
   timeoutMs: ADMIN_SESSION_IDLE_TIMEOUT_MS,
 });
 
-  const handleNewspaperLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    try {
-      const response = await fetch("/api/newspaper/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          username: newspaperUsername,
-          password: newspaperPassword,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        setIsAdminAuthenticated(true);
-        setAdminRole("news_editor");
-        setNewspaperPassword("");
-        setAdminPanelView("content");
-        setActiveTab("admin");
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        showToast("Newspaper account signed in. You can publish team news only.");
-      } else {
-        showToast(result.error || "Incorrect newspaper username or password.", "error");
-      }
-    } catch (error) {
-      console.error("Newspaper login failed:", error);
-      showToast("Unable to connect to the authentication server.", "error");
-    }
-  };
-
   const handleAdminLogin = async (e: React.FormEvent) => {
   e.preventDefault();
 
@@ -4187,7 +4193,7 @@ useIdleSessionLock({
 
   setActiveTab("admin");
   window.scrollTo({ top: 0, behavior: "smooth" });
-  showToast("Successfully authenticated as Admin Manager.");
+  showToast("Signed in successfully.");
 }
     else {
       showToast(result.error || "Incorrect password.", "error");
@@ -5692,7 +5698,7 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     return {
       label: "Sign In",
       mobileLabel: "Sign In",
-      title: "Sign in to your fan or official account",
+      title: "Sign in",
       signedIn: false,
       kind: "guest" as const,
     };
@@ -5778,59 +5784,52 @@ useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const openAccountTab = (preferRegister = false) => {
+  const openAdminSignIn = () => {
+    if (isAdminAuthenticated) {
+      goToTab("admin");
+      return;
+    }
+
+    setActiveTab("account");
+    setMobileMenuOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const openAccountTab = () => {
     if (isAdminAuthenticated) {
       goToTab("admin");
       return;
     }
 
     if (!customerProfile) {
-      setAccountView(preferRegister ? "register" : "login");
+      openAdminSignIn();
+      return;
     }
+
     goToTab("account");
   };
 
   const resumeAfterAuth = () => {
-    if (pendingCheckoutAfterAuth && cart.length > 0) {
+    if (isCartOpen || pendingCheckoutAfterAuth) {
       setPendingCheckoutAfterAuth(false);
       setIsCartOpen(true);
-      showToast("Your account is ready. Complete payment in your cart.");
+      if (cart.length > 0) {
+        showToast("Your account is ready. Complete payment in your cart.");
+      }
       return;
     }
 
-    if (pendingMembershipAfterAuth) {
+    if (activeTab === "membership" || pendingMembershipAfterAuth) {
       setPendingMembershipAfterAuth(false);
-      goToTab("membership");
       showToast("Your account is ready. Choose a plan and pay with M-Pesa.");
     }
-  };
-
-  const redirectToCheckoutAuth = (preferRegister: boolean) => {
-    setPendingCheckoutAfterAuth(true);
-    setIsCartOpen(false);
-    openAccountTab(preferRegister);
-    showToast(
-      preferRegister
-        ? "Create a free account to complete your purchase."
-        : "Sign in to complete your purchase."
-    );
-  };
-
-  const redirectToMembershipAuth = (preferRegister = true) => {
-    setPendingMembershipAfterAuth(true);
-    openAccountTab(preferRegister);
-    showToast(
-      preferRegister
-        ? "Create a free account to join as an official supporter."
-        : "Sign in to join as an official supporter."
-    );
   };
 
   const handleMembershipSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!customerProfile) {
-      redirectToMembershipAuth(true);
+      showToast("Sign in or register below to join.", "error");
       return;
     }
 
@@ -5935,6 +5934,244 @@ useEffect(() => {
       }
     });
   };
+
+  const renderFanAuthPanel = (heading: string, description: string, compact = false) => (
+    <div className={compact ? "space-y-4" : "space-y-5"}>
+      <div
+        className={
+          compact
+            ? "bg-white rounded-2xl border border-slate-200 p-4 space-y-4"
+            : "bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5"
+        }
+      >
+        <div className="space-y-1">
+          <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
+            <User className="w-5 h-5 text-emerald-600" />
+            {heading}
+          </h3>
+          <p className="text-sm text-slate-600">{description}</p>
+        </div>
+        <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
+          <button
+            type="button"
+            onClick={() => {
+              setAccountView("login");
+              setResetStep("request");
+            }}
+            className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
+              accountView === "login"
+                ? "bg-white text-slate-950 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Sign In
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAccountView("register");
+              setResetStep("request");
+            }}
+            className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
+              accountView === "register"
+                ? "bg-white text-slate-950 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Register
+          </button>
+        </div>
+
+        {accountView === "login" ? (
+          <form onSubmit={handleCustomerLogin} className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                M-PESA Phone
+              </label>
+              <input
+                type="tel"
+                placeholder="e.g. 0712345678"
+                value={loginPhone}
+                onChange={(e) => setLoginPhone(e.target.value)}
+                className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Password
+              </label>
+              <PasswordInput
+                value={loginPassword}
+                onChange={setLoginPassword}
+                placeholder="Your account password"
+                required
+                autoComplete="current-password"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+            >
+              Sign In
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleCustomerRegister} className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Full Name
+              </label>
+              <input
+                type="text"
+                placeholder="As on M-PESA"
+                value={registerName}
+                onChange={(e) => setRegisterName(e.target.value)}
+                className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                M-PESA Phone
+              </label>
+              <input
+                type="tel"
+                placeholder="e.g. 0712345678"
+                value={registerPhone}
+                onChange={(e) => setRegisterPhone(e.target.value)}
+                className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Email (optional)
+              </label>
+              <input
+                type="email"
+                placeholder="For receipts"
+                value={registerEmail}
+                onChange={(e) => setRegisterEmail(e.target.value)}
+                className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Password
+              </label>
+              <PasswordInput
+                value={registerPassword}
+                onChange={setRegisterPassword}
+                placeholder="At least 6 characters"
+                required
+                minLength={6}
+                autoComplete="new-password"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+            >
+              Create Account
+            </button>
+          </form>
+        )}
+
+        <button
+          type="button"
+          aria-expanded={showFanPasswordReset}
+          onClick={() => {
+            setShowFanPasswordReset((open) => {
+              if (open) setResetStep("request");
+              return !open;
+            });
+          }}
+          className="w-full text-[10px] font-bold uppercase tracking-wider text-emerald-700 hover:text-emerald-800 cursor-pointer"
+        >
+          {showFanPasswordReset ? "Hide password reset" : "Forgot your password?"}
+        </button>
+      </div>
+
+      {showFanPasswordReset && (
+        <div
+          className={
+            compact
+              ? "bg-white rounded-2xl border border-emerald-100 p-4 space-y-4"
+              : "bg-white rounded-3xl border border-emerald-100 shadow-sm p-6 space-y-5"
+          }
+        >
+          <div className="space-y-1">
+            <h3 className="text-sm font-black text-slate-950 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-emerald-600" />
+              Reset Fan Password
+            </h3>
+            <p className="text-xs text-slate-600">
+              Enter your M-PESA phone number to receive a 6-digit SMS code.
+            </p>
+          </div>
+
+          {resetStep === "request" ? (
+            <form onSubmit={handleCustomerRequestReset} className="space-y-3">
+              <input
+                type="tel"
+                placeholder="e.g. 0712345678"
+                value={resetPhone}
+                onChange={(e) => setResetPhone(e.target.value)}
+                className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                required
+              />
+              <button
+                type="submit"
+                disabled={isFanResetPending}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl cursor-pointer disabled:opacity-50"
+              >
+                {isFanResetPending ? "Sending..." : "Send Reset Code"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleCustomerCompleteReset} className="space-y-3">
+              <p className="text-xs text-slate-500">
+                Check SMS on {resetPhone || "your phone"} and choose a new password.
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="6-digit code"
+                value={resetCode}
+                onChange={(e) => setResetCode(e.target.value)}
+                className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                required
+              />
+              <PasswordInput
+                value={resetNewPassword}
+                onChange={setResetNewPassword}
+                placeholder="New password"
+                required
+                minLength={6}
+                autoComplete="new-password"
+              />
+              <PasswordInput
+                value={resetConfirmPassword}
+                onChange={setResetConfirmPassword}
+                placeholder="Confirm password"
+                required
+                minLength={6}
+                autoComplete="new-password"
+              />
+              <button
+                type="submit"
+                disabled={isFanResetPending}
+                className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl cursor-pointer disabled:opacity-50"
+              >
+                {isFanResetPending ? "Updating..." : "Reset Password"}
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   const desktopNavLinkClass = (isActive: boolean) =>
     `relative px-3 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all duration-200 cursor-pointer ${
@@ -6169,7 +6406,9 @@ useEffect(() => {
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => openAccountTab()}
+                onClick={() =>
+                  navAccountAction.signedIn ? openAccountTab() : openAdminSignIn()
+                }
                 className={`flex items-center gap-2 border font-bold text-[10px] uppercase tracking-wider px-2.5 sm:px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer shrink-0 ${
                   navAccountIsActive
                     ? navAccountAction.kind === "admin" || navAccountAction.kind === "press"
@@ -6181,7 +6420,7 @@ useEffect(() => {
                         ? "border-slate-800 bg-slate-900 text-emerald-300 hover:bg-slate-800"
                         : navAccountAction.signedIn
                           ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50"
                 }`}
                 title={navAccountAction.title}
               >
@@ -6238,6 +6477,37 @@ useEffect(() => {
             <div className="lg:hidden border-t border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl shadow-slate-950/10 max-h-[calc(100dvh-7.5rem)] overflow-y-auto overscroll-contain">
               <div className="py-5 space-y-5">
 
+                  {!navAccountAction.signedIn && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
+                        Account
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => openAdminSignIn()}
+                        className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                          activeTab === "account"
+                            ? "bg-slate-950 text-yellow-400 border-slate-950 shadow-md"
+                            : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                        }`}
+                      >
+                        <User className="w-4 h-4 shrink-0" />
+                        <span>
+                          <span className="block text-xs font-bold uppercase tracking-wide">
+                            Sign In
+                          </span>
+                          <span
+                            className={`block text-[11px] mt-0.5 leading-snug ${
+                              activeTab === "account" ? "text-yellow-400/80" : "text-slate-500"
+                            }`}
+                          >
+                            Continue with your password
+                          </span>
+                        </span>
+                      </button>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 px-1">
                       Main
@@ -6245,11 +6515,16 @@ useEffect(() => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {[
                         { id: "home", label: "Home", icon: Home },
-                        {
-                          id: "account",
-                          label: navAccountAction.mobileLabel,
-                          icon: navAccountAction.kind === "admin" ? Settings : User,
-                        },
+                        ...(navAccountAction.signedIn
+                          ? [
+                              {
+                                id: "account",
+                                label: navAccountAction.mobileLabel,
+                                icon:
+                                  navAccountAction.kind === "admin" ? Settings : User,
+                              },
+                            ]
+                          : []),
                         { id: "news", label: "Club News", icon: Newspaper },
                         { id: "shop", label: "Merchandise Shop", icon: ShoppingBag },
                         { id: "membership", label: "Join as a Fan", icon: Award },
@@ -9016,17 +9291,19 @@ useEffect(() => {
                   <p className="text-sm text-slate-600">
                     {customerProfile
                       ? "View all your orders in My Account, or look up a single order below."
-                      : "Sign in to see all your orders, or track one purchase with your order number and M-PESA phone."}
+                      : "Track a purchase with your order number and the M-PESA phone used at checkout."}
                   </p>
                 </div>
+                {customerProfile && (
                 <button
                   type="button"
                   onClick={() => openAccountTab()}
                   className="shrink-0 inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer"
                 >
                   <User className="w-4 h-4" />
-                  {navAccountAction.signedIn ? navAccountAction.label : "Sign In / Register"}
+                  My Account
                 </button>
+                )}
               </div>
 
               <form onSubmit={handleTrackOrder} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3">
@@ -9151,7 +9428,7 @@ useEffect(() => {
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleMembershipSubmit} className="space-y-6">
+              <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {MEMBERSHIP_PLANS.map((plan) => {
                     const selected = selectedMembershipPlanId === plan.id;
@@ -9191,31 +9468,12 @@ useEffect(() => {
                 </div>
 
                 {!customerProfile ? (
-                  <div className="rounded-3xl border border-amber-200 bg-amber-50 p-6 space-y-4">
-                    <p className="font-black text-slate-950">Sign in to join</p>
-                    <p className="text-sm text-slate-600">
-                      Create a free fan account first. Then pay with M-Pesa and your digital card
-                      will appear in My Account.
-                    </p>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <button
-                        type="button"
-                        onClick={() => redirectToMembershipAuth(true)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl cursor-pointer"
-                      >
-                        Create account & join
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => redirectToMembershipAuth(false)}
-                        className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl cursor-pointer"
-                      >
-                        I already have an account
-                      </button>
-                    </div>
-                  </div>
+                  renderFanAuthPanel(
+                    "Fan account to join",
+                    "Sign in or register here, then pay with M-Pesa. Your digital card will appear in My Account."
+                  )
                 ) : (
-                  <div className="rounded-3xl border border-slate-100 bg-white p-6 sm:p-8 space-y-5">
+                  <form onSubmit={handleMembershipSubmit} className="rounded-3xl border border-slate-100 bg-white p-6 sm:p-8 space-y-5">
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                         M-Pesa phone number
@@ -9249,9 +9507,9 @@ useEffect(() => {
                     <p className="text-xs text-slate-500 text-center">
                       You will get an STK prompt on your phone. After payment, your card appears in My Account.
                     </p>
-                  </div>
+                  </form>
                 )}
-              </form>
+              </div>
             )}
           </div>
         )}
@@ -9668,18 +9926,14 @@ useEffect(() => {
                       </>
                     ) : (
                       <>
-                        Fan & Club <span className="text-yellow-400">Admin</span> Sign In
+                        Welcome <span className="text-yellow-400">back</span>
                       </>
                     )}
                   </h2>
                   <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
                     {customerProfile
                       ? "Your digital membership card, shop orders, and club messages live here."
-                        : pendingCheckoutAfterAuth
-                        ? "Create a free fan account or sign in to pay for the items in your cart. Club officials and press partners can sign in on the right."
-                        : pendingMembershipAfterAuth
-                        ? "Create a free fan account or sign in to join as an official supporter with M-Pesa."
-                        : "Fans register to shop official kits, join as supporters, pay with M-Pesa, and track orders. Each registered account works on its own phone or computer at the same time. Club officials manage the site on the right; newspapers use the press login to publish team news only."}
+                      : "Enter your password to continue."}
                   </p>
                 </div>
               </div>
@@ -9959,364 +10213,16 @@ useEffect(() => {
               </div>
             ) : (
               <div className="space-y-6">
-                {pendingCheckoutAfterAuth && (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                    <strong>Checkout waiting:</strong> create an account or sign in to pay for the items in your cart.
-                  </div>
-                )}
-                {pendingMembershipAfterAuth && (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                    <strong>Membership waiting:</strong> create an account or sign in, then pay with M-Pesa to join.
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-                  <div className="space-y-6">
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
-                  <div className="space-y-1 pb-1 border-b border-slate-100">
-                    <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
-                      <User className="w-5 h-5 text-emerald-600" />
-                      Fan Account
-                    </h3>
-                    <p className="text-sm text-slate-600">
-                      Register to shop official kits, pay with M-Pesa, and track orders.
-                    </p>
-                  </div>
-                  <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAccountView("login");
-                        setResetStep("request");
-                      }}
-                      className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
-                        accountView === "login"
-                          ? "bg-white text-slate-950 shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      Sign In
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAccountView("register");
-                        setResetStep("request");
-                      }}
-                      className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
-                        accountView === "register"
-                          ? "bg-white text-slate-950 shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      Register
-                    </button>
-                  </div>
-
-                  {accountView === "login" ? (
-                    <form onSubmit={handleCustomerLogin} className="space-y-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          M-PESA Phone
-                        </label>
-                        <input
-                          type="tel"
-                          placeholder="e.g. 0712345678"
-                          value={loginPhone}
-                          onChange={(e) => setLoginPhone(e.target.value)}
-                          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                          required
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          Password
-                        </label>
-                        <PasswordInput
-                          value={loginPassword}
-                          onChange={setLoginPassword}
-                          placeholder="Your account password"
-                          required
-                          autoComplete="current-password"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                      >
-                        Sign In
-                      </button>
-                    </form>
-                  ) : (
-                    <form onSubmit={handleCustomerRegister} className="space-y-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          Full Name
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="As on M-PESA"
-                          value={registerName}
-                          onChange={(e) => setRegisterName(e.target.value)}
-                          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                          required
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          M-PESA Phone
-                        </label>
-                        <input
-                          type="tel"
-                          placeholder="e.g. 0712345678"
-                          value={registerPhone}
-                          onChange={(e) => setRegisterPhone(e.target.value)}
-                          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                          required
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          Email (optional)
-                        </label>
-                        <input
-                          type="email"
-                          placeholder="For receipts"
-                          value={registerEmail}
-                          onChange={(e) => setRegisterEmail(e.target.value)}
-                          className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          Password
-                        </label>
-                        <PasswordInput
-                          value={registerPassword}
-                          onChange={setRegisterPassword}
-                          placeholder="At least 6 characters"
-                          required
-                          minLength={6}
-                          autoComplete="new-password"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                      >
-                        Create Account
-                      </button>
-                    </form>
-                  )}
-
-                  <button
-                    type="button"
-                    aria-expanded={showFanPasswordReset}
-                    onClick={() => {
-                      setShowFanPasswordReset((open) => {
-                        if (open) setResetStep("request");
-                        return !open;
-                      });
-                    }}
-                    className="w-full text-[10px] font-bold uppercase tracking-wider text-emerald-700 hover:text-emerald-800 cursor-pointer pt-1"
-                  >
-                    {showFanPasswordReset ? "Hide password reset" : "Forgot your password?"}
-                  </button>
-                </div>
-
-                {showFanPasswordReset && (
-                  <div className="bg-white rounded-3xl border border-emerald-100 shadow-sm p-6 sm:p-8 space-y-5">
-                    <div className="space-y-1">
-                      <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
-                        <Shield className="w-5 h-5 text-emerald-600" />
-                        Reset Fan Password
-                      </h3>
-                      <p className="text-sm text-slate-600">
-                        Enter your M-PESA phone number to receive a 6-digit SMS code.
-                      </p>
-                    </div>
-
-                    {resetStep === "request" ? (
-                      <form onSubmit={handleCustomerRequestReset} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            M-PESA Phone
-                          </label>
-                          <input
-                            type="tel"
-                            placeholder="e.g. 0712345678"
-                            value={resetPhone}
-                            onChange={(e) => setResetPhone(e.target.value)}
-                            className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                            required
-                          />
-                        </div>
-                        <div className="flex items-end">
-                          <button
-                            type="submit"
-                            disabled={isFanResetPending}
-                            className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
-                          >
-                            {isFanResetPending ? "Sending..." : "Send Reset Code"}
-                          </button>
-                        </div>
-                      </form>
-                    ) : (
-                      <form onSubmit={handleCustomerCompleteReset} className="space-y-4">
-                        <p className="text-xs text-slate-500">
-                          Check SMS on {resetPhone || "your phone"} and choose a new password.
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                              Reset Code
-                            </label>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              placeholder="6-digit code"
-                              value={resetCode}
-                              onChange={(e) => setResetCode(e.target.value)}
-                              className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                              required
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                              New Password
-                            </label>
-                            <PasswordInput
-                              value={resetNewPassword}
-                              onChange={setResetNewPassword}
-                              placeholder="At least 6 characters"
-                              required
-                              minLength={6}
-                              autoComplete="new-password"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                              Confirm Password
-                            </label>
-                            <PasswordInput
-                              value={resetConfirmPassword}
-                              onChange={setResetConfirmPassword}
-                              placeholder="Confirm new password"
-                              required
-                              minLength={6}
-                              autoComplete="new-password"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-3">
-                          <button
-                            type="submit"
-                            disabled={isFanResetPending}
-                            className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
-                          >
-                            {isFanResetPending ? "Updating..." : "Reset Password"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleCustomerRequestReset()}
-                            disabled={isFanResetPending}
-                            className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 hover:text-emerald-800 cursor-pointer px-2 py-3 disabled:opacity-50"
-                          >
-                            {isFanResetPending ? "Sending..." : "Resend Code"}
-                          </button>
-                        </div>
-                      </form>
-                    )}
-                  </div>
-                )}
-
-                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
-                  <div className="space-y-1">
-                    <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
-                      <Package className="w-5 h-5 text-emerald-600" />
-                      Track Without Signing In
-                    </h3>
-                    <p className="text-sm text-slate-600">
-                      Use your order number and the M-PESA phone used at checkout.
-                    </p>
-                  </div>
-
-                  <form onSubmit={handleTrackOrder} className="space-y-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Order Number
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        placeholder="e.g. 12"
-                        value={trackOrderId}
-                        onChange={(e) => setTrackOrderId(e.target.value)}
-                        className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        M-PESA Phone
-                      </label>
-                      <input
-                        type="tel"
-                        placeholder="e.g. 0712345678"
-                        value={trackPhone}
-                        onChange={(e) => setTrackPhone(e.target.value)}
-                        className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                        required
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={isPending}
-                      className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
-                    >
-                      {isPending ? "Checking..." : "Track Order"}
-                    </button>
-                  </form>
-
-                  {trackError && (
-                    <p className="text-sm text-rose-600 font-semibold">{trackError}</p>
-                  )}
-
-                  {trackedOrder && (
-                    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5 space-y-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                            Order #{trackedOrder.id}
-                          </p>
-                          <p className="text-lg font-black text-slate-950">
-                            {trackedOrder.customerName}
-                          </p>
-                        </div>
-                        <OrderStatusBadge orderStatus={trackedOrder.orderStatus} />
-                      </div>
-                      <OrderProgressTimeline
-                        orderStatus={trackedOrder.orderStatus}
-                        paymentStatus={trackedOrder.paymentStatus}
-                        mpesaReceiptNumber={trackedOrder.mpesaReceiptNumber}
-                        items={trackedOrder.items}
-                        totalAmount={trackedOrder.totalAmount}
-                        createdAt={trackedOrder.createdAt}
-                      />
-                    </div>
-                  )}
-                </div>
-                  </div>
-
+                <div className="max-w-xl mx-auto space-y-6">
                   <div className="space-y-6">
                     <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
                       <div className="space-y-1 pb-1 border-b border-slate-100">
                         <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
-                          <Settings className="w-5 h-5 text-yellow-600" />
-                          Club Admin
+                          <User className="w-5 h-5 text-emerald-600" />
+                          Sign In
                         </h3>
                         <p className="text-sm text-slate-600">
-                          Officials sign in to manage squad, gallery, news, merchandise, and fan orders.
+                          Enter your password to continue.
                         </p>
                       </div>
 
@@ -10370,12 +10276,12 @@ useEffect(() => {
                           <form onSubmit={handleAdminLogin} className="space-y-3">
                             <div className="space-y-1">
                               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                Manager Password
+                                Password
                               </label>
                               <PasswordInput
                                 value={adminPassword}
                                 onChange={setAdminPassword}
-                                placeholder="Enter admin password"
+                                placeholder="Enter your password"
                                 required
                                 className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
                                 autoComplete="current-password"
@@ -10385,7 +10291,7 @@ useEffect(() => {
                               type="submit"
                               className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
                             >
-                              Sign In as Admin
+                              Sign In
                             </button>
                           </form>
 
@@ -10400,7 +10306,7 @@ useEffect(() => {
                             }}
                             className="w-full text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 cursor-pointer pt-1"
                           >
-                            {showAdminPasswordReset ? "Hide admin password reset" : "Reset admin password"}
+                            {showAdminPasswordReset ? "Hide password reset" : "Forgot your password?"}
                           </button>
                         </>
                       )}
@@ -10410,11 +10316,11 @@ useEffect(() => {
                       <div className="bg-white rounded-3xl border border-yellow-200 shadow-sm p-6 sm:p-8 space-y-5">
                         <div className="space-y-1">
                           <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
-                            <Shield className="w-5 h-5 text-yellow-600" />
-                            Reset Manager Password
+                            <Shield className="w-5 h-5 text-emerald-600" />
+                            Reset Password
                           </h3>
                           <p className="text-sm text-slate-600">
-                            Use an authorized manager phone number to receive a reset code by SMS.
+                            Enter your phone number to receive a reset code by SMS.
                           </p>
                         </div>
 
@@ -10422,7 +10328,7 @@ useEffect(() => {
                           <form onSubmit={handleAdminRequestReset} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
                             <div className="space-y-1">
                               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                Authorized Manager Phone
+                                Phone Number
                               </label>
                               <input
                                 type="tel"
@@ -10498,53 +10404,6 @@ useEffect(() => {
                         )}
                       </div>
                     )}
-
-                    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
-                      <div className="space-y-1 pb-1 border-b border-slate-100">
-                        <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
-                          <Newspaper className="w-5 h-5 text-emerald-600" />
-                          Newspaper / Press
-                        </h3>
-                        <p className="text-sm text-slate-600">
-                          Authorized media partners can sign in to publish official team news only.
-                        </p>
-                      </div>
-
-                      <form onSubmit={handleNewspaperLogin} className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Press Username
-                          </label>
-                          <input
-                            type="text"
-                            value={newspaperUsername}
-                            onChange={(e) => setNewspaperUsername(e.target.value)}
-                            className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
-                            required
-                            autoComplete="username"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Press Password
-                          </label>
-                          <PasswordInput
-                            value={newspaperPassword}
-                            onChange={setNewspaperPassword}
-                            placeholder="Enter press account password"
-                            required
-                            className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
-                            autoComplete="current-password"
-                          />
-                        </div>
-                        <button
-                          type="submit"
-                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                        >
-                          Sign In as Press
-                        </button>
-                      </form>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -10782,6 +10641,7 @@ useEffect(() => {
         {/* ================= TAB: ADMIN PANEL ================= */}
         {activeTab === "admin" && (
           <div className="space-y-8" data-admin-panel>
+            {isAdminAuthenticated && (
             <div className="max-w-2xl">
               <h2 className="text-3xl font-black text-slate-950 tracking-tight">
                 {adminRole === "news_editor"
@@ -10794,24 +10654,25 @@ useEffect(() => {
                 </p>
               )}
             </div>
+            )}
 
             {!isAdminAuthenticated ? (
               <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center max-w-lg mx-auto">
                 <div className="w-16 h-16 rounded-2xl bg-slate-950 text-yellow-400 flex items-center justify-center mx-auto mb-4">
-                  <Settings className="w-8 h-8" />
+                  <User className="w-8 h-8" />
                 </div>
                 <h4 className="font-black text-slate-800 text-lg">
-                  Admin Sign In Required
+                  Sign In Required
                 </h4>
                 <p className="text-sm text-slate-500 mt-2">
-                  Club officials and newspaper partners sign in from the Sign In page using the panels on the right.
+                  Use Sign In in the menu to continue.
                 </p>
                 <button
                   type="button"
-                  onClick={() => goToTab("account")}
+                  onClick={() => openAdminSignIn()}
                   className="mt-6 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer"
                 >
-                  Go to Admin Sign In
+                  Go to Sign In
                 </button>
               </div>
             ) : (
@@ -10836,7 +10697,7 @@ useEffect(() => {
     showToast(
       wasPressAccount
         ? "Press account signed out."
-        : "Admin signed out. You can now sign in to your fan account."
+        : "Admin signed out."
     );
   }}
   className="bg-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-800 font-bold transition"
@@ -14083,30 +13944,11 @@ useEffect(() => {
 
                   {/* Checkout — account required */}
                   {!customerProfile ? (
-                    <div className="space-y-4 bg-amber-50 p-5 rounded-2xl border border-amber-200">
-                      <div>
-                        <p className="font-black text-sm text-slate-950">
-                          Account required to checkout
-                        </p>
-                        <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                          Register free to checkout with M-Pesa or cash on delivery and track your order in My Orders.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => redirectToCheckoutAuth(true)}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                      >
-                        Create Account & Checkout
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => redirectToCheckoutAuth(false)}
-                        className="w-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                      >
-                        I Already Have an Account
-                      </button>
-                    </div>
+                    renderFanAuthPanel(
+                      "Fan account to checkout",
+                      "Sign in or register here to pay with M-Pesa or cash on delivery.",
+                      true
+                    )
                   ) : (
 <form
   onSubmit={handleCheckoutSubmit}
@@ -14885,7 +14727,7 @@ useEffect(() => {
           { label: "Fan Zone", tab: "fanzone" },
           { label: "Merchandise Shop", tab: "shop" },
           { label: "Join as a Fan", tab: "membership" },
-          { label: "My Account", tab: "account" },
+          ...(customerProfile ? [{ label: "My Account", tab: "account" }] : []),
           { label: "Donations", tab: "donors" },
           { label: "Contact Centre", tab: "contact" },
         ].map((item, idx) => (
