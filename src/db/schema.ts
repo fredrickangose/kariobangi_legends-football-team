@@ -130,6 +130,13 @@ export const passwordResetCodes = pgTable("password_reset_codes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const loginAttempts = pgTable("login_attempts", {
+  id: serial("id").primaryKey(),
+  scope: text("scope").notNull(), // 'admin_login', 'customer_login', 'newspaper_login', 'password_reset'
+  identifier: text("identifier").notNull(), // client IP address
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const orders = pgTable("orders", {
   id: serial("id").primaryKey(),
   customerId: integer("customer_id"),

@@ -4,9 +4,27 @@ import {
   verifyNewspaperLogin,
 } from "@/lib/admin-auth";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
+import {
+  clearFailedAttempts,
+  getClientIp,
+  isRateLimited,
+  recordFailedAttempt,
+} from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const clientIp = getClientIp(request);
+
+    if (await isRateLimited("newspaper_login", clientIp)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many attempts. Please wait 15 minutes and try again.",
+        },
+        { status: 429 }
+      );
+    }
+
     if (!process.env.ADMIN_SESSION_SECRET) {
       return NextResponse.json(
         {
@@ -24,6 +42,8 @@ export async function POST(request: Request) {
     );
 
     if (!passwordValid) {
+      await recordFailedAttempt("newspaper_login", clientIp);
+
       return NextResponse.json(
         {
           success: false,
@@ -32,6 +52,8 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
+
+    await clearFailedAttempts("newspaper_login", clientIp);
 
     const token = createAdminToken("news_editor");
     const response = NextResponse.json({

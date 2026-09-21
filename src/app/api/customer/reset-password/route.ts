@@ -17,9 +17,22 @@ import {
 } from "@/lib/password-reset";
 import { isValidKenyaPhone } from "@/lib/order-tracking";
 import { sendOrderSms } from "@/lib/notifications/sms";
+import { getClientIp, isRateLimited, recordFailedAttempt } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const clientIp = getClientIp(request);
+
+    if (await isRateLimited("password_reset", clientIp)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many attempts. Please wait 15 minutes and try again.",
+        },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const phone = String(body.phone || "").trim();
     const code = String(body.code || "").trim();
@@ -56,6 +69,8 @@ export async function POST(request: Request) {
     }
 
     if (!code || !newPassword) {
+      await recordFailedAttempt("password_reset", clientIp);
+
       const resetCode = generateResetCode();
 
       await storeResetCode({
@@ -109,6 +124,8 @@ export async function POST(request: Request) {
     });
 
     if (!codeValid) {
+      await recordFailedAttempt("password_reset", clientIp);
+
       return NextResponse.json(
         { success: false, error: "Invalid or expired reset code." },
         { status: 400 }

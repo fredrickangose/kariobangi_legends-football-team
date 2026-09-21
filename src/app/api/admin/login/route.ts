@@ -4,9 +4,27 @@ import { db } from "@/db";
 import { adminSettings } from "@/db/schema";
 import { createAdminToken, verifyAdminPassword } from "@/lib/admin-auth";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
+import {
+  clearFailedAttempts,
+  getClientIp,
+  isRateLimited,
+  recordFailedAttempt,
+} from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const clientIp = getClientIp(request);
+
+    if (await isRateLimited("admin_login", clientIp)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many attempts. Please wait 15 minutes and try again.",
+        },
+        { status: 429 }
+      );
+    }
+
     const { password } = await request.json();
     const [settings] = await db.select().from(adminSettings).limit(1);
     const hasAdminAuth = Boolean(settings?.passwordHash || process.env.ADMIN_PASSWORD);
@@ -38,6 +56,8 @@ export async function POST(request: Request) {
     const passwordValid = await verifyAdminPassword(String(password || ""));
 
     if (!passwordValid) {
+      await recordFailedAttempt("admin_login", clientIp);
+
       return NextResponse.json(
         {
           success: false,
@@ -46,6 +66,8 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
+
+    await clearFailedAttempts("admin_login", clientIp);
 
     const token = createAdminToken();
 

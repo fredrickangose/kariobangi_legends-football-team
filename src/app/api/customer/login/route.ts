@@ -10,6 +10,12 @@ import {
 import { linkOrdersToCustomer } from "@/lib/link-customer-orders";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
 import { isValidKenyaPhone } from "@/lib/order-tracking";
+import {
+  clearFailedAttempts,
+  getClientIp,
+  isRateLimited,
+  recordFailedAttempt,
+} from "@/lib/rate-limit";
 
 function getSessionSecret() {
   return process.env.CUSTOMER_SESSION_SECRET || process.env.ADMIN_SESSION_SECRET;
@@ -17,6 +23,18 @@ function getSessionSecret() {
 
 export async function POST(request: Request) {
   try {
+    const clientIp = getClientIp(request);
+
+    if (await isRateLimited("customer_login", clientIp)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many attempts. Please wait 15 minutes and try again.",
+        },
+        { status: 429 }
+      );
+    }
+
     if (!getSessionSecret()) {
       console.error("CUSTOMER_SESSION_SECRET / ADMIN_SESSION_SECRET is not configured");
 
@@ -62,6 +80,8 @@ export async function POST(request: Request) {
       .limit(1);
 
     if (!customer) {
+      await recordFailedAttempt("customer_login", clientIp);
+
       return NextResponse.json(
         {
           success: false,
@@ -74,6 +94,8 @@ export async function POST(request: Request) {
     const passwordValid = await verifyPassword(password, customer.passwordHash);
 
     if (!passwordValid) {
+      await recordFailedAttempt("customer_login", clientIp);
+
       return NextResponse.json(
         {
           success: false,
@@ -82,6 +104,8 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
+
+    await clearFailedAttempts("customer_login", clientIp);
 
     await linkOrdersToCustomer(customer.id, phoneNumber);
 
