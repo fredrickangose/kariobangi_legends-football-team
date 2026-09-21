@@ -183,10 +183,7 @@ import {
   getDonationCurrency,
   isDonationCurrencyCode,
 } from "@/lib/donation-currencies";
-import {
-  buildFixtureWhatsAppShare,
-  buildNewsWhatsAppShare,
-} from "@/lib/share-links";
+import { buildFixtureWhatsAppShare } from "@/lib/share-links";
 import {
   formatJerseyCustomization,
   isJerseyMerchandise,
@@ -7549,12 +7546,6 @@ useEffect(() => {
                   <ArrowRight className="w-4 h-4 group-hover/link:translate-x-1 transition-transform" />
                 </button>
 
-                <WhatsAppShareButton
-                  href={buildNewsWhatsAppShare(item, shareBaseUrl)}
-                  label="Share"
-                  compact
-                />
-
               </div>
 
             </div>
@@ -9140,13 +9131,6 @@ useEffect(() => {
                       <p className="text-slate-600 text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">
                         {item.content}
                       </p>
-                    </div>
-
-                    <div className="pt-2 flex flex-wrap items-center gap-3">
-                      <WhatsAppShareButton
-                        href={buildNewsWhatsAppShare(item, shareBaseUrl)}
-                        label="Share on WhatsApp"
-                      />
                     </div>
 
                     {canManageClubContent && (

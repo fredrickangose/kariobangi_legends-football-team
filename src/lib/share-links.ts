@@ -36,19 +36,6 @@ export function buildWhatsAppShareUrl(text: string, url: string): string {
   return `https://wa.me/?text=${encodeURIComponent(`${text}\n\n${url}`)}`;
 }
 
-export function buildNewsWhatsAppShare(
-  news: {
-    id: number;
-    title: string;
-    summary: string;
-  },
-  baseUrl?: string,
-): string {
-  const url = buildNewsShareUrl(news.id, baseUrl);
-  const text = `📰 ${news.title}\n${news.summary}`;
-  return buildWhatsAppShareUrl(text, url);
-}
-
 export function buildFixtureWhatsAppShare(fixture: FixtureLike, baseUrl?: string): string {
   const url = buildFixtureShareUrl(fixture.id, baseUrl);
   const { home, away } = getHomeAwayTeams(fixture);
