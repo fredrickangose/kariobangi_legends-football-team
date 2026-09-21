@@ -3984,7 +3984,8 @@ useEffect(() => {
     activeTab === "squad" ||
     activeTab === "account" ||
     activeTab === "gallery" ||
-    activeTab === "news"
+    activeTab === "news" ||
+    activeTab === "admin"
   ) {
     refreshAdminSession();
   }
