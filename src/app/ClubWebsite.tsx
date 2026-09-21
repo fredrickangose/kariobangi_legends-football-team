@@ -343,11 +343,13 @@ function HighlightVideoCard({
         className="relative aspect-video w-full overflow-hidden bg-slate-950 cursor-pointer"
       >
         {hasThumbnail ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
+          <Image
             src={highlight.thumbnailUrl as string}
             alt={highlight.title}
-            className="absolute inset-0 w-full h-full object-cover opacity-90 group-hover:scale-[1.02] transition-transform duration-500"
+            fill
+            unoptimized
+            sizes="(min-width: 1024px) 33vw, 100vw"
+            className="object-cover opacity-90 group-hover:scale-[1.02] transition-transform duration-500"
           />
         ) : isVideoMediaUrl(highlight.videoUrl) ? (
           <video
@@ -620,11 +622,13 @@ function MerchandiseAdminThumbnail({ item }: { item: MerchandiseItem }) {
   return (
     <div className="relative w-full h-44 sm:h-48 bg-white border-b border-slate-100 overflow-hidden flex items-center justify-center p-2">
       {hasImage ? (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
+        <Image
           src={item.imageUrl}
           alt={item.name}
-          className="max-w-full max-h-full w-auto h-auto object-contain"
+          fill
+          unoptimized
+          sizes="(min-width: 640px) 25vw, 50vw"
+          className="object-contain"
         />
       ) : (
         <div className="text-center space-y-2">
@@ -1091,13 +1095,14 @@ const frameClass =
       <div
         className={`relative w-full overflow-hidden bg-slate-200 border border-slate-200/90 shadow-inner ${frameClass}`}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <Image
           src={trimmedUrl}
           alt={alt}
-          loading={priority ? "eager" : "lazy"}
-          decoding="async"
-          className="absolute inset-0 w-full !h-full object-cover object-top"
+          fill
+          unoptimized
+          priority={priority}
+          sizes="(min-width: 1024px) 20vw, 33vw"
+          className="object-cover object-top"
         />
       </div>
     );
@@ -1556,10 +1561,12 @@ function TeamLogo({
 }) {
   if (team.logo && (team.isLegends || isUploadedMediaUrl(team.logo))) {
     return (
-      /* eslint-disable-next-line @next/next/no-img-element */
-      <img
+      <Image
         src={team.logo}
         alt={team.name}
+        width={40}
+        height={40}
+        unoptimized
         className={`${sizeClass} object-contain shrink-0`}
       />
     );
@@ -5323,11 +5330,13 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     if (item.imageUrl.startsWith("/") || item.imageUrl.startsWith("http")) {
       return (
         <div className="relative h-48 sm:h-52 bg-white overflow-hidden group flex items-center justify-center p-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src={item.imageUrl}
             alt={item.name}
-            className="max-w-full max-h-full w-auto h-auto object-contain group-hover:scale-[1.03] transition-transform duration-500 ease-out"
+            fill
+            unoptimized
+            sizes="(min-width: 1024px) 25vw, 50vw"
+            className="object-contain group-hover:scale-[1.03] transition-transform duration-500 ease-out"
           />
         </div>
       );
@@ -6238,10 +6247,13 @@ useEffect(() => {
               className="flex items-center gap-3 sm:gap-4 min-w-0 cursor-pointer group shrink-0"
             >
               <div className="relative shrink-0">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
                   src="/assets/logo.png"
                   alt="Kariobangi Legends FC badge"
+                  width={80}
+                  height={80}
+                  unoptimized
+                  priority
                   className="w-14 h-14 sm:w-[4.5rem] sm:h-[4.5rem] md:w-20 md:h-20 object-contain drop-shadow-lg group-hover:scale-105 transition-transform duration-300"
                 />
               </div>
@@ -6930,10 +6942,12 @@ useEffect(() => {
 
             {/* Logo */}
             <div className="w-24 h-24 sm:w-28 sm:h-28 flex items-center justify-center mb-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src="/assets/logo.png"
                 alt="Kariobangi Legends FC"
+                width={112}
+                height={112}
+                unoptimized
                 className="w-full h-full object-contain drop-shadow-2xl"
               />
             </div>
@@ -6969,10 +6983,12 @@ useEffect(() => {
             {/* Opponent logo */}
             <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white border border-white/20 flex items-center justify-center shadow-xl mb-4 overflow-hidden p-2">
               {upcomingFixtures[0].opponentLogoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <Image
                   src={upcomingFixtures[0].opponentLogoUrl}
                   alt={`${upcomingFixtures[0].opponent} logo`}
+                  width={112}
+                  height={112}
+                  unoptimized
                   className="w-full h-full object-contain"
                 />
               ) : (
@@ -7198,22 +7214,24 @@ useEffect(() => {
                   : "opacity-0 z-0 pointer-events-none"
               }`}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src={item.imageUrl}
                 alt=""
                 aria-hidden="true"
-                className="absolute inset-0 h-full w-full scale-110 object-cover opacity-30 blur-2xl"
-                draggable={false}
+                fill
+                unoptimized
+                sizes="100vw"
+                className="scale-110 object-cover opacity-30 blur-2xl"
               />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src={item.imageUrl}
                 alt={item.caption || "Kariobangi Legends FC"}
-                className={`relative z-10 max-h-full max-w-full object-contain transition-transform duration-[4000ms] ease-out ${
+                fill
+                unoptimized
+                sizes="100vw"
+                className={`z-10 object-contain transition-transform duration-[4000ms] ease-out ${
                   index === safeGalleryCarouselIndex ? "scale-100" : "scale-[1.04]"
                 }`}
-                draggable={false}
               />
             </div>
           ))}
@@ -7325,11 +7343,13 @@ useEffect(() => {
               }`}
               aria-label={`Show photo ${index + 1}`}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src={item.imageUrl}
                 alt=""
-                className="h-full w-full object-cover"
+                fill
+                unoptimized
+                sizes="128px"
+                className="object-cover"
               />
               <span className="absolute left-1.5 top-1.5 rounded bg-slate-950/70 px-1.5 py-0.5 font-mono text-[9px] font-bold text-white">
                 {String(index + 1).padStart(2, "0")}
@@ -7480,15 +7500,15 @@ useEffect(() => {
           >
 
             {/* News image — full photo visible, no cropping */}
-            <div className="relative bg-gradient-to-b from-slate-50 to-slate-100 border-b border-slate-100 overflow-hidden">
-              <div className="flex items-center justify-center p-4 sm:p-5 h-56 sm:h-60">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={item.imageUrl}
-                  alt={item.title}
-                  className="max-w-full max-h-full w-auto h-auto object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out"
-                />
-              </div>
+            <div className="relative bg-gradient-to-b from-slate-50 to-slate-100 border-b border-slate-100 overflow-hidden h-56 sm:h-60">
+              <Image
+                src={item.imageUrl}
+                alt={item.title}
+                fill
+                unoptimized
+                sizes="(min-width: 768px) 50vw, 100vw"
+                className="object-contain p-4 sm:p-5 group-hover:scale-[1.02] transition-transform duration-500 ease-out"
+              />
 
               {/* Category */}
               <span className="absolute top-4 left-4 inline-flex items-center gap-1.5 bg-slate-950/90 text-yellow-400 text-[9px] font-black uppercase tracking-widest px-3 py-2 rounded-full backdrop-blur-sm">
@@ -7780,11 +7800,13 @@ useEffect(() => {
 
       {/* Founder image */}
       <div className="relative min-h-[420px] sm:min-h-[480px] lg:min-h-full overflow-hidden bg-slate-900">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <Image
           src="/images/founder-atanga.jpg"
           alt="Mr. Erick Otieno Atanga - Founder and Patron of Kariobangi Legends FC"
-          className="absolute inset-0 !h-full !w-full !max-h-none !max-w-none object-cover object-[center_18%] contrast-[1.1] saturate-[1.08] brightness-[1.08]"
+          fill
+          unoptimized
+          sizes="(min-width: 1024px) 50vw, 100vw"
+          className="object-cover object-[center_18%] contrast-[1.1] saturate-[1.08] brightness-[1.08]"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/10 to-transparent" />
 
@@ -7943,11 +7965,13 @@ useEffect(() => {
                       className="relative z-10 w-full min-h-64 flex items-center justify-center p-3 cursor-zoom-in"
                     >
                       {isUploadedMediaUrl(item.imageUrl) ? (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
+                        <Image
                           src={item.imageUrl}
                           alt={item.caption}
-                          className="max-w-full max-h-72 w-auto h-auto object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out"
+                          fill
+                          unoptimized
+                          sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+                          className="object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out"
                         />
                       ) : (
                         <div className="min-h-64 w-full flex flex-col items-center justify-center text-center text-slate-400 px-4 bg-slate-50">
@@ -8147,11 +8171,13 @@ useEffect(() => {
   / {filteredGallery.length}
 </div>
                   {/* Large Image */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <Image
                     src={selectedGalleryImage.imageUrl}
                     alt={selectedGalleryImage.caption}
-                    className="max-w-full max-h-[calc(90vh-8rem)] object-contain rounded-lg animate-in zoom-in-95 duration-300"
+                    width={1200}
+                    height={900}
+                    unoptimized
+                    className="w-auto h-auto max-w-full max-h-[calc(90vh-8rem)] object-contain rounded-lg animate-in zoom-in-95 duration-300"
                   />
 
                   {/* Caption */}
@@ -9099,15 +9125,15 @@ useEffect(() => {
                       : "border-slate-100"
                   } ${idx % 2 === 1 ? "lg:flex-row-reverse" : ""}`}
                 >
-                  <div className="lg:col-span-5 relative rounded-2xl overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100 border border-slate-100 min-h-[220px] lg:min-h-[280px]">
-                    <div className="flex items-center justify-center p-4 sm:p-6 h-64 lg:h-full lg:min-h-[280px]">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={item.imageUrl}
-                        alt={item.title}
-                        className="max-w-full max-h-full w-auto h-auto object-contain"
-                      />
-                    </div>
+                  <div className="lg:col-span-5 relative rounded-2xl overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100 border border-slate-100 h-64 min-h-[220px] lg:h-full lg:min-h-[280px]">
+                    <Image
+                      src={item.imageUrl}
+                      alt={item.title}
+                      fill
+                      unoptimized
+                      sizes="(min-width: 1024px) 40vw, 100vw"
+                      className="object-contain p-4 sm:p-6"
+                    />
                   </div>
 
                   <div className="lg:col-span-7 flex flex-col justify-between space-y-4 py-2">
@@ -11644,10 +11670,12 @@ useEffect(() => {
                                   className="w-full h-full object-contain p-1"
                                 />
                               ) : (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
+                                <Image
                                   src={adminOpponentLogoUrl}
                                   alt="Current opponent logo"
+                                  width={48}
+                                  height={48}
+                                  unoptimized
                                   className="w-full h-full object-contain p-1"
                                 />
                               )}
@@ -12158,11 +12186,13 @@ useEffect(() => {
                             >
                               <div className="relative w-full sm:w-28 aspect-video rounded-lg overflow-hidden bg-slate-950 shrink-0">
                                 {isUploadedMediaUrl(highlight.thumbnailUrl) ? (
-                                  /* eslint-disable-next-line @next/next/no-img-element */
-                                  <img
+                                  <Image
                                     src={highlight.thumbnailUrl as string}
                                     alt={highlight.title}
-                                    className="w-full h-full object-cover"
+                                    fill
+                                    unoptimized
+                                    sizes="112px"
+                                    className="object-cover"
                                   />
                                 ) : isVideoMediaUrl(highlight.videoUrl) ? (
                                   <video
@@ -14642,11 +14672,13 @@ useEffect(() => {
 
         <div className="relative w-12 h-12 flex items-center justify-center">
 
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src="/assets/logo.png"
             alt="Kariobangi Legends FC badge"
-            className="w-full h-full object-contain"
+            fill
+            unoptimized
+            sizes="48px"
+            className="object-contain"
           />
 
         </div>
