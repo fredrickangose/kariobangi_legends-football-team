@@ -245,6 +245,68 @@ export function formatKickoff(date: string): string {
   return `${datePart} · ${timePart}`;
 }
 
+const ICS_DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000; // typical match length incl. stoppage time
+
+function toIcsUtcStamp(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+}
+
+function toIcsDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function escapeIcsText(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/,/g, "\\,").replace(/;/g, "\\;").replace(/\n/g, "\\n");
+}
+
+/** Builds an .ics calendar file so fans can add a fixture to their phone's calendar. */
+export function buildFixtureIcs(fixture: FixtureLike): string {
+  const parsed = parseFixtureDate(fixture.date);
+  const { home, away } = getHomeAwayTeams(fixture);
+  const summary = escapeIcsText(`${home.name} vs ${away.name}`);
+  const location = escapeIcsText(fixture.venue || "");
+  const description = escapeIcsText(`${CLUB_FULL_NAME} — ${getMatchTypeMeta(fixture.matchType).label}`);
+  const uid = `kariobangi-fixture-${fixture.id}@kariobangilegends`;
+  const now = toIcsUtcStamp(new Date());
+
+  const timedEvent = parsed && hasKickoffTime(fixture.date);
+  const allDayEvent = parsed && !hasKickoffTime(fixture.date);
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Kariobangi Legends FC//Fixtures//EN",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${now}`,
+  ];
+
+  if (timedEvent && parsed) {
+    const end = new Date(parsed.getTime() + ICS_DEFAULT_DURATION_MS);
+    lines.push(`DTSTART:${toIcsUtcStamp(parsed)}`, `DTEND:${toIcsUtcStamp(end)}`);
+  } else if (allDayEvent && parsed) {
+    const end = new Date(parsed.getTime() + 24 * 60 * 60 * 1000);
+    lines.push(
+      `DTSTART;VALUE=DATE:${toIcsDateOnly(parsed)}`,
+      `DTEND;VALUE=DATE:${toIcsDateOnly(end)}`
+    );
+  }
+
+  lines.push(
+    `SUMMARY:${summary}`,
+    `LOCATION:${location}`,
+    `DESCRIPTION:${description}`,
+    "END:VEVENT",
+    "END:VCALENDAR"
+  );
+
+  return lines.join("\r\n");
+}
+
 export type MatchCountdown = {
   hasTime: boolean;
   started: boolean;

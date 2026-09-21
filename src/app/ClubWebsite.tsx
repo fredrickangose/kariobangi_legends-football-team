@@ -82,6 +82,7 @@ import {
 } from "@/lib/management-roles";
 import {
   COMPETITION_NAME,
+  buildFixtureIcs,
   combineFixtureDateTime,
   formatKickoff,
   getMatchCountdown,
@@ -98,9 +99,11 @@ import {
   isLeagueMatch,
   MATCH_STATUSES,
   MATCH_TYPES,
+  normalizeMatchType,
   partitionFixtures,
   toFixtureDateInputValue,
   toFixtureTimeInputValue,
+  type MatchTypeValue,
   type TeamDisplay,
 } from "@/lib/match-fixtures";
 import {
@@ -2016,6 +2019,8 @@ export default function ClubWebsite({
     [clubData.management]
   );
 
+  const [matchTypeFilter, setMatchTypeFilter] = useState<"all" | MatchTypeValue>("all");
+
   const todayString = useMemo(() => {
     const today = new Date();
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -2042,6 +2047,24 @@ export default function ClubWebsite({
 
   const upcomingFixtures = fixtureGroups.upcoming;
   const recentFixtures = fixtureGroups.recent;
+
+  const filterByMatchType = useCallback(
+    <T extends { matchType?: string | null }>(fixtures: T[]) =>
+      matchTypeFilter === "all"
+        ? fixtures
+        : fixtures.filter((fixture) => normalizeMatchType(fixture.matchType) === matchTypeFilter),
+    [matchTypeFilter]
+  );
+
+  const filteredUpcomingRest = useMemo(
+    () => filterByMatchType(fixtureGroups.upcomingRest),
+    [filterByMatchType, fixtureGroups.upcomingRest]
+  );
+
+  const filteredRecentFixtures = useMemo(
+    () => filterByMatchType(recentFixtures),
+    [filterByMatchType, recentFixtures]
+  );
 
   useEffect(() => {
     const closeMenuOnDesktop = () => {
@@ -4542,6 +4565,22 @@ const handleAdminUpdateFixture = async (e: React.FormEvent) => {
   }
 };
 // Load an existing fixture into the admin form for editing
+const handleAddFixtureToCalendar = (
+  fixture: (typeof clubData.fixtures)[number]
+) => {
+  const icsContent = buildFixtureIcs(fixture);
+  const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `kariobangi-legends-vs-${fixture.opponent.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.ics`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
 const handleEditFixture = (
   fixture: (typeof clubData.fixtures)[number]
 ) => {
@@ -9013,6 +9052,14 @@ useEffect(() => {
                       href={buildFixtureWhatsAppShare(fixtureGroups.nextMatch, shareBaseUrl)}
                       label="Share on WhatsApp"
                     />
+                    <button
+                      type="button"
+                      onClick={() => handleAddFixtureToCalendar(fixtureGroups.nextMatch!)}
+                      className="sm:col-span-2 w-full inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-black text-xs uppercase tracking-wider py-3.5 rounded-xl transition cursor-pointer"
+                    >
+                      <CalendarDays className="w-4 h-4 text-yellow-400" />
+                      Add to Calendar
+                    </button>
                   </div>
                 </div>
               </section>
@@ -9041,15 +9088,45 @@ useEffect(() => {
               </section>
             )}
 
+            {(fixtureGroups.upcomingRest.length > 0 || recentFixtures.length > 0) && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMatchTypeFilter("all")}
+                  className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
+                    matchTypeFilter === "all"
+                      ? "bg-slate-950 text-yellow-400"
+                      : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  All Matches
+                </button>
+                {MATCH_TYPES.map((type) => (
+                  <button
+                    key={type.value}
+                    type="button"
+                    onClick={() => setMatchTypeFilter(type.value)}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
+                      matchTypeFilter === type.value
+                        ? "bg-slate-950 text-yellow-400"
+                        : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    {type.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <section className="space-y-4">
                 <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
                   <Calendar className="w-5 h-5 text-emerald-600" />
                   Upcoming Fixtures
                 </h3>
-                {fixtureGroups.upcomingRest.length > 0 ? (
+                {filteredUpcomingRest.length > 0 ? (
                   <div className="space-y-3">
-                    {fixtureGroups.upcomingRest.map((fixture) => (
+                    {filteredUpcomingRest.map((fixture) => (
                       <MatchFixtureCard
                         key={fixture.id}
                         fixture={fixture}
@@ -9065,7 +9142,9 @@ useEffect(() => {
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center">
                     <p className="text-sm font-bold text-slate-700">
-                      No further fixtures scheduled
+                      {matchTypeFilter === "all"
+                        ? "No further fixtures scheduled"
+                        : `No upcoming ${getMatchTypeMeta(matchTypeFilter).label.toLowerCase()} fixtures`}
                     </p>
                     <p className="text-xs text-slate-500 mt-1">
                       New matches will appear here once added in the admin panel.
@@ -9079,9 +9158,9 @@ useEffect(() => {
                   <Award className="w-5 h-5 text-yellow-500" />
                   Results
                 </h3>
-                {recentFixtures.length > 0 ? (
+                {filteredRecentFixtures.length > 0 ? (
                   <div className="space-y-3">
-                    {recentFixtures.map((fixture) => (
+                    {filteredRecentFixtures.map((fixture) => (
                       <MatchFixtureCard
                         key={fixture.id}
                         fixture={fixture}
@@ -9096,7 +9175,11 @@ useEffect(() => {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center">
-                    <p className="text-sm font-bold text-slate-700">No results yet</p>
+                    <p className="text-sm font-bold text-slate-700">
+                      {matchTypeFilter === "all"
+                        ? "No results yet"
+                        : `No ${getMatchTypeMeta(matchTypeFilter).label.toLowerCase()} results yet`}
+                    </p>
                     <p className="text-xs text-slate-500 mt-1">
                       Completed matches and full-time scores will show here.
                     </p>
