@@ -4106,12 +4106,6 @@ useEffect(() => {
   }
 }, [activeTab, collapseAdminUpdatePanels]);
 
-useEffect(() => {
-  if (activeTab === "admin" && !isAdminAuthenticated) {
-    returnToSignIn();
-  }
-}, [activeTab, isAdminAuthenticated]);
-
 const handleCustomerIdleLock = useCallback(async () => {
   if (!customerProfile) {
     return;
@@ -5792,25 +5786,9 @@ useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const openAdminSignIn = () => {
-    if (isAdminAuthenticated) {
-      goToTab("admin");
-      return;
-    }
-
-    setActiveTab("account");
-    setMobileMenuOpen(false);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
   const openAccountTab = () => {
     if (isAdminAuthenticated) {
       goToTab("admin");
-      return;
-    }
-
-    if (!customerProfile) {
-      openAdminSignIn();
       return;
     }
 
@@ -6418,7 +6396,7 @@ useEffect(() => {
               <button
                 type="button"
                 onClick={() =>
-                  navAccountAction.signedIn ? openAccountTab() : openAdminSignIn()
+                  navAccountAction.signedIn ? openAccountTab() : goToTab("account")
                 }
                 className={`flex items-center gap-2 border font-bold text-[10px] uppercase tracking-wider px-2.5 sm:px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer shrink-0 ${
                   navAccountIsActive
@@ -6495,7 +6473,7 @@ useEffect(() => {
                       </p>
                       <button
                         type="button"
-                        onClick={() => openAdminSignIn()}
+                        onClick={() => goToTab("account")}
                         className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
                           activeTab === "account"
                             ? "bg-slate-950 text-yellow-400 border-slate-950 shadow-md"
@@ -10224,200 +10202,11 @@ useEffect(() => {
                 </div>
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="max-w-xl mx-auto space-y-6">
-                  <div className="space-y-6">
-                    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
-                      <div className="space-y-1 pb-1 border-b border-slate-100">
-                        <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
-                          <User className="w-5 h-5 text-emerald-600" />
-                          Sign In
-                        </h3>
-                        <p className="text-sm text-slate-600">
-                          Enter your password to continue.
-                        </p>
-                      </div>
-
-                      {isAdminAuthenticated ? (
-                        <div className="space-y-4">
-                          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 space-y-2">
-                            <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">
-                              Signed in
-                            </p>
-                            <p className="text-sm font-bold text-slate-900">
-                              {adminRole === "news_editor"
-                                ? "Newspaper / Press Partner"
-                                : "Kariobangi Legends Manager"}
-                            </p>
-                            <p className="text-xs text-slate-600 leading-relaxed">
-                              Edit controls stay visible on Management and Squad until you sign out below.
-                            </p>
-                          </div>
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActiveTab("admin");
-                                window.scrollTo({ top: 0, behavior: "smooth" });
-                              }}
-                              className="flex-1 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                            >
-                              Open Admin Panel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const wasPressAccount = adminRole === "news_editor";
-                                await logoutAdminSession();
-                                returnToSignIn();
-                                showToast(
-                                  wasPressAccount
-                                    ? "Press account signed out."
-                                    : "Admin signed out. Edit controls are now hidden."
-                                );
-                              }}
-                              className="flex-1 inline-flex items-center justify-center gap-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                            >
-                              <LogOut className="w-4 h-4" />
-                              {adminRole === "news_editor" ? "Sign Out Press" : "Sign Out Admin"}
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <form onSubmit={handleAdminLogin} className="space-y-3">
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                Password
-                              </label>
-                              <PasswordInput
-                                value={adminPassword}
-                                onChange={setAdminPassword}
-                                placeholder="Enter your password"
-                                required
-                                className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
-                                autoComplete="current-password"
-                              />
-                            </div>
-                            <button
-                              type="submit"
-                              className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
-                            >
-                              Sign In
-                            </button>
-                          </form>
-
-                          <button
-                            type="button"
-                            aria-expanded={showAdminPasswordReset}
-                            onClick={() => {
-                              setShowAdminPasswordReset((open) => {
-                                if (open) setAdminResetStep("request");
-                                return !open;
-                              });
-                            }}
-                            className="w-full text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 cursor-pointer pt-1"
-                          >
-                            {showAdminPasswordReset ? "Hide password reset" : "Forgot your password?"}
-                          </button>
-                        </>
-                      )}
-                    </div>
-
-                    {showAdminPasswordReset && (
-                      <div className="bg-white rounded-3xl border border-yellow-200 shadow-sm p-6 sm:p-8 space-y-5">
-                        <div className="space-y-1">
-                          <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
-                            <Shield className="w-5 h-5 text-emerald-600" />
-                            Reset Password
-                          </h3>
-                          <p className="text-sm text-slate-600">
-                            Enter your phone number to receive a reset code by SMS.
-                          </p>
-                        </div>
-
-                        {adminResetStep === "request" ? (
-                          <form onSubmit={handleAdminRequestReset} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                Phone Number
-                              </label>
-                              <input
-                                type="tel"
-                                placeholder="e.g. 0712345678"
-                                value={adminResetPhone}
-                                onChange={(e) => setAdminResetPhone(e.target.value)}
-                                className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
-                                required
-                              />
-                            </div>
-                            <div className="flex items-end">
-                              <button
-                                type="submit"
-                                disabled={isAdminResetPending}
-                                className="w-full md:w-auto bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
-                              >
-                                {isAdminResetPending ? "Sending..." : "Send Reset Code"}
-                              </button>
-                            </div>
-                          </form>
-                        ) : (
-                          <form onSubmit={handleAdminCompleteReset} className="space-y-4">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                  Reset Code
-                                </label>
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  placeholder="6-digit code"
-                                  value={adminResetCode}
-                                  onChange={(e) => setAdminResetCode(e.target.value)}
-                                  className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
-                                  required
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                  New Password
-                                </label>
-                                <PasswordInput
-                                  value={adminResetNewPassword}
-                                  onChange={setAdminResetNewPassword}
-                                  placeholder="New password"
-                                  required
-                                  minLength={6}
-                                  autoComplete="new-password"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                  Confirm Password
-                                </label>
-                                <PasswordInput
-                                  value={adminResetConfirmPassword}
-                                  onChange={setAdminResetConfirmPassword}
-                                  placeholder="Confirm password"
-                                  required
-                                  minLength={6}
-                                  autoComplete="new-password"
-                                />
-                              </div>
-                            </div>
-                            <button
-                              type="submit"
-                              disabled={isAdminResetPending}
-                              className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
-                            >
-                              {isAdminResetPending ? "Updating..." : "Reset Password"}
-                            </button>
-                          </form>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
+              <div className="max-w-xl mx-auto">
+                {renderFanAuthPanel(
+                  "Fan Sign In",
+                  "Sign in or create your account to track orders, manage your membership, and message the club."
+                )}
               </div>
             )}
           </div>
@@ -10669,23 +10458,147 @@ useEffect(() => {
             )}
 
             {!isAdminAuthenticated ? (
-              <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center max-w-lg mx-auto">
-                <div className="w-16 h-16 rounded-2xl bg-slate-950 text-yellow-400 flex items-center justify-center mx-auto mb-4">
-                  <User className="w-8 h-8" />
+              <div className="max-w-xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8 space-y-5">
+                  <div className="space-y-1 pb-1 border-b border-slate-100">
+                    <h3 className="text-xl font-black text-slate-950 flex items-center gap-2">
+                      <User className="w-5 h-5 text-emerald-600" />
+                      Staff Sign In
+                    </h3>
+                    <p className="text-sm text-slate-600">
+                      Admin and press accounts only. Enter your password to continue.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleAdminLogin} className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Password
+                      </label>
+                      <PasswordInput
+                        value={adminPassword}
+                        onChange={setAdminPassword}
+                        placeholder="Enter your password"
+                        required
+                        className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
+                        autoComplete="current-password"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                    >
+                      Sign In
+                    </button>
+                  </form>
+
+                  <button
+                    type="button"
+                    aria-expanded={showAdminPasswordReset}
+                    onClick={() => {
+                      setShowAdminPasswordReset((open) => {
+                        if (open) setAdminResetStep("request");
+                        return !open;
+                      });
+                    }}
+                    className="w-full text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 cursor-pointer pt-1"
+                  >
+                    {showAdminPasswordReset ? "Hide password reset" : "Forgot your password?"}
+                  </button>
                 </div>
-                <h4 className="font-black text-slate-800 text-lg">
-                  Sign In Required
-                </h4>
-                <p className="text-sm text-slate-500 mt-2">
-                  Use Sign In in the menu to continue.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => openAdminSignIn()}
-                  className="mt-6 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer"
-                >
-                  Go to Sign In
-                </button>
+
+                {showAdminPasswordReset && (
+                  <div className="bg-white rounded-3xl border border-yellow-200 shadow-sm p-6 sm:p-8 space-y-5">
+                    <div className="space-y-1">
+                      <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
+                        <Shield className="w-5 h-5 text-emerald-600" />
+                        Reset Password
+                      </h3>
+                      <p className="text-sm text-slate-600">
+                        Enter your phone number to receive a reset code by SMS.
+                      </p>
+                    </div>
+
+                    {adminResetStep === "request" ? (
+                      <form onSubmit={handleAdminRequestReset} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Phone Number
+                          </label>
+                          <input
+                            type="tel"
+                            placeholder="e.g. 0712345678"
+                            value={adminResetPhone}
+                            onChange={(e) => setAdminResetPhone(e.target.value)}
+                            className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                            required
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            type="submit"
+                            disabled={isAdminResetPending}
+                            className="w-full md:w-auto bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+                          >
+                            {isAdminResetPending ? "Sending..." : "Send Reset Code"}
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleAdminCompleteReset} className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Reset Code
+                            </label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="6-digit code"
+                              value={adminResetCode}
+                              onChange={(e) => setAdminResetCode(e.target.value)}
+                              className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              New Password
+                            </label>
+                            <PasswordInput
+                              value={adminResetNewPassword}
+                              onChange={setAdminResetNewPassword}
+                              placeholder="New password"
+                              required
+                              minLength={6}
+                              autoComplete="new-password"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                              Confirm Password
+                            </label>
+                            <PasswordInput
+                              value={adminResetConfirmPassword}
+                              onChange={setAdminResetConfirmPassword}
+                              placeholder="Confirm password"
+                              required
+                              minLength={6}
+                              autoComplete="new-password"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={isAdminResetPending}
+                          className="bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition cursor-pointer disabled:opacity-50"
+                        >
+                          {isAdminResetPending ? "Updating..." : "Reset Password"}
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-8">
@@ -14821,6 +14734,17 @@ useEffect(() => {
       <p className="text-[10px] text-slate-500 pt-2 border-t border-slate-900">
         © <span suppressHydrationWarning>{new Date().getFullYear()}</span> Kariobangi Legends FC. Made with love for Nairobi youth.
       </p>
+
+      <button
+        type="button"
+        onClick={() => {
+          setActiveTab("admin");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+        className="text-slate-600 hover:text-slate-400 transition text-[10px] cursor-pointer"
+      >
+        Staff Login
+      </button>
 
     </div>
 
