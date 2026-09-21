@@ -10051,17 +10051,27 @@ useEffect(() => {
               <div className="space-y-6">
                 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 sm:p-8">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                        Signed in as
-                      </p>
-                      <p className="text-xl font-black text-slate-950">{customerProfile.fullName}</p>
-                      <p className="text-sm text-slate-600">
-                        {formatPhoneDisplay(formatStoredPhoneForInput(customerProfile.phoneNumber))}
-                        {customerProfile.email && (
-                          <> • {customerProfile.email}</>
-                        )}
-                      </p>
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-600 to-slate-950 text-yellow-400 font-black text-lg flex items-center justify-center">
+                        {customerProfile.fullName
+                          .split(" ")
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((part) => part[0]?.toUpperCase())
+                          .join("")}
+                      </div>
+                      <div className="space-y-1 min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          Signed in as
+                        </p>
+                        <p className="text-xl font-black text-slate-950 truncate">{customerProfile.fullName}</p>
+                        <p className="text-sm text-slate-600">
+                          {formatPhoneDisplay(formatStoredPhoneForInput(customerProfile.phoneNumber))}
+                          {customerProfile.email && (
+                            <> • {customerProfile.email}</>
+                          )}
+                        </p>
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -10560,20 +10570,6 @@ useEffect(() => {
         {/* ================= TAB: ADMIN PANEL ================= */}
         {activeTab === "admin" && (
           <div className="space-y-8" data-admin-panel>
-            {isAdminAuthenticated && (
-            <div className="max-w-2xl">
-              <h2 className="text-3xl font-black text-slate-950 tracking-tight">
-                {adminRole === "news_editor"
-                  ? "Press News Portal"
-                  : "Manager Administration Panel"}
-              </h2>
-              {adminRole === "news_editor" && (
-                <p className="text-sm text-slate-600 mt-2">
-                  You are signed in as a newspaper / press partner. You can publish official team news only.
-                </p>
-              )}
-            </div>
-            )}
 
             {!isAdminAuthenticated ? (
               <div className="max-w-xl mx-auto space-y-6">
@@ -10772,32 +10768,82 @@ useEffect(() => {
             ) : (
               <div className="space-y-8">
                 {/* Admin Status Header */}
-                <div className="bg-emerald-600 text-white p-4 rounded-2xl flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 text-xs">
-                  <div className="space-y-1">
-                    <span className="font-bold block">
-                      {adminRole === "news_editor"
-                        ? "✓ Authenticated as Newspaper / Press Partner"
-                        : "✓ Authenticated as Kariobangi Legends Manager"}
-                    </span>
-                    <span className="text-emerald-100/90 text-[10px] font-semibold">
+                <div className="relative overflow-hidden rounded-3xl bg-slate-950 text-white border border-slate-800 shadow-2xl">
+                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-600/20 via-transparent to-yellow-400/10" />
+                  <div className="absolute -top-24 right-0 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl" />
+                  <div className="relative z-10 p-6 sm:p-10 space-y-6">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-600/90 text-white text-[9px] font-black uppercase tracking-widest">
+                        <Shield className="w-3.5 h-3.5" />
+                        {adminRole === "news_editor" ? "Press Partner" : "Club Administrator"}
+                      </span>
+                      <button
+                        onClick={async () => {
+                          const wasPressAccount = adminRole === "news_editor";
+                          await logoutAdminSession();
+                          returnToSignIn();
+                          showToast(
+                            wasPressAccount
+                              ? "Press account signed out."
+                              : "Admin signed out."
+                          );
+                        }}
+                        className="inline-flex items-center gap-2 border border-white/20 bg-white/10 hover:bg-white/20 text-white font-bold text-[10px] uppercase tracking-wider px-4 py-2.5 rounded-xl transition cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        {adminRole === "news_editor" ? "Sign Out" : "Sign Out"}
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 max-w-2xl">
+                      <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
+                        {adminRole === "news_editor" ? (
+                          <>
+                            Press <span className="text-yellow-400">News Portal</span>
+                          </>
+                        ) : (
+                          <>
+                            Manager <span className="text-yellow-400">Dashboard</span>
+                          </>
+                        )}
+                      </h2>
+                      <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
+                        {adminRole === "news_editor"
+                          ? "Publish official team news and match reports for Kariobangi Legends FC."
+                          : "Manage the squad, fixtures, shop, news, and fan activity from one place."}
+                      </p>
+                    </div>
+
+                    {adminRole !== "news_editor" && (
+                      <div className="grid grid-cols-3 gap-3 pt-2 border-t border-white/10">
+                        <div>
+                          <p className="text-2xl font-black text-white">{adminUnseenOrderCount}</p>
+                          <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mt-0.5">
+                            New Orders
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-2xl font-black text-white">
+                            {adminInboxThreads.reduce((sum, thread) => sum + thread.unreadCount, 0)}
+                          </p>
+                          <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mt-0.5">
+                            Unread Messages
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-2xl font-black text-white">{adminMembershipStats.activeCount}</p>
+                          <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mt-0.5">
+                            Active Members
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 text-[10px] font-semibold text-emerald-200/80">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       Auto sign-out after 5 minutes with no mouse, keyboard, or scroll activity.
-                    </span>
+                    </div>
                   </div>
-                  <button
-  onClick={async () => {
-    const wasPressAccount = adminRole === "news_editor";
-    await logoutAdminSession();
-    returnToSignIn();
-    showToast(
-      wasPressAccount
-        ? "Press account signed out."
-        : "Admin signed out."
-    );
-  }}
-  className="bg-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-800 font-bold transition"
->
-  {adminRole === "news_editor" ? "Logout Press" : "Logout Admin"}
-</button>
                 </div>
 
                 {adminRole !== "news_editor" && (
