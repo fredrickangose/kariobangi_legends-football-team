@@ -6222,7 +6222,7 @@ useEffect(() => {
             <button
               type="button"
               onClick={() => goToTab("home")}
-              className="flex items-center gap-3 sm:gap-4 min-w-0 cursor-pointer group shrink-0"
+              className="flex items-center gap-3 sm:gap-4 min-w-0 cursor-pointer group shrink"
             >
               <div className="relative shrink-0">
                 <Image
@@ -6418,7 +6418,7 @@ useEffect(() => {
                 ) : (
                   <User className="w-4 h-4 shrink-0" />
                 )}
-                <span className="max-[380px]:sr-only">{navAccountAction.label}</span>
+                <span className="max-lg:sr-only">{navAccountAction.label}</span>
               </button>
 
               <button
