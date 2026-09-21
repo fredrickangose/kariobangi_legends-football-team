@@ -1082,11 +1082,12 @@ function PassportPhoto({
   const hasLocalImage =
     Boolean(trimmedUrl) &&
     (trimmedUrl.startsWith("/") || trimmedUrl.startsWith("./"));
+    
 
-  const frameClass =
-    size === "sm"
-      ? "aspect-[3/4] rounded-lg"
-      : "aspect-[3/4] rounded-xl";
+const frameClass =
+  size === "sm"
+    ? "aspect-[390/510] rounded-lg"
+    : "aspect-[390/510] rounded-xl";
 
   if (hasRemoteImage || hasLocalImage) {
     return (
@@ -1099,7 +1100,7 @@ function PassportPhoto({
           alt={alt}
           loading={priority ? "eager" : "lazy"}
           decoding="async"
-          className="absolute inset-0 w-full h-full object-cover object-[center_20%]"
+          className="absolute inset-0 w-full !h-full object-cover object-top"
         />
       </div>
     );
