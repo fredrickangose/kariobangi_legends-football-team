@@ -2222,6 +2222,8 @@ useEffect(() => {
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
 
   // Admin states
+  const [staffLoginMode, setStaffLoginMode] = useState<"admin" | "press">("admin");
+  const [newspaperLoginPassword, setNewspaperLoginPassword] = useState<string>("");
   const [adminPassword, setAdminPassword] = useState<string>("");
   const [adminResetStep, setAdminResetStep] = useState<"request" | "confirm">("request");
   const [showAdminPasswordReset, setShowAdminPasswordReset] = useState(false);
@@ -4203,6 +4205,39 @@ useIdleSessionLock({
     showToast("Unable to connect to the authentication server.", "error");
   }
 };
+
+  const handleNewspaperLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    try {
+      const response = await fetch("/api/newspaper/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: "newspaper",
+          password: newspaperLoginPassword,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setIsAdminAuthenticated(true);
+        setAdminRole("news_editor");
+        setNewspaperLoginPassword("");
+        setActiveTab("admin");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        showToast("Signed in successfully.");
+      } else {
+        showToast(result.error || "Incorrect password.", "error");
+      }
+    } catch (error) {
+      console.error("Newspaper login failed:", error);
+      showToast("Unable to connect to the authentication server.", "error");
+    }
+  };
 
   const resetAdminPlayerForm = () => {
     setEditingPlayerId(null);
@@ -10470,44 +10505,95 @@ useEffect(() => {
                     </p>
                   </div>
 
-                  <form onSubmit={handleAdminLogin} className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Password
-                      </label>
-                      <PasswordInput
-                        value={adminPassword}
-                        onChange={setAdminPassword}
-                        placeholder="Enter your password"
-                        required
-                        className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
-                        autoComplete="current-password"
-                      />
-                    </div>
+                  <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
                     <button
-                      type="submit"
-                      className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                      type="button"
+                      onClick={() => setStaffLoginMode("admin")}
+                      className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
+                        staffLoginMode === "admin"
+                          ? "bg-white text-slate-950 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
                     >
-                      Sign In
+                      Admin
                     </button>
-                  </form>
+                    <button
+                      type="button"
+                      onClick={() => setStaffLoginMode("press")}
+                      className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition cursor-pointer ${
+                        staffLoginMode === "press"
+                          ? "bg-white text-slate-950 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      Press
+                    </button>
+                  </div>
 
-                  <button
-                    type="button"
-                    aria-expanded={showAdminPasswordReset}
-                    onClick={() => {
-                      setShowAdminPasswordReset((open) => {
-                        if (open) setAdminResetStep("request");
-                        return !open;
-                      });
-                    }}
-                    className="w-full text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 cursor-pointer pt-1"
-                  >
-                    {showAdminPasswordReset ? "Hide password reset" : "Forgot your password?"}
-                  </button>
+                  {staffLoginMode === "admin" ? (
+                    <form onSubmit={handleAdminLogin} className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Password
+                        </label>
+                        <PasswordInput
+                          value={adminPassword}
+                          onChange={setAdminPassword}
+                          placeholder="Enter your password"
+                          required
+                          className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
+                          autoComplete="current-password"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                      >
+                        Sign In
+                      </button>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleNewspaperLogin} className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Press Account Password
+                        </label>
+                        <PasswordInput
+                          value={newspaperLoginPassword}
+                          onChange={setNewspaperLoginPassword}
+                          placeholder="Enter the press account password"
+                          required
+                          className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 pr-11"
+                          autoComplete="current-password"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full bg-slate-950 hover:bg-slate-900 text-yellow-400 font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition cursor-pointer"
+                      >
+                        Sign In
+                      </button>
+                    </form>
+                  )}
+
+                  {staffLoginMode === "admin" && (
+                    <button
+                      type="button"
+                      aria-expanded={showAdminPasswordReset}
+                      onClick={() => {
+                        setShowAdminPasswordReset((open) => {
+                          if (open) setAdminResetStep("request");
+                          return !open;
+                        });
+                      }}
+                      className="w-full text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 cursor-pointer pt-1"
+                    >
+                      {showAdminPasswordReset ? "Hide password reset" : "Forgot your password?"}
+                    </button>
+                  )}
                 </div>
 
-                {showAdminPasswordReset && (
+                {staffLoginMode === "admin" && showAdminPasswordReset && (
                   <div className="bg-white rounded-3xl border border-yellow-200 shadow-sm p-6 sm:p-8 space-y-5">
                     <div className="space-y-1">
                       <h3 className="text-lg font-black text-slate-950 flex items-center gap-2">
