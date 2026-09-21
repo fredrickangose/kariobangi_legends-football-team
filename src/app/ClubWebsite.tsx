@@ -2204,7 +2204,7 @@ useEffect(() => {
   const [registerPhone, setRegisterPhone] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
-  const [loginPhone, setLoginPhone] = useState("");
+  const [loginIdentifier, setLoginIdentifier] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [expandedAccountOrderId, setExpandedAccountOrderId] = useState<number | null>(null);
   const customerOrdersLoadRef = useRef(false);
@@ -3613,7 +3613,7 @@ const handleCustomerLogin = async (e: React.FormEvent) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        phone: loginPhone,
+        identifier: loginIdentifier,
         password: loginPassword,
       }),
     });
@@ -3711,7 +3711,7 @@ const handleCustomerCompleteReset = async (e: React.FormEvent) => {
       setResetCode("");
       setResetNewPassword("");
       setResetConfirmPassword("");
-      setLoginPhone(resetPhone);
+      setLoginIdentifier(resetPhone);
       setShowFanPasswordReset(false);
 
       if (wasSignedIn) {
@@ -5972,13 +5972,13 @@ useEffect(() => {
           <form onSubmit={handleCustomerLogin} className="space-y-3">
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                M-PESA Phone
+                Phone or Email
               </label>
               <input
-                type="tel"
-                placeholder="e.g. 0712345678"
-                value={loginPhone}
-                onChange={(e) => setLoginPhone(e.target.value)}
+                type="text"
+                placeholder="e.g. 0712345678 or you@example.com"
+                value={loginIdentifier}
+                onChange={(e) => setLoginIdentifier(e.target.value)}
                 className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 required
               />

@@ -67,6 +67,18 @@ export async function POST(request: Request) {
       );
     }
 
+    const normalizedEmail = email ? email.toLowerCase() : null;
+
+    if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Enter a valid email address.",
+        },
+        { status: 400 }
+      );
+    }
+
     const [existingCustomer] = await db
       .select({ id: customers.id })
       .from(customers)
@@ -83,6 +95,24 @@ export async function POST(request: Request) {
       );
     }
 
+    if (normalizedEmail) {
+      const [existingEmail] = await db
+        .select({ id: customers.id })
+        .from(customers)
+        .where(eq(customers.email, normalizedEmail))
+        .limit(1);
+
+      if (existingEmail) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "An account with this email already exists. Please sign in.",
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     const passwordHash = await hashPassword(password);
 
     const [customer] = await db
@@ -90,7 +120,7 @@ export async function POST(request: Request) {
       .values({
         fullName,
         phoneNumber,
-        email: email || null,
+        email: normalizedEmail,
         passwordHash,
       })
       .returning({

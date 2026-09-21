@@ -101,7 +101,7 @@ export const customers = pgTable("customers", {
   id: serial("id").primaryKey(),
   fullName: text("full_name").notNull(),
   phoneNumber: text("phone_number").notNull().unique(),
-  email: text("email"),
+  email: text("email").unique(),
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

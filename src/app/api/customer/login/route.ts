@@ -48,35 +48,44 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const phone = String(body.phone || "").trim();
+    const identifier = String(body.identifier ?? body.phone ?? "").trim();
     const password = String(body.password || "");
 
-    if (!phone || !password) {
+    if (!identifier || !password) {
       return NextResponse.json(
         {
           success: false,
-          error: "Phone number and password are required.",
+          error: "Phone number or email and password are required.",
         },
         { status: 400 }
       );
     }
 
-    const phoneNumber = normalizeCustomerPhone(phone);
+    const isEmail = identifier.includes("@");
+    let phoneNumber: string | null = null;
 
-    if (!isValidKenyaPhone(phone)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Enter a valid Kenyan phone number, e.g. 0712345678.",
-        },
-        { status: 400 }
-      );
+    if (!isEmail) {
+      if (!isValidKenyaPhone(identifier)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Enter a valid Kenyan phone number or email address.",
+          },
+          { status: 400 }
+        );
+      }
+
+      phoneNumber = normalizeCustomerPhone(identifier);
     }
 
     const [customer] = await db
       .select()
       .from(customers)
-      .where(eq(customers.phoneNumber, phoneNumber))
+      .where(
+        isEmail
+          ? eq(customers.email, identifier.toLowerCase())
+          : eq(customers.phoneNumber, phoneNumber!)
+      )
       .limit(1);
 
     if (!customer) {
@@ -85,7 +94,9 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "No account found for this phone number.",
+          error: isEmail
+            ? "No account found for this email."
+            : "No account found for this phone number.",
         },
         { status: 401 }
       );
@@ -107,7 +118,7 @@ export async function POST(request: Request) {
 
     await clearFailedAttempts("customer_login", clientIp);
 
-    await linkOrdersToCustomer(customer.id, phoneNumber);
+    await linkOrdersToCustomer(customer.id, customer.phoneNumber);
 
     const token = createCustomerToken(customer.id);
 
