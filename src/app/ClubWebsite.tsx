@@ -1970,6 +1970,7 @@ type AdminBusyAction =
   | "merch-category"
   | "merch-details"
   | "replace-image"
+  | "remove-image"
   | "bulk-photos"
   | null;
 
@@ -2546,6 +2547,7 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
   >("gallery");
   const [replaceImageFile, setReplaceImageFile] = useState<File | null>(null);
   const [replaceImageNewCaption, setReplaceImageNewCaption] = useState<string>("");
+  const [replaceImageCurrentUrl, setReplaceImageCurrentUrl] = useState<string>("");
 
   const [isPending, startTransition] = useTransition();
   const [toastMessage, setToastMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -5160,6 +5162,54 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     setReplaceImageType(type);
     setReplaceImageFile(null);
     setReplaceImageNewCaption(currentCaption || "");
+    setReplaceImageCurrentUrl(currentUrl || "");
+  };
+
+  const handleRemoveImage = async () => {
+    if (replaceImageId === null) return;
+    if (replaceImageType !== "player" && replaceImageType !== "management") return;
+
+    setAdminBusy("remove-image");
+    try {
+      if (replaceImageType === "player") {
+        const res = await updatePlayerImage(replaceImageId, "");
+        if (res.success && res.player) {
+          const updatedPlayer = res.player;
+          setClubData((prev) => ({
+            ...prev,
+            players: prev.players.map((player) =>
+              player.id === updatedPlayer.id ? updatedPlayer : player
+            ),
+          }));
+          showToast("Player photo removed.");
+        } else {
+          showToast(res.error || "Failed to remove photo.", "error");
+        }
+      } else {
+        const res = await updateManagementImage(replaceImageId, "");
+        if (res.success && res.member) {
+          const updatedMember = res.member;
+          setClubData((prev) => ({
+            ...prev,
+            management: prev.management.map((member) =>
+              member.id === updatedMember.id ? updatedMember : member
+            ),
+          }));
+          showToast("Photo removed.");
+        } else {
+          showToast(res.error || "Failed to remove photo.", "error");
+        }
+      }
+
+      setReplaceImageId(null);
+      setReplaceImageFile(null);
+      setReplaceImageCurrentUrl("");
+    } catch (error) {
+      console.error("Remove image failed:", error);
+      showToast("Failed to remove photo.", "error");
+    } finally {
+      setAdminBusy(null);
+    }
   };
 
   const handleReplaceImage = async () => {
@@ -14985,6 +15035,23 @@ useEffect(() => {
                 Photos are stored in the Supabase <strong>gallery</strong> bucket. You no longer need to paste image URLs or copy files into <code className="font-mono bg-blue-100 px-1 rounded">public/images/</code>.
               </div>
             </div>
+
+            {(replaceImageType === "player" || replaceImageType === "management") &&
+              isUploadedMediaUrl(replaceImageCurrentUrl) && (
+                <div className="border-t border-dashed border-slate-200 pt-4 space-y-2">
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Remove the current photo instead? This reverts the {replaceImageType === "player" ? "player" : "profile"} card to "Photo coming soon" until a new one is uploaded.
+                  </p>
+                  <button
+                    onClick={handleRemoveImage}
+                    disabled={adminBusy === "remove-image"}
+                    className="w-full inline-flex items-center justify-center gap-2 bg-white border border-rose-200 hover:bg-rose-50 text-rose-600 font-bold text-xs uppercase tracking-wider py-2.5 rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {adminBusy === "remove-image" ? "Removing..." : "Remove Current Photo"}
+                  </button>
+                </div>
+              )}
 
             <div className="flex gap-3">
               <button
