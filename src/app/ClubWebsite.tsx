@@ -7092,8 +7092,14 @@ useEffect(() => {
           </div>
 
           {/* Venue */}
-          <div className="flex items-center justify-center gap-3 px-5 py-5">
-            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
+          <a
+            href={getGoogleDirectionsUrl(upcomingFixtures[0].venue)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Get directions on Google Maps"
+            className="group flex items-center justify-center gap-3 px-5 py-5 cursor-pointer transition hover:bg-white/5"
+          >
+            <div className="w-10 h-10 rounded-xl bg-white/5 group-hover:bg-emerald-400/20 flex items-center justify-center transition">
               <MapPin className="w-5 h-5 text-emerald-400" />
             </div>
 
@@ -7101,7 +7107,7 @@ useEffect(() => {
               <p className="text-[9px] uppercase tracking-widest font-black text-slate-500">
                 Venue
               </p>
-              <p className="text-sm font-bold text-white truncate max-w-[180px]">
+              <p className="text-sm font-bold text-white truncate max-w-[180px] group-hover:underline">
                 {upcomingFixtures[0].venue}
               </p>
               {isClubHomeVenue(upcomingFixtures[0].venue) && (
@@ -7110,7 +7116,7 @@ useEffect(() => {
                 </p>
               )}
             </div>
-          </div>
+          </a>
 
           {/* Status */}
           <div className="flex items-center justify-center gap-3 px-5 py-5">
