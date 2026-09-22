@@ -17,6 +17,7 @@ import {
   MessageCircle,
   Maximize2,
   Menu,
+  Search,
     Trophy,
   ImageIcon,
     Award,
@@ -2050,6 +2051,57 @@ export default function ClubWebsite({
   );
 
   const [matchTypeFilter, setMatchTypeFilter] = useState<"all" | MatchTypeValue>("all");
+  const [squadSearchQuery, setSquadSearchQuery] = useState("");
+  const [managementSearchQuery, setManagementSearchQuery] = useState("");
+
+  const matchesSquadSearch = useCallback(
+    (player: { name: string }) => {
+      const q = squadSearchQuery.trim().toLowerCase();
+      return !q || player.name.toLowerCase().includes(q);
+    },
+    [squadSearchQuery]
+  );
+
+  const squadJumpLinks = useMemo(() => {
+    const links: { id: string; label: string; badge: string }[] = [];
+    SQUAD_POSITION_GROUPS.forEach((group) => {
+      if ((squadByPosition.get(group.id) ?? []).length > 0) {
+        links.push({ id: `squad-${group.id}`, label: group.heading, badge: group.badge });
+      }
+    });
+    if ((squadByPosition.get("other") ?? []).length > 0) {
+      links.push({ id: "squad-other", label: "Other Roles", badge: "?" });
+    }
+    return links;
+  }, [squadByPosition]);
+
+  const matchesManagementSearch = useCallback(
+    (member: { name: string; position: string }) => {
+      const q = managementSearchQuery.trim().toLowerCase();
+      return !q || member.name.toLowerCase().includes(q) || member.position.toLowerCase().includes(q);
+    },
+    [managementSearchQuery]
+  );
+
+  const filteredManagementGrouped = useMemo(
+    () => groupManagementByCategoryAndRole(clubData.management.filter(matchesManagementSearch)),
+    [clubData.management, matchesManagementSearch]
+  );
+
+  const managementJumpLinks = useMemo(() => {
+    const links: { id: string; label: string; badge: string }[] = [];
+    managementGrouped.forEach((section) => {
+      section.roleGroups.forEach((roleGroup) => {
+        if (roleGroup.members.length > 0) {
+          links.push({ id: `mgmt-${roleGroup.id}`, label: roleGroup.heading, badge: roleGroup.badge });
+        }
+      });
+      if (section.otherMembers.length > 0) {
+        links.push({ id: `mgmt-${section.id}-other`, label: "Other Roles", badge: "?" });
+      }
+    });
+    return links;
+  }, [managementGrouped]);
 
   const todayString = useMemo(() => {
     const today = new Date();
@@ -8798,7 +8850,47 @@ useEffect(() => {
       </p>
     </div>
 
-    {managementGrouped.map((section) => (
+    {clubData.management.length > 0 && (
+      <div className="space-y-4">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={managementSearchQuery}
+            onChange={(e) => setManagementSearchQuery(e.target.value)}
+            placeholder="Search by name or role..."
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+        </div>
+
+        {!managementSearchQuery.trim() && managementJumpLinks.length > 1 && (
+          <div className="flex flex-wrap gap-2">
+            {managementJumpLinks.map((link) => (
+              <a
+                key={link.id}
+                href={`#${link.id}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:border-emerald-300 hover:text-emerald-700 transition"
+              >
+                <span className="text-slate-400">{link.badge}</span>
+                {link.label}
+              </a>
+            ))}
+          </div>
+        )}
+
+        {managementSearchQuery.trim() && !clubData.management.some(matchesManagementSearch) && (
+          <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
+            <Search className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+            <h4 className="font-black text-slate-800 text-lg">No one found</h4>
+            <p className="text-sm text-slate-500 mt-2">
+              No one matches "{managementSearchQuery.trim()}". Try a different name or role.
+            </p>
+          </div>
+        )}
+      </div>
+    )}
+
+    {filteredManagementGrouped.map((section) => (
       <section key={section.id} className="space-y-8">
         <div className="flex items-start gap-4 border-b border-slate-200 pb-4">
           <span className="inline-flex items-center justify-center min-w-12 h-12 px-2 rounded-xl bg-slate-950 text-yellow-400 text-[10px] font-black tracking-wider shrink-0">
@@ -8822,7 +8914,7 @@ useEffect(() => {
           if (roleGroup.members.length === 0) return null;
 
           return (
-            <div key={roleGroup.id} className="space-y-4">
+            <div key={roleGroup.id} id={`mgmt-${roleGroup.id}`} className="space-y-4 scroll-mt-24">
               <div className="flex items-center gap-3">
                 <span className="inline-flex items-center justify-center min-w-9 h-8 px-2 rounded-lg bg-emerald-50 text-emerald-700 text-[9px] font-black tracking-wider border border-emerald-100">
                   {roleGroup.badge}
@@ -8855,7 +8947,7 @@ useEffect(() => {
         })}
 
         {section.otherMembers.length > 0 && (
-          <div className="space-y-4">
+          <div id={`mgmt-${section.id}-other`} className="space-y-4 scroll-mt-24">
             <div className="flex items-center gap-3">
               <span className="inline-flex items-center justify-center min-w-9 h-8 px-2 rounded-lg bg-slate-100 text-slate-600 text-[9px] font-black">
                 ?
@@ -8935,14 +9027,44 @@ useEffect(() => {
                 </div>
               )}
 
+            {clubData.players.length > 0 && (
+              <div className="space-y-4">
+                <div className="relative max-w-sm">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={squadSearchQuery}
+                    onChange={(e) => setSquadSearchQuery(e.target.value)}
+                    placeholder="Search players by name..."
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                {!squadSearchQuery.trim() && squadJumpLinks.length > 1 && (
+                  <div className="flex flex-wrap gap-2">
+                    {squadJumpLinks.map((link) => (
+                      <a
+                        key={link.id}
+                        href={`#${link.id}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:border-emerald-300 hover:text-emerald-700 transition"
+                      >
+                        <span className="text-slate-400">{link.badge}</span>
+                        {link.label}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {clubData.players.length > 0 ? (
             <div className="space-y-10">
               {SQUAD_POSITION_GROUPS.map((group) => {
-                const groupPlayers = squadByPosition.get(group.id) ?? [];
+                const groupPlayers = (squadByPosition.get(group.id) ?? []).filter(matchesSquadSearch);
                 if (groupPlayers.length === 0) return null;
 
                 return (
-                  <section key={group.id} className="space-y-4">
+                  <section key={group.id} id={`squad-${group.id}`} className="space-y-4 scroll-mt-24">
                     <div className="flex items-end justify-between gap-4 border-b border-slate-200 pb-3">
                       <div className="flex items-center gap-3">
                         <span className="inline-flex items-center justify-center min-w-10 h-10 px-2 rounded-xl bg-slate-950 text-yellow-400 text-[10px] font-black tracking-wider">
@@ -8983,37 +9105,52 @@ useEffect(() => {
                 );
               })}
 
-              {(squadByPosition.get("other") ?? []).length > 0 && (
-                <section className="space-y-4">
-                  <div className="flex items-center gap-3 border-b border-slate-200 pb-3">
-                    <span className="inline-flex items-center justify-center min-w-10 h-10 px-2 rounded-xl bg-slate-200 text-slate-700 text-[10px] font-black">
-                      ?
-                    </span>
-                    <h3 className="text-xl font-black text-slate-950 uppercase tracking-tight">
-                      Other Roles
-                    </h3>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {(squadByPosition.get("other") ?? []).map((player) => (
-                      <SquadPlayerCard
-                        key={player.id}
-                        player={player}
-                        showAdminControls={canManageClubContent}
-                        isUpdatingPosition={updatingPlayerPositionId === player.id}
-                        isUpdatingJersey={updatingPlayerJerseyId === player.id}
-                        onReplaceImage={(id, imageUrl) =>
-                          openReplaceImage(id, "player", imageUrl)
-                        }
-                        onDelete={handleDeletePlayer}
-                        onEdit={handleAdminEditPlayer}
-                        onPositionChange={handleUpdatePlayerPosition}
-                        onJerseyChange={handleUpdatePlayerJersey}
-                        onShopClick={openSquadPlayerShop}
-                        onViewProfile={setViewingPlayerId}
-                      />
-                    ))}
-                  </div>
-                </section>
+              {(() => {
+                const otherPlayers = (squadByPosition.get("other") ?? []).filter(matchesSquadSearch);
+                if (otherPlayers.length === 0) return null;
+
+                return (
+                  <section id="squad-other" className="space-y-4 scroll-mt-24">
+                    <div className="flex items-center gap-3 border-b border-slate-200 pb-3">
+                      <span className="inline-flex items-center justify-center min-w-10 h-10 px-2 rounded-xl bg-slate-200 text-slate-700 text-[10px] font-black">
+                        ?
+                      </span>
+                      <h3 className="text-xl font-black text-slate-950 uppercase tracking-tight">
+                        Other Roles
+                      </h3>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      {otherPlayers.map((player) => (
+                        <SquadPlayerCard
+                          key={player.id}
+                          player={player}
+                          showAdminControls={canManageClubContent}
+                          isUpdatingPosition={updatingPlayerPositionId === player.id}
+                          isUpdatingJersey={updatingPlayerJerseyId === player.id}
+                          onReplaceImage={(id, imageUrl) =>
+                            openReplaceImage(id, "player", imageUrl)
+                          }
+                          onDelete={handleDeletePlayer}
+                          onEdit={handleAdminEditPlayer}
+                          onPositionChange={handleUpdatePlayerPosition}
+                          onJerseyChange={handleUpdatePlayerJersey}
+                          onShopClick={openSquadPlayerShop}
+                          onViewProfile={setViewingPlayerId}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })()}
+
+              {squadSearchQuery.trim() && !clubData.players.some(matchesSquadSearch) && (
+                <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
+                  <Search className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+                  <h4 className="font-black text-slate-800 text-lg">No players found</h4>
+                  <p className="text-sm text-slate-500 mt-2">
+                    No one matches "{squadSearchQuery.trim()}". Try a different name.
+                  </p>
+                </div>
               )}
             </div>
             ) : (
