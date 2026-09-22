@@ -1289,7 +1289,7 @@ function SquadPlayerCard({
   return (
     <div
       onClick={() => onViewProfile(player.id)}
-      className="group bg-white rounded-xl overflow-hidden border border-slate-200/80 shadow-sm hover:shadow-lg hover:border-emerald-300 hover:-translate-y-0.5 transition-all duration-200 flex flex-col cursor-pointer"
+      className="group w-[130px] sm:w-[145px] md:w-[155px] lg:w-[160px] xl:w-[165px] 2xl:w-[170px] shrink-0 bg-white rounded-xl overflow-hidden border border-slate-200/80 shadow-sm hover:shadow-lg hover:border-emerald-300 hover:-translate-y-0.5 transition-all duration-200 flex flex-col cursor-pointer"
     >
       <div className="relative p-2 pb-0">
         <PassportPhoto
@@ -1457,7 +1457,7 @@ function ManagementMemberCard({
   return (
     <div
       onClick={() => onViewProfile(member.id)}
-      className={`group bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 flex flex-col cursor-pointer ${
+      className={`group w-[130px] sm:w-[145px] md:w-[155px] lg:w-[160px] xl:w-[165px] 2xl:w-[170px] shrink-0 bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 flex flex-col cursor-pointer ${
         featured
           ? "border-emerald-200 ring-1 ring-emerald-100 hover:border-emerald-300"
           : "border-slate-200/80 hover:border-emerald-300"
@@ -8832,7 +8832,7 @@ useEffect(() => {
                 </h4>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
+              <div className="flex flex-wrap gap-3">
                 {roleGroup.members.map((member) => (
                   <ManagementMemberCard
                     key={member.id}
@@ -8864,7 +8864,7 @@ useEffect(() => {
                 Other Roles
               </h4>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
+            <div className="flex flex-wrap gap-3">
               {section.otherMembers.map((member) => (
                 <ManagementMemberCard
                   key={member.id}
@@ -8959,7 +8959,7 @@ useEffect(() => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
+                    <div className="flex flex-wrap gap-3">
                       {groupPlayers.map((player) => (
                         <SquadPlayerCard
                           key={player.id}
@@ -8993,7 +8993,7 @@ useEffect(() => {
                       Other Roles
                     </h3>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-3">
+                  <div className="flex flex-wrap gap-3">
                     {(squadByPosition.get("other") ?? []).map((player) => (
                       <SquadPlayerCard
                         key={player.id}
