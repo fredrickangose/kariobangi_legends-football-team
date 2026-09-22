@@ -2063,14 +2063,19 @@ export default function ClubWebsite({
   );
 
   const squadJumpLinks = useMemo(() => {
-    const links: { id: string; label: string; badge: string }[] = [];
+    const links: { id: string; label: string; badge: string; isWazee?: boolean }[] = [];
     SQUAD_POSITION_GROUPS.forEach((group) => {
+      if (group.id === "wazee") return;
       if ((squadByPosition.get(group.id) ?? []).length > 0) {
         links.push({ id: `squad-${group.id}`, label: group.heading, badge: group.badge });
       }
     });
     if ((squadByPosition.get("other") ?? []).length > 0) {
       links.push({ id: "squad-other", label: "Other Roles", badge: "?" });
+    }
+    const wazeeGroup = SQUAD_POSITION_GROUPS.find((group) => group.id === "wazee");
+    if (wazeeGroup && (squadByPosition.get("wazee") ?? []).length > 0) {
+      links.push({ id: "squad-wazee", label: wazeeGroup.heading, badge: wazeeGroup.badge, isWazee: true });
     }
     return links;
   }, [squadByPosition]);
@@ -9046,9 +9051,13 @@ useEffect(() => {
                       <a
                         key={link.id}
                         href={`#${link.id}`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:border-emerald-300 hover:text-emerald-700 transition"
+                        className={
+                          link.isWazee
+                            ? "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-300 text-[10px] font-bold uppercase tracking-wider text-amber-800 hover:border-amber-400 hover:text-amber-900 transition"
+                            : "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:border-emerald-300 hover:text-emerald-700 transition"
+                        }
                       >
-                        <span className="text-slate-400">{link.badge}</span>
+                        <span className={link.isWazee ? "text-amber-500" : "text-slate-400"}>{link.badge}</span>
                         {link.label}
                       </a>
                     ))}
@@ -9059,7 +9068,7 @@ useEffect(() => {
 
             {clubData.players.length > 0 ? (
             <div className="space-y-10">
-              {SQUAD_POSITION_GROUPS.map((group) => {
+              {SQUAD_POSITION_GROUPS.filter((group) => group.id !== "wazee").map((group) => {
                 const groupPlayers = (squadByPosition.get(group.id) ?? []).filter(matchesSquadSearch);
                 if (groupPlayers.length === 0) return null;
 
@@ -9121,6 +9130,60 @@ useEffect(() => {
                     </div>
                     <div className="flex flex-wrap gap-3">
                       {otherPlayers.map((player) => (
+                        <SquadPlayerCard
+                          key={player.id}
+                          player={player}
+                          showAdminControls={canManageClubContent}
+                          isUpdatingPosition={updatingPlayerPositionId === player.id}
+                          isUpdatingJersey={updatingPlayerJerseyId === player.id}
+                          onReplaceImage={(id, imageUrl) =>
+                            openReplaceImage(id, "player", imageUrl)
+                          }
+                          onDelete={handleDeletePlayer}
+                          onEdit={handleAdminEditPlayer}
+                          onPositionChange={handleUpdatePlayerPosition}
+                          onJerseyChange={handleUpdatePlayerJersey}
+                          onShopClick={openSquadPlayerShop}
+                          onViewProfile={setViewingPlayerId}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })()}
+
+              {(() => {
+                const wazeeGroup = SQUAD_POSITION_GROUPS.find((group) => group.id === "wazee");
+                const wazeePlayers = (squadByPosition.get("wazee") ?? []).filter(matchesSquadSearch);
+                if (!wazeeGroup || wazeePlayers.length === 0) return null;
+
+                return (
+                  <section
+                    id="squad-wazee"
+                    className="space-y-4 scroll-mt-24 pt-8 mt-2 border-t-4 border-dashed border-amber-300"
+                  >
+                    <div className="flex items-end justify-between gap-4 border-b border-amber-200 pb-3">
+                      <div className="flex items-center gap-3">
+                        <span className="inline-flex items-center justify-center min-w-10 h-10 px-2 rounded-xl bg-amber-400 text-slate-950 text-[10px] font-black tracking-wider">
+                          {wazeeGroup.badge}
+                        </span>
+                        <div>
+                          <h3 className="text-xl sm:text-2xl font-black text-amber-900 uppercase tracking-tight">
+                            {wazeeGroup.heading}
+                          </h3>
+                          <p className="text-[11px] text-amber-700 font-semibold mt-0.5">
+                            {wazeePlayers.length} player{wazeePlayers.length === 1 ? "" : "s"} &middot; Not part of the competitive squad
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-sm text-slate-600 max-w-2xl">
+                      Club legends and veteran players who turn out for Kariobangi Legends in friendly and
+                      community matches, kept separate from the competitive Division One squad above.
+                    </p>
+
+                    <div className="flex flex-wrap gap-3">
+                      {wazeePlayers.map((player) => (
                         <SquadPlayerCard
                           key={player.id}
                           player={player}
