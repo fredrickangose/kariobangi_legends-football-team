@@ -26,6 +26,7 @@ export const LEADERSHIP_ROLE_GROUPS = [
       "Chairman",
       "CEO / President",
       "Vice Chairman",
+      "Secretary General",
       "Senior Team Manager",
     ],
   },
