@@ -15,6 +15,7 @@ import {
   ShoppingBag,
   HeartHandshake,
   MessageCircle,
+  Maximize2,
   Menu,
     Trophy,
   ImageIcon,
@@ -1267,6 +1268,7 @@ function SquadPlayerCard({
   onPositionChange,
   onJerseyChange,
   onShopClick,
+  onViewProfile,
 }: {
   player: Player;
   showAdminControls: boolean;
@@ -1278,13 +1280,17 @@ function SquadPlayerCard({
   onPositionChange: (id: number, position: string) => void;
   onJerseyChange: (id: number, jerseyNumber: number) => void;
   onShopClick: () => void;
+  onViewProfile: (id: number) => void;
 }) {
   const positionInOptions = SQUAD_POSITION_OPTIONS.some(
     (option) => option.value === player.position
   );
 
   return (
-    <div className="group bg-white rounded-xl overflow-hidden border border-slate-200/80 shadow-sm hover:shadow-md hover:border-emerald-200/80 transition-shadow duration-200 flex flex-col">
+    <div
+      onClick={() => onViewProfile(player.id)}
+      className="group bg-white rounded-xl overflow-hidden border border-slate-200/80 shadow-sm hover:shadow-lg hover:border-emerald-300 hover:-translate-y-0.5 transition-all duration-200 flex flex-col cursor-pointer"
+    >
       <div className="relative p-2 pb-0">
         <PassportPhoto
           imageUrl={player.imageUrl}
@@ -1294,11 +1300,15 @@ function SquadPlayerCard({
         <span className="absolute top-3 left-3 inline-flex items-center justify-center min-w-[1.65rem] h-6 px-1.5 rounded-md bg-slate-950/90 text-yellow-400 text-[9px] font-black border border-slate-800">
           #{player.jerseyNumber}
         </span>
+        <span className="absolute inset-x-0 bottom-0 h-0 group-hover:h-full transition-all duration-200 bg-gradient-to-t from-slate-950/40 to-transparent pointer-events-none rounded-b-lg" />
+        <span className="absolute bottom-3 right-3 w-6 h-6 rounded-full bg-white/95 text-slate-950 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center shadow-sm">
+          <ChevronRight className="w-3.5 h-3.5" />
+        </span>
       </div>
 
       <div className="p-2.5 space-y-2 flex-1 flex flex-col">
         <div className="min-w-0">
-          <h3 className="font-bold text-[11px] sm:text-xs text-slate-950 leading-snug line-clamp-2">
+          <h3 className="font-bold text-[11px] sm:text-xs text-slate-950 leading-snug line-clamp-2 group-hover:text-emerald-700 transition-colors">
             {player.name}
           </h3>
           <p className="text-[8px] text-emerald-700 font-bold uppercase tracking-wider mt-0.5 line-clamp-1">
@@ -1328,7 +1338,10 @@ function SquadPlayerCard({
         )}
 
         {showAdminControls && (
-          <div className="space-y-1.5 pt-1 border-t border-dashed border-slate-200">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="space-y-1.5 pt-1 border-t border-dashed border-slate-200"
+          >
             <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">
               Admin · Jersey no.
             </label>
@@ -1401,7 +1414,10 @@ function SquadPlayerCard({
       {!showAdminControls && (
         <button
           type="button"
-          onClick={onShopClick}
+          onClick={(e) => {
+            e.stopPropagation();
+            onShopClick();
+          }}
           className="mt-auto border-t border-slate-100 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold uppercase tracking-wider text-[8px] py-2 flex items-center justify-center gap-1 cursor-pointer"
         >
           Official Jersey <ChevronRight className="w-3 h-3" />
@@ -1420,6 +1436,7 @@ function ManagementMemberCard({
   onDelete,
   onReplaceImage,
   onRoleChange,
+  onViewProfile,
 }: {
   member: ManagementMember;
   featured?: boolean;
@@ -1429,6 +1446,7 @@ function ManagementMemberCard({
   onDelete: (id: number) => void;
   onReplaceImage: (id: number, imageUrl: string) => void;
   onRoleChange: (id: number, category: string, position: string) => void;
+  onViewProfile: (id: number) => void;
 }) {
   const positionOptions = getManagementPositionOptions(member.category);
   const positionInOptions = positionOptions.some(
@@ -1438,10 +1456,11 @@ function ManagementMemberCard({
 
   return (
     <div
-      className={`group bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-md transition-shadow duration-200 flex flex-col ${
+      onClick={() => onViewProfile(member.id)}
+      className={`group bg-white rounded-xl overflow-hidden border shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 flex flex-col cursor-pointer ${
         featured
-          ? "border-emerald-200 ring-1 ring-emerald-100"
-          : "border-slate-200/80 hover:border-emerald-200/80"
+          ? "border-emerald-200 ring-1 ring-emerald-100 hover:border-emerald-300"
+          : "border-slate-200/80 hover:border-emerald-300"
       }`}
     >
       <div className="relative p-2 pb-0">
@@ -1460,11 +1479,15 @@ function ManagementMemberCard({
             </span>
           )}
         </div>
+        <span className="absolute inset-x-0 bottom-0 h-0 group-hover:h-full transition-all duration-200 bg-gradient-to-t from-slate-950/40 to-transparent pointer-events-none rounded-b-lg" />
+        <span className="absolute bottom-3 right-3 w-6 h-6 rounded-full bg-white/95 text-slate-950 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center shadow-sm">
+          <ChevronRight className="w-3.5 h-3.5" />
+        </span>
       </div>
 
       <div className="p-2.5 space-y-1.5 flex-1 flex flex-col">
         <div className="min-w-0">
-          <h4 className="font-bold text-[11px] sm:text-xs text-slate-950 leading-snug line-clamp-2">
+          <h4 className="font-bold text-[11px] sm:text-xs text-slate-950 leading-snug line-clamp-2 group-hover:text-emerald-700 transition-colors">
             {member.name}
           </h4>
           <p className="text-[8px] font-bold text-emerald-700 uppercase tracking-wider mt-0.5 line-clamp-2">
@@ -1479,7 +1502,10 @@ function ManagementMemberCard({
         )}
 
         {showAdminControls && (
-          <div className="space-y-1.5 pt-1.5 mt-auto border-t border-dashed border-amber-200 bg-amber-50/40 -mx-2.5 px-2.5 pb-0.5">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="space-y-1.5 pt-1.5 mt-auto border-t border-dashed border-amber-200 bg-amber-50/40 -mx-2.5 px-2.5 pb-0.5"
+          >
             <p className="text-[7px] font-black uppercase tracking-wider text-amber-700">
               Admin only
             </p>
@@ -1959,6 +1985,8 @@ export default function ClubWebsite({
   const [adminBusy, setAdminBusy] = useState<AdminBusyAction>(null);
   const [selectedSizes, setSelectedSizes] = useState<Record<number, string>>({});
   const [selectedShopItemId, setSelectedShopItemId] = useState<number | null>(null);
+  const [viewingPlayerId, setViewingPlayerId] = useState<number | null>(null);
+  const [viewingManagementId, setViewingManagementId] = useState<number | null>(null);
   const [explicitShopSizes, setExplicitShopSizes] = useState<Record<number, boolean>>({});
   const [newsPreviewOpen, setNewsPreviewOpen] = useState(false);
   const [bulkPhotoFiles, setBulkPhotoFiles] = useState<Record<string, File>>({});
@@ -1968,6 +1996,7 @@ export default function ClubWebsite({
     initialFixtureId
   );
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [isHeaderElevated, setIsHeaderElevated] = useState<boolean>(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [galleryCarouselIndex, setGalleryCarouselIndex] = useState(0);
@@ -2075,6 +2104,16 @@ export default function ClubWebsite({
 
     window.addEventListener("resize", closeMenuOnDesktop);
     return () => window.removeEventListener("resize", closeMenuOnDesktop);
+  }, []);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsHeaderElevated(window.scrollY > 12);
+    };
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   // Automatically rotate homepage gallery every 4 seconds
@@ -4016,6 +4055,8 @@ useEffect(() => {
   setSelectedShopItemId(null);
   setNewsPreviewOpen(false);
   setReplaceImageId(null);
+  setViewingPlayerId(null);
+  setViewingManagementId(null);
 }, [activeTab]);
 
 useEffect(() => {
@@ -5720,6 +5761,16 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
     [clubData.merchandise, selectedShopItemId]
   );
 
+  const viewingPlayer = useMemo(
+    () => clubData.players.find((player) => player.id === viewingPlayerId) ?? null,
+    [clubData.players, viewingPlayerId]
+  );
+
+  const viewingManagementMember = useMemo(
+    () => clubData.management.find((member) => member.id === viewingManagementId) ?? null,
+    [clubData.management, viewingManagementId]
+  );
+
   const relatedShopItems = useMemo(() => {
     if (!selectedShopItem) return [];
     const categoryId = normalizeMerchandiseCategory(selectedShopItem.kitType);
@@ -6268,7 +6319,13 @@ useEffect(() => {
 
 
       {/* Main Header — fixed so it stays visible while scrolling */}
-      <header className="fixed top-0 inset-x-0 z-[60] bg-white/95 backdrop-blur-xl border-b border-slate-200/80 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.18)]">
+      <header
+        className={`fixed top-0 inset-x-0 z-[60] backdrop-blur-xl border-b transition-all duration-300 ${
+          isHeaderElevated
+            ? "bg-white/98 border-slate-200 shadow-[0_12px_36px_-10px_rgba(15,23,42,0.28)]"
+            : "bg-white/95 border-slate-200/80 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.18)]"
+        }`}
+      >
 
         {/* Top club strip */}
         <div className="relative bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 text-white">
@@ -7274,9 +7331,16 @@ useEffect(() => {
           {carouselGallery.map((item, index) => (
             <div
               key={item.id}
-              className={`absolute inset-0 flex items-center justify-center transition-opacity duration-700 ease-out ${
+              onClick={() => {
+                if (index !== safeGalleryCarouselIndex) return;
+                setActiveTab("gallery");
+                setSelectedGalleryImage(item);
+              }}
+              role="button"
+              aria-label="View full-size photo"
+              className={`group/photo absolute inset-0 flex items-center justify-center transition-opacity duration-700 ease-out ${
                 index === safeGalleryCarouselIndex
-                  ? "opacity-100 z-10"
+                  ? "opacity-100 z-10 cursor-pointer"
                   : "opacity-0 z-0 pointer-events-none"
               }`}
             >
@@ -7299,6 +7363,11 @@ useEffect(() => {
                   index === safeGalleryCarouselIndex ? "scale-100" : "scale-[1.04]"
                 }`}
               />
+              <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-slate-950/0 group-hover/photo:bg-slate-950/20 transition-colors duration-300">
+                <span className="w-12 h-12 rounded-full bg-white/10 border border-white/20 backdrop-blur-md flex items-center justify-center opacity-0 group-hover/photo:opacity-100 scale-90 group-hover/photo:scale-100 transition-all duration-300">
+                  <Maximize2 className="w-5 h-5 text-white" />
+                </span>
+              </span>
             </div>
           ))}
 
@@ -8727,6 +8796,7 @@ useEffect(() => {
                       openReplaceImage(id, "management", imageUrl)
                     }
                     onRoleChange={handleUpdateManagementRole}
+                    onViewProfile={setViewingManagementId}
                   />
                 ))}
               </div>
@@ -8757,6 +8827,7 @@ useEffect(() => {
                     openReplaceImage(id, "management", imageUrl)
                   }
                   onRoleChange={handleUpdateManagementRole}
+                  onViewProfile={setViewingManagementId}
                 />
               ))}
             </div>
@@ -8854,6 +8925,7 @@ useEffect(() => {
                           onPositionChange={handleUpdatePlayerPosition}
                           onJerseyChange={handleUpdatePlayerJersey}
                           onShopClick={openSquadPlayerShop}
+                          onViewProfile={setViewingPlayerId}
                         />
                       ))}
                     </div>
@@ -8887,6 +8959,7 @@ useEffect(() => {
                         onPositionChange={handleUpdatePlayerPosition}
                         onJerseyChange={handleUpdatePlayerJersey}
                         onShopClick={openSquadPlayerShop}
+                        onViewProfile={setViewingPlayerId}
                       />
                     ))}
                   </div>
@@ -14709,6 +14782,137 @@ useEffect(() => {
               >
                 {adminBusy === "news" ? "Publishing..." : "Looks good, publish"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= PLAYER PROFILE MODAL ================= */}
+      {viewingPlayer && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" onClick={() => setViewingPlayerId(null)} />
+          <div className="relative max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setViewingPlayerId(null)}
+              className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-slate-700 flex items-center justify-center shadow-md cursor-pointer"
+              aria-label="Close player profile"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="grid grid-cols-1 md:grid-cols-5">
+              <div className="md:col-span-2 relative bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 p-6 sm:p-8 flex flex-col items-center justify-center text-center">
+                <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.35),transparent_60%)]" />
+                <div className="relative z-10 w-36 sm:w-44">
+                  <PassportPhoto
+                    imageUrl={viewingPlayer.imageUrl}
+                    alt={`${viewingPlayer.name} - Kariobangi Legends`}
+                    size="md"
+                  />
+                </div>
+                <span className="relative z-10 mt-5 inline-flex items-center justify-center min-w-14 h-14 px-3 rounded-2xl bg-white/10 border border-white/15 text-yellow-400 text-2xl font-black backdrop-blur-sm">
+                  #{viewingPlayer.jerseyNumber}
+                </span>
+              </div>
+
+              <div className="md:col-span-3 p-6 sm:p-8 space-y-5">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
+                    {getSquadPositionBadge(viewingPlayer.position)}
+                  </p>
+                  <h2 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight mt-1">
+                    {viewingPlayer.name}
+                  </h2>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 py-3 text-center">
+                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-wider">Apps</p>
+                    <p className="text-xl font-black text-slate-950 mt-0.5">{viewingPlayer.appearances}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 py-3 text-center">
+                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-wider">Goals</p>
+                    <p className="text-xl font-black text-slate-950 mt-0.5">{viewingPlayer.goals}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 py-3 text-center">
+                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-wider">Assists</p>
+                    <p className="text-xl font-black text-slate-950 mt-0.5">{viewingPlayer.assists}</p>
+                  </div>
+                </div>
+
+                {viewingPlayer.bio ? (
+                  <p className="text-sm text-slate-600 leading-relaxed">{viewingPlayer.bio}</p>
+                ) : (
+                  <p className="text-sm text-slate-400 italic">Bio coming soon.</p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewingPlayerId(null);
+                    openSquadPlayerShop();
+                  }}
+                  className="inline-flex items-center gap-2 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-black text-[10px] uppercase tracking-wider px-5 py-3 rounded-xl transition cursor-pointer"
+                >
+                  Shop Official Jersey
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MANAGEMENT PROFILE MODAL ================= */}
+      {viewingManagementMember && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" onClick={() => setViewingManagementId(null)} />
+          <div className="relative max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setViewingManagementId(null)}
+              className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-slate-700 flex items-center justify-center shadow-md cursor-pointer"
+              aria-label="Close profile"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="grid grid-cols-1 md:grid-cols-5">
+              <div className="md:col-span-2 relative bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 p-6 sm:p-8 flex flex-col items-center justify-center text-center">
+                <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.35),transparent_60%)]" />
+                <div className="relative z-10 w-36 sm:w-44">
+                  <PassportPhoto
+                    imageUrl={viewingManagementMember.imageUrl}
+                    alt={`${viewingManagementMember.name} - ${viewingManagementMember.position}`}
+                    size="md"
+                  />
+                </div>
+                <span className="relative z-10 mt-5 inline-flex items-center px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-yellow-400 text-[10px] font-black uppercase tracking-widest backdrop-blur-sm">
+                  {getManagementRoleBadge(viewingManagementMember.position, viewingManagementMember.category)}
+                </span>
+              </div>
+
+              <div className="md:col-span-3 p-6 sm:p-8 space-y-5">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
+                    {viewingManagementMember.position}
+                  </p>
+                  <h2 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight mt-1">
+                    {viewingManagementMember.name}
+                  </h2>
+                </div>
+
+                {viewingManagementMember.responsibilities || viewingManagementMember.bio ? (
+                  <p className="text-sm text-slate-600 leading-relaxed">
+                    {viewingManagementMember.responsibilities || viewingManagementMember.bio}
+                  </p>
+                ) : (
+                  <p className="text-sm text-slate-400 italic">
+                    Bio coming soon.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>
