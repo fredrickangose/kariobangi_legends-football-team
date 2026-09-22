@@ -41,6 +41,12 @@ export const SQUAD_POSITION_GROUPS = [
     badge: "ST",
     values: ["Striker"],
   },
+  {
+    id: "wazee",
+    heading: "Senior Team (Wazee Legends)",
+    badge: "WAZEE",
+    values: ["Wazee Legend"],
+  },
 ] as const;
 
 /** Admin dropdown options — stored exactly as `players.position` in the database. */
