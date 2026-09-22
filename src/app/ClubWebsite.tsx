@@ -356,7 +356,6 @@ function HighlightVideoCard({
             src={highlight.thumbnailUrl as string}
             alt={highlight.title}
             fill
-            unoptimized
             sizes="(min-width: 1024px) 33vw, 100vw"
             className="object-cover opacity-90 group-hover:scale-[1.02] transition-transform duration-500"
           />
@@ -635,7 +634,6 @@ function MerchandiseAdminThumbnail({ item }: { item: MerchandiseItem }) {
           src={item.imageUrl}
           alt={item.name}
           fill
-          unoptimized
           sizes="(min-width: 640px) 25vw, 50vw"
           className="object-contain"
         />
@@ -1108,7 +1106,6 @@ const frameClass =
           src={trimmedUrl}
           alt={alt}
           fill
-          unoptimized
           priority={priority}
           sizes="(min-width: 1024px) 20vw, 33vw"
           className="object-cover object-top"
@@ -1600,7 +1597,6 @@ function TeamLogo({
         alt={team.name}
         width={40}
         height={40}
-        unoptimized
         className={`${sizeClass} object-contain shrink-0`}
       />
     );
@@ -5583,7 +5579,6 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
             src={item.imageUrl}
             alt={item.name}
             fill
-            unoptimized
             sizes="(min-width: 1024px) 25vw, 50vw"
             className="object-contain group-hover:scale-[1.03] transition-transform duration-500 ease-out"
           />
@@ -6501,7 +6496,6 @@ useEffect(() => {
                   alt="Kariobangi Legends FC badge"
                   width={80}
                   height={80}
-                  unoptimized
                   priority
                   className="w-14 h-14 sm:w-[4.5rem] sm:h-[4.5rem] md:w-20 md:h-20 object-contain drop-shadow-lg group-hover:scale-105 transition-transform duration-300"
                 />
@@ -6920,7 +6914,6 @@ useEffect(() => {
       alt="Kariobangi Legends FC team photo"
       fill
       priority
-      unoptimized
       sizes="100vw"
       className="object-contain object-center contrast-[1.08] saturate-[1.08] brightness-[1.08]"
     />
@@ -7196,7 +7189,6 @@ useEffect(() => {
                 alt="Kariobangi Legends FC"
                 width={112}
                 height={112}
-                unoptimized
                 className="w-full h-full object-contain drop-shadow-2xl"
               />
             </div>
@@ -7237,7 +7229,6 @@ useEffect(() => {
                   alt={`${upcomingFixtures[0].opponent} logo`}
                   width={112}
                   height={112}
-                  unoptimized
                   className="w-full h-full object-contain"
                 />
               ) : (
@@ -7481,7 +7472,6 @@ useEffect(() => {
                 alt=""
                 aria-hidden="true"
                 fill
-                unoptimized
                 sizes="100vw"
                 className="scale-110 object-cover opacity-30 blur-2xl"
               />
@@ -7489,7 +7479,6 @@ useEffect(() => {
                 src={item.imageUrl}
                 alt={item.caption || "Kariobangi Legends FC"}
                 fill
-                unoptimized
                 sizes="100vw"
                 className={`z-10 object-contain transition-transform duration-[4000ms] ease-out ${
                   index === safeGalleryCarouselIndex ? "scale-100" : "scale-[1.04]"
@@ -7614,7 +7603,6 @@ useEffect(() => {
                 src={item.imageUrl}
                 alt=""
                 fill
-                unoptimized
                 sizes="128px"
                 className="object-cover"
               />
@@ -7772,7 +7760,6 @@ useEffect(() => {
                 src={item.imageUrl}
                 alt={item.title}
                 fill
-                unoptimized
                 sizes="(min-width: 768px) 50vw, 100vw"
                 className="object-contain p-4 sm:p-5 group-hover:scale-[1.02] transition-transform duration-500 ease-out"
               />
@@ -8071,7 +8058,6 @@ useEffect(() => {
           src="/images/founder-atanga.jpg"
           alt="Mr. Erick Otieno Atanga - Founder and Patron of Kariobangi Legends FC"
           fill
-          unoptimized
           sizes="(min-width: 1024px) 50vw, 100vw"
           className="object-cover object-[center_18%] contrast-[1.1] saturate-[1.08] brightness-[1.08]"
         />
@@ -8236,7 +8222,6 @@ useEffect(() => {
                           src={item.imageUrl}
                           alt={item.caption}
                           fill
-                          unoptimized
                           sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                           className="object-contain group-hover:scale-[1.02] transition-transform duration-500 ease-out"
                         />
@@ -8443,7 +8428,6 @@ useEffect(() => {
                     alt={selectedGalleryImage.caption}
                     width={1200}
                     height={900}
-                    unoptimized
                     className="w-auto h-auto max-w-full max-h-[calc(90vh-8rem)] object-contain rounded-lg animate-in zoom-in-95 duration-300"
                   />
 
@@ -9666,7 +9650,6 @@ useEffect(() => {
                       src={item.imageUrl}
                       alt={item.title}
                       fill
-                      unoptimized
                       sizes="(min-width: 1024px) 40vw, 100vw"
                       className="object-contain p-4 sm:p-6"
                     />
@@ -12243,7 +12226,6 @@ useEffect(() => {
                                   alt="Current opponent logo"
                                   width={48}
                                   height={48}
-                                  unoptimized
                                   className="w-full h-full object-contain p-1"
                                 />
                               )}
@@ -12780,7 +12762,6 @@ useEffect(() => {
                                     src={highlight.thumbnailUrl as string}
                                     alt={highlight.title}
                                     fill
-                                    unoptimized
                                     sizes="112px"
                                     className="object-cover"
                                   />
@@ -15414,7 +15395,6 @@ useEffect(() => {
             src="/assets/logo.png"
             alt="Kariobangi Legends FC badge"
             fill
-            unoptimized
             sizes="48px"
             className="object-contain"
           />
