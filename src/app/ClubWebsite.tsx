@@ -4011,6 +4011,14 @@ useEffect(() => {
 }, [activeTab]);
 
 useEffect(() => {
+  setIsCartOpen(false);
+  setActiveHighlight(null);
+  setSelectedShopItemId(null);
+  setNewsPreviewOpen(false);
+  setReplaceImageId(null);
+}, [activeTab]);
+
+useEffect(() => {
   if (
     activeTab === "management" ||
     activeTab === "squad" ||
