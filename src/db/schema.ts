@@ -23,6 +23,7 @@ export const fixtures = pgTable("fixtures", {
   status: text("status").default("upcoming").notNull(), // 'upcoming', 'completed', 'live'
   venue: text("venue").notNull(),
   matchType: text("match_type").default("league").notNull(), // 'league', 'friendly', 'charity'
+  squadTeam: text("squad_team").default("main").notNull(), // 'main', 'wazee'
 });
 
 export const news = pgTable("news", {

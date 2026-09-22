@@ -26,6 +26,30 @@ export const MATCH_TYPES = [
 
 export type MatchTypeValue = (typeof MATCH_TYPES)[number]["value"];
 
+export const SQUAD_TEAMS = [
+  {
+    value: "main",
+    label: "First Team",
+    badge: "MAIN",
+  },
+  {
+    value: "wazee",
+    label: "Wazee Legends",
+    badge: "WAZEE",
+  },
+] as const;
+
+export type SquadTeamValue = (typeof SQUAD_TEAMS)[number]["value"];
+
+export function normalizeSquadTeam(squadTeam: string | null | undefined): SquadTeamValue {
+  return (squadTeam ?? "main").trim().toLowerCase() === "wazee" ? "wazee" : "main";
+}
+
+export function getSquadTeamMeta(squadTeam: string | null | undefined) {
+  const value = normalizeSquadTeam(squadTeam);
+  return SQUAD_TEAMS.find((entry) => entry.value === value) ?? SQUAD_TEAMS[0];
+}
+
 export const MATCH_STATUSES = [
   { value: "upcoming", label: "Upcoming", badge: "NS", description: "Not started" },
   { value: "live", label: "Live", badge: "LIVE", description: "In progress" },
@@ -48,6 +72,7 @@ export interface FixtureLike {
   status: string;
   venue: string;
   matchType?: string | null;
+  squadTeam?: string | null;
 }
 
 export function normalizeMatchType(matchType: string | null | undefined): MatchTypeValue {

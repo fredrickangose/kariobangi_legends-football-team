@@ -559,6 +559,7 @@ export async function addFixture(data: {
   status: string;
   venue: string;
   matchType?: string;
+  squadTeam?: string;
   homeScore?: number;
   awayScore?: number;
 }) {
@@ -576,6 +577,7 @@ export async function addFixture(data: {
       status: data.status,
       venue: data.venue,
       matchType: data.matchType || "league",
+      squadTeam: data.squadTeam || "main",
       homeScore:
         data.homeScore !== undefined ? Number(data.homeScore) : null,
       awayScore:
@@ -604,6 +606,7 @@ export async function updateFixture(
     status: string;
     venue: string;
     matchType?: string;
+    squadTeam?: string;
     homeScore?: number;
     awayScore?: number;
   }
@@ -625,6 +628,7 @@ export async function updateFixture(
         status: data.status,
         venue: data.venue,
         matchType: data.matchType || "league",
+        squadTeam: data.squadTeam || "main",
         homeScore:
           data.homeScore !== undefined ? Number(data.homeScore) : null,
         awayScore:

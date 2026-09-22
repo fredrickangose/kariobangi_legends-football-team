@@ -103,6 +103,9 @@ import {
   MATCH_TYPES,
   normalizeMatchType,
   partitionFixtures,
+  SQUAD_TEAMS,
+  normalizeSquadTeam,
+  getSquadTeamMeta,
   toFixtureDateInputValue,
   toFixtureTimeInputValue,
   type MatchTypeValue,
@@ -230,6 +233,7 @@ interface Fixture {
   status: string;
   venue: string;
   matchType?: string | null;
+  squadTeam?: string | null;
 }
 
 interface NewsItem {
@@ -2113,14 +2117,29 @@ export default function ClubWebsite({
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   }, []);
 
+  const mainSquadFixtures = useMemo(
+    () => clubData.fixtures.filter((fixture) => normalizeSquadTeam(fixture.squadTeam) === "main"),
+    [clubData.fixtures]
+  );
+
+  const wazeeFixtures = useMemo(
+    () => clubData.fixtures.filter((fixture) => normalizeSquadTeam(fixture.squadTeam) === "wazee"),
+    [clubData.fixtures]
+  );
+
   const fixtureGroups = useMemo(
-    () => partitionFixtures(clubData.fixtures, todayString),
-    [clubData.fixtures, todayString]
+    () => partitionFixtures(mainSquadFixtures, todayString),
+    [mainSquadFixtures, todayString]
+  );
+
+  const wazeeFixtureGroups = useMemo(
+    () => partitionFixtures(wazeeFixtures, todayString),
+    [wazeeFixtures, todayString]
   );
 
   const seasonStats = useMemo(
-    () => getSeasonStats(clubData.fixtures),
-    [clubData.fixtures]
+    () => getSeasonStats(mainSquadFixtures),
+    [mainSquadFixtures]
   );
 
   const recentForm = useMemo(
@@ -2529,6 +2548,7 @@ const [notificationConfig, setNotificationConfig] = useState<{
   const [adminAwayScore, setAdminAwayScore] = useState<string>("");
   const [adminStatus, setAdminStatus] = useState<string>("upcoming");
   const [adminMatchType, setAdminMatchType] = useState<string>("league");
+  const [adminSquadTeam, setAdminSquadTeam] = useState<string>("main");
   const [editingFixtureId, setEditingFixtureId] = useState<number | null>(null);
 
   const [adminNewsTitle, setAdminNewsTitle] = useState<string>("");
@@ -4569,6 +4589,7 @@ const handleAdminAddFixture = async (e: React.FormEvent) => {
       status: adminStatus,
       venue: adminVenue,
       matchType: adminMatchType,
+      squadTeam: adminSquadTeam,
       homeScore:
         adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
       awayScore:
@@ -4586,6 +4607,7 @@ const handleAdminAddFixture = async (e: React.FormEvent) => {
       setAdminMatchTime("");
       setAdminHomeScore("");
       setAdminAwayScore("");
+      setAdminSquadTeam("main");
       setAdminOpponentLogoFile(null);
       setAdminOpponentLogoUrl("");
     } else {
@@ -4634,6 +4656,7 @@ const handleAdminUpdateFixture = async (e: React.FormEvent) => {
       status: adminStatus,
       venue: adminVenue,
       matchType: adminMatchType,
+      squadTeam: adminSquadTeam,
       homeScore:
         adminHomeScore !== "" ? parseInt(adminHomeScore) : undefined,
       awayScore:
@@ -4656,6 +4679,7 @@ const handleAdminUpdateFixture = async (e: React.FormEvent) => {
       setAdminAwayScore("");
       setAdminStatus("upcoming");
       setAdminMatchType("league");
+      setAdminSquadTeam("main");
       setAdminIsHome(true);
       setAdminVenue(HOME_GROUND.fullAddress);
       setAdminOpponentLogoFile(null);
@@ -4703,6 +4727,7 @@ const handleEditFixture = (
   setAdminVenue(fixture.venue);
   setAdminStatus(fixture.status);
   setAdminMatchType(fixture.matchType || "league");
+  setAdminSquadTeam(fixture.squadTeam || "main");
 
   setAdminHomeScore(
     fixture.homeScore !== null && fixture.homeScore !== undefined
@@ -9525,6 +9550,84 @@ useEffect(() => {
               </section>
             </div>
 
+            {wazeeFixtures.length > 0 && (
+              <section className="space-y-4 pt-8 mt-2 border-t-4 border-dashed border-amber-300">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center justify-center min-w-10 h-10 px-2 rounded-xl bg-amber-400 text-slate-950 text-[10px] font-black tracking-wider">
+                    {getSquadTeamMeta("wazee").badge}
+                  </span>
+                  <div>
+                    <h3 className="text-xl sm:text-2xl font-black text-amber-900 uppercase tracking-tight">
+                      Wazee Legends Fixtures
+                    </h3>
+                    <p className="text-[11px] text-amber-700 font-semibold mt-0.5">
+                      Friendly matches played by our veteran squad
+                    </p>
+                  </div>
+                </div>
+                <p className="text-sm text-slate-600 max-w-2xl">
+                  Friendly and community fixtures featuring the Senior Team (Wazee Legends), kept separate
+                  from the competitive first-team calendar above and excluded from league season stats.
+                </p>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-black text-slate-950 uppercase tracking-wide flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-amber-600" />
+                      Upcoming
+                    </h4>
+                    {wazeeFixtureGroups.upcoming.length > 0 ? (
+                      <div className="space-y-3">
+                        {wazeeFixtureGroups.upcoming.map((fixture) => (
+                          <MatchFixtureCard
+                            key={fixture.id}
+                            fixture={fixture}
+                            mode="upcoming"
+                            isAdminAuthenticated={canManageClubContent}
+                            onEdit={handleEditFixture}
+                            onDelete={handleDeleteFixture}
+                            highlighted={highlightFixtureId === fixture.id}
+                            shareBaseUrl={shareBaseUrl}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/40 p-6 text-center">
+                        <p className="text-sm font-bold text-slate-700">No upcoming Wazee fixtures</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-black text-slate-950 uppercase tracking-wide flex items-center gap-2">
+                      <Award className="w-4 h-4 text-amber-600" />
+                      Results
+                    </h4>
+                    {wazeeFixtureGroups.recent.length > 0 ? (
+                      <div className="space-y-3">
+                        {wazeeFixtureGroups.recent.map((fixture) => (
+                          <MatchFixtureCard
+                            key={fixture.id}
+                            fixture={fixture}
+                            mode="result"
+                            isAdminAuthenticated={canManageClubContent}
+                            onEdit={handleEditFixture}
+                            onDelete={handleDeleteFixture}
+                            highlighted={highlightFixtureId === fixture.id}
+                            shareBaseUrl={shareBaseUrl}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/40 p-6 text-center">
+                        <p className="text-sm font-bold text-slate-700">No Wazee results yet</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+
             {clubData.fixtures.length === 0 && (
               <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-12 text-center">
                 <CalendarDays className="w-10 h-10 text-slate-300 mx-auto mb-3" />
@@ -12197,6 +12300,23 @@ useEffect(() => {
                           </p>
                         </div>
                         <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Squad Team</label>
+                          <select
+                            value={adminSquadTeam}
+                            onChange={(e) => setAdminSquadTeam(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 bg-white"
+                          >
+                            {SQUAD_TEAMS.map((team) => (
+                              <option key={team.value} value={team.value}>
+                                {team.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[10px] text-slate-500">
+                            Wazee Legends fixtures show in their own section, separate from the first team.
+                          </p>
+                        </div>
+                        <div className="space-y-1">
                           <label className="font-bold text-slate-500">Match Status</label>
                           <select
                             value={adminStatus}
@@ -12292,8 +12412,13 @@ useEffect(() => {
                                   }`}
                                 >
                                   <div className="min-w-0">
-                                    <p className="text-xs font-black text-slate-950 truncate">
+                                    <p className="text-xs font-black text-slate-950 truncate flex items-center gap-1.5">
                                       {fixture.opponent}
+                                      {normalizeSquadTeam(fixture.squadTeam) === "wazee" && (
+                                        <span className="shrink-0 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[8px] font-black uppercase tracking-wider">
+                                          Wazee
+                                        </span>
+                                      )}
                                       {fixtureGroups.nextMatch?.id === fixture.id
                                         ? " · Next match"
                                         : ""}
