@@ -2379,6 +2379,7 @@ useEffect(() => {
   const [newspaperResetConfirmPassword, setNewspaperResetConfirmPassword] = useState("");
   const [isNewspaperResetPending, setIsNewspaperResetPending] = useState(false);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const adminSessionRequestIdRef = useRef(0);
   const [adminRole, setAdminRole] = useState<"admin" | "news_editor" | null>(null);
   const canManageClubContent = adminRole === "admin";
   const [adminOrders, setAdminOrders] = useState<any[]>([]);
@@ -3424,12 +3425,17 @@ const returnToSignIn = () => {
 };
 
 const refreshAdminSession = async () => {
+  const requestId = ++adminSessionRequestIdRef.current;
   try {
     const adminRes = await fetch("/api/admin/me", {
       credentials: "include",
       cache: "no-store",
     });
     const adminData = await adminRes.json();
+
+    // A login/logout may have completed while this request was in flight —
+    // don't let a stale response clobber the newer auth state.
+    if (requestId !== adminSessionRequestIdRef.current) return null;
 
     if (
       adminData.success &&
@@ -3444,6 +3450,7 @@ const refreshAdminSession = async () => {
     clearAdminState();
     return null;
   } catch (error) {
+    if (requestId !== adminSessionRequestIdRef.current) return null;
     console.error("Refresh admin session failed:", error);
     clearAdminState();
     return null;
@@ -3451,6 +3458,7 @@ const refreshAdminSession = async () => {
 };
 
 const logoutAdminSession = async () => {
+  adminSessionRequestIdRef.current += 1;
   clearAdminState();
 
   try {
@@ -3744,6 +3752,65 @@ const handleCustomerRegister = async (e: React.FormEvent) => {
 
 const handleCustomerLogin = async (e: React.FormEvent) => {
   e.preventDefault();
+
+  const identifierKeyword = loginIdentifier.trim().toUpperCase();
+
+  if (identifierKeyword === "ADMIN") {
+    try {
+      const response = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: loginPassword }),
+      });
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        adminSessionRequestIdRef.current += 1;
+        setIsAdminAuthenticated(true);
+        setAdminRole("admin");
+        setLoginIdentifier("");
+        setLoginPassword("");
+        await loadAdminOrders();
+        setActiveTab("admin");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        showToast("Signed in successfully.");
+      } else {
+        showToast(result.error || "Incorrect password.", "error");
+      }
+    } catch (error) {
+      console.error("Admin login failed:", error);
+      showToast("Unable to connect to the authentication server.", "error");
+    }
+    return;
+  }
+
+  if (identifierKeyword === "PRESS") {
+    try {
+      const response = await fetch("/api/newspaper/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "newspaper", password: loginPassword }),
+      });
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        adminSessionRequestIdRef.current += 1;
+        setIsAdminAuthenticated(true);
+        setAdminRole("news_editor");
+        setLoginIdentifier("");
+        setLoginPassword("");
+        setActiveTab("admin");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        showToast("Signed in successfully.");
+      } else {
+        showToast(result.error || "Incorrect password.", "error");
+      }
+    } catch (error) {
+      console.error("Newspaper login failed:", error);
+      showToast("Unable to connect to the authentication server.", "error");
+    }
+    return;
+  }
 
   try {
     const response = await fetch("/api/customer/login", {
@@ -4332,6 +4399,7 @@ useIdleSessionLock({
     const result = await response.json();
 
    if (response.ok && result.success) {
+  adminSessionRequestIdRef.current += 1;
   setIsAdminAuthenticated(true);
   setAdminRole("admin");
   setAdminPassword("");
@@ -4369,6 +4437,7 @@ useIdleSessionLock({
       const result = await response.json();
 
       if (response.ok && result.success) {
+        adminSessionRequestIdRef.current += 1;
         setIsAdminAuthenticated(true);
         setAdminRole("news_editor");
         setNewspaperLoginPassword("");
@@ -12379,17 +12448,6 @@ useEffect(() => {
       <p className="text-[10px] text-slate-500 pt-2 border-t border-slate-900">
         © <span suppressHydrationWarning>{new Date().getFullYear()}</span> Kariobangi Legends FC. Made with love for Nairobi youth.
       </p>
-
-      <button
-        type="button"
-        onClick={() => {
-          setActiveTab("admin");
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-        className="text-slate-600 hover:text-slate-400 transition text-[10px] cursor-pointer"
-      >
-        Staff Login
-      </button>
 
     </div>
 
