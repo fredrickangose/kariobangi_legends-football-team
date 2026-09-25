@@ -128,6 +128,18 @@ export const clubSettings = pgTable("club_settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const leagueStandings = pgTable("league_standings", {
+  id: serial("id").primaryKey(),
+  teamName: text("team_name").notNull(),
+  played: integer("played").default(0).notNull(),
+  won: integer("won").default(0).notNull(),
+  drawn: integer("drawn").default(0).notNull(),
+  lost: integer("lost").default(0).notNull(),
+  goalsFor: integer("goals_for").default(0).notNull(),
+  goalsAgainst: integer("goals_against").default(0).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const pressAccounts = pgTable("press_accounts", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),

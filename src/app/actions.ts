@@ -17,6 +17,7 @@ import {
   customers,
   memberships,
   clubSettings,
+  leagueStandings,
 } from "@/db/schema";
 import { seedDatabaseIfNeeded } from "@/db/seed";
 import { desc, asc, eq, or, and, inArray, isNull, isNotNull } from "drizzle-orm";
@@ -128,6 +129,11 @@ export async function getClubData() {
   .from(management)
   .orderBy(asc(management.displayOrder), asc(management.id));
 
+    const allLeagueStandings = await db
+      .select()
+      .from(leagueStandings)
+      .orderBy(asc(leagueStandings.teamName));
+
     return {
       players: allPlayers,
       fixtures: allFixtures,
@@ -139,6 +145,7 @@ export async function getClubData() {
       highlights: allHighlights,
       management: allManagement,
       leagueName: settings.leagueName,
+      leagueStandings: allLeagueStandings,
       success: true,
     };
   } catch (error) {
@@ -154,6 +161,7 @@ export async function getClubData() {
       highlights: [],
       management: [],
       leagueName: DEFAULT_LEAGUE_NAME,
+      leagueStandings: [],
       success: false,
       error: String(error),
     };
@@ -187,6 +195,122 @@ export async function updateLeagueName(leagueName: string) {
     };
   } catch (error) {
     console.error("Update league name failed:", error);
+    return { success: false, error: String(error) };
+  }
+}
+
+// ========== LEAGUE TABLE ==========
+// Legends FC's own row is derived from actual fixtures (see getSeasonStats
+// on the client) rather than stored here — only rival clubs' standings are
+// admin-entered, since there's no live league-data feed to pull them from.
+
+export async function addLeagueStandingRow(data: {
+  teamName: string;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+}) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const teamName = data.teamName.trim();
+    if (!teamName) {
+      return { success: false, error: "Team name is required." };
+    }
+
+    const won = Math.max(0, Math.round(Number(data.won) || 0));
+    const drawn = Math.max(0, Math.round(Number(data.drawn) || 0));
+    const lost = Math.max(0, Math.round(Number(data.lost) || 0));
+
+    const [standing] = await db
+      .insert(leagueStandings)
+      .values({
+        teamName,
+        played: won + drawn + lost,
+        won,
+        drawn,
+        lost,
+        goalsFor: Math.max(0, Math.round(Number(data.goalsFor) || 0)),
+        goalsAgainst: Math.max(0, Math.round(Number(data.goalsAgainst) || 0)),
+      })
+      .returning();
+
+    return { success: true, standing, message: "Team added to the league table." };
+  } catch (error) {
+    console.error("Add league standing failed:", error);
+    return { success: false, error: String(error) };
+  }
+}
+
+export async function updateLeagueStandingRow(
+  id: number,
+  data: {
+    teamName: string;
+    won: number;
+    drawn: number;
+    lost: number;
+    goalsFor: number;
+    goalsAgainst: number;
+  }
+) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const teamName = data.teamName.trim();
+    if (!teamName) {
+      return { success: false, error: "Team name is required." };
+    }
+
+    const won = Math.max(0, Math.round(Number(data.won) || 0));
+    const drawn = Math.max(0, Math.round(Number(data.drawn) || 0));
+    const lost = Math.max(0, Math.round(Number(data.lost) || 0));
+
+    const [standing] = await db
+      .update(leagueStandings)
+      .set({
+        teamName,
+        played: won + drawn + lost,
+        won,
+        drawn,
+        lost,
+        goalsFor: Math.max(0, Math.round(Number(data.goalsFor) || 0)),
+        goalsAgainst: Math.max(0, Math.round(Number(data.goalsAgainst) || 0)),
+        updatedAt: new Date(),
+      })
+      .where(eq(leagueStandings.id, id))
+      .returning();
+
+    if (!standing) {
+      return { success: false, error: "Team not found." };
+    }
+
+    return { success: true, standing, message: "League table updated." };
+  } catch (error) {
+    console.error("Update league standing failed:", error);
+    return { success: false, error: String(error) };
+  }
+}
+
+export async function deleteLeagueStandingRow(id: number) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    await db.delete(leagueStandings).where(eq(leagueStandings.id, id));
+
+    return { success: true, id, message: "Team removed from the league table." };
+  } catch (error) {
+    console.error("Delete league standing failed:", error);
     return { success: false, error: String(error) };
   }
 }

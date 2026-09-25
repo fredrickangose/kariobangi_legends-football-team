@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { type AdminMembershipStatus, MEMBERSHIP_PLANS, type MembershipPlanId, formatMembershipExpiry } from "@/lib/membership";
-import { ArrowRight, Award, Banknote, BookOpen, Calendar, Camera, ChevronLeft, Clock, Film, ImageIcon, LogOut, MessageCircle, MessageSquare, Newspaper, Package, Play, Shield, ShoppingBag, Trash2, User, UserPlus, Users } from "lucide-react";
+import { ArrowRight, Award, Banknote, BookOpen, Calendar, Camera, ChevronLeft, Clock, Film, ImageIcon, LogOut, MessageCircle, MessageSquare, Newspaper, Package, Play, Shield, ShoppingBag, Trash2, Trophy, User, UserPlus, Users } from "lucide-react";
 import { MANAGEMENT_CATEGORIES, getDefaultManagementPosition, getManagementPositionOptions } from "@/lib/management-roles";
 import { MATCH_STATUSES, MATCH_TYPES, SQUAD_TEAMS, combineFixtureDateTime, formatKickoff, hasKickoffTime, isFixtureFinished, normalizeSquadTeam } from "@/lib/match-fixtures";
 import { MEDIA_UPLOAD_RULES, VIDEO_UPLOAD_RULES, isUploadedMediaUrl, isVideoMediaUrl } from "@/lib/uploaded-media";
@@ -29,14 +29,16 @@ import {
   type GalleryItem,
   type TeamHighlight,
   type ManagementMember,
+  type LeagueStanding,
 } from "./ClubWebsite";
+import type { LeagueTableRow } from "@/lib/match-fixtures";
 
 interface AdminPanelProps {
   activeTab: string;
   handleUpdateLeagueName: (leagueName: string) => Promise<void>;
   adminArchivedOrders: any[];
   adminAwayScore: string;
-  adminBusy: "player" | "management" | "fixture" | "news" | "gallery" | "highlights" | "merch" | "merch-clear" | "merch-price" | "merch-stock" | "merch-category" | "merch-details" | "replace-image" | "remove-image" | "bulk-photos" | null;
+  adminBusy: "player" | "management" | "fixture" | "standing" | "news" | "gallery" | "highlights" | "merch" | "merch-clear" | "merch-price" | "merch-stock" | "merch-category" | "merch-details" | "replace-image" | "remove-image" | "bulk-photos" | null;
   adminGalleryCaption: string;
   adminGalleryCategory: string;
   adminGalleryFile: File | null;
@@ -99,15 +101,23 @@ interface AdminPanelProps {
   adminResetStep: "request" | "confirm";
   adminRole: "admin" | "news_editor" | null;
   adminSquadTeam: string;
+  adminStandingTeamName: string;
+  adminStandingWon: string;
+  adminStandingDrawn: string;
+  adminStandingLost: string;
+  adminStandingGoalsFor: string;
+  adminStandingGoalsAgainst: string;
   adminStatus: string;
   adminUnseenOrderCount: number;
   adminVenue: string;
   bulkPhotosOpen: boolean;
-  clubData: { players: Player[]; fixtures: Fixture[]; news: NewsItem[]; merchandise: MerchandiseItem[]; donations: Donation[]; fanMessages: FanMessage[]; gallery: GalleryItem[]; highlights: TeamHighlight[]; management: ManagementMember[]; leagueName: string; };
+  clubData: { players: Player[]; fixtures: Fixture[]; news: NewsItem[]; merchandise: MerchandiseItem[]; donations: Donation[]; fanMessages: FanMessage[]; gallery: GalleryItem[]; highlights: TeamHighlight[]; management: ManagementMember[]; leagueName: string; leagueStandings: LeagueStanding[]; };
   editingFixtureId: number | null;
   editingManagementId: number | null;
   editingPlayerId: number | null;
+  editingStandingId: number | null;
   fixtureGroups: { live: import("@/lib/match-fixtures").FixtureLike[]; upcoming: import("@/lib/match-fixtures").FixtureLike[]; upcomingRest: import("@/lib/match-fixtures").FixtureLike[]; recent: import("@/lib/match-fixtures").FixtureLike[]; nextMatch: import("@/lib/match-fixtures").FixtureLike; };
+  leagueTable: LeagueTableRow[];
   handleAddAdminMembership: (e: React.FormEvent) => Promise<void>;
   handleAddMerchandise: (e: React.FormEvent) => Promise<void>;
   handleAdminAddFixture: (e: React.FormEvent) => Promise<void>;
@@ -129,7 +139,10 @@ interface AdminPanelProps {
   handleClearAllMerchandise: () => Promise<void>;
   handleDeleteHighlight: (id: number, title: string) => Promise<void>;
   handleDeleteMerchandise: (id: number, name: string) => Promise<void>;
+  handleDeleteStanding: (id: number, teamName: string) => Promise<void>;
   handleEditFixture: (fixture: Fixture) => void;
+  handleEditStanding: (standing: LeagueStanding) => void;
+  handleSubmitStanding: (e: React.FormEvent) => Promise<void>;
   handleMarkOrderCashPaid: (orderId: number) => Promise<void>;
   handleNewspaperLogin: (e: React.FormEvent) => Promise<void>;
   handleNewspaperPasswordReset: (e: React.FormEvent) => Promise<void>;
@@ -238,11 +251,18 @@ interface AdminPanelProps {
   setAdminResetPhone: (value: React.SetStateAction<string>) => void;
   setAdminResetStep: (value: React.SetStateAction<"request" | "confirm">) => void;
   setAdminSquadTeam: (value: React.SetStateAction<string>) => void;
+  setAdminStandingTeamName: (value: React.SetStateAction<string>) => void;
+  setAdminStandingWon: (value: React.SetStateAction<string>) => void;
+  setAdminStandingDrawn: (value: React.SetStateAction<string>) => void;
+  setAdminStandingLost: (value: React.SetStateAction<string>) => void;
+  setAdminStandingGoalsFor: (value: React.SetStateAction<string>) => void;
+  setAdminStandingGoalsAgainst: (value: React.SetStateAction<string>) => void;
   setAdminStatus: (value: React.SetStateAction<string>) => void;
   setAdminVenue: (value: React.SetStateAction<string>) => void;
   setBulkPhotoFiles: (value: React.SetStateAction<Record<string, File>>) => void;
   setBulkPhotosOpen: (value: React.SetStateAction<boolean>) => void;
   setEditingFixtureId: (value: React.SetStateAction<number | null>) => void;
+  setEditingStandingId: (value: React.SetStateAction<number | null>) => void;
   setListedShopItemsOpen: (value: React.SetStateAction<boolean>) => void;
   setManagementPanelOpen: (value: React.SetStateAction<boolean>) => void;
   setManagementUpdatesOpen: (value: React.SetStateAction<boolean>) => void;
@@ -395,6 +415,12 @@ export default function AdminPanel(props: AdminPanelProps) {
     adminResetStep,
     adminRole,
     adminSquadTeam,
+    adminStandingTeamName,
+    adminStandingWon,
+    adminStandingDrawn,
+    adminStandingLost,
+    adminStandingGoalsFor,
+    adminStandingGoalsAgainst,
     adminStatus,
     adminUnseenOrderCount,
     adminVenue,
@@ -403,7 +429,9 @@ export default function AdminPanel(props: AdminPanelProps) {
     editingFixtureId,
     editingManagementId,
     editingPlayerId,
+    editingStandingId,
     fixtureGroups,
+    leagueTable,
     handleAddAdminMembership,
     handleAddMerchandise,
     handleAdminAddFixture,
@@ -425,7 +453,10 @@ export default function AdminPanel(props: AdminPanelProps) {
     handleClearAllMerchandise,
     handleDeleteHighlight,
     handleDeleteMerchandise,
+    handleDeleteStanding,
     handleEditFixture,
+    handleEditStanding,
+    handleSubmitStanding,
     handleMarkOrderCashPaid,
     handleNewspaperLogin,
     handleNewspaperPasswordReset,
@@ -534,11 +565,18 @@ export default function AdminPanel(props: AdminPanelProps) {
     setAdminResetPhone,
     setAdminResetStep,
     setAdminSquadTeam,
+    setAdminStandingTeamName,
+    setAdminStandingWon,
+    setAdminStandingDrawn,
+    setAdminStandingLost,
+    setAdminStandingGoalsFor,
+    setAdminStandingGoalsAgainst,
     setAdminStatus,
     setAdminVenue,
     setBulkPhotoFiles,
     setBulkPhotosOpen,
     setEditingFixtureId,
+    setEditingStandingId,
     setListedShopItemsOpen,
     setManagementPanelOpen,
     setManagementUpdatesOpen,
@@ -2012,6 +2050,181 @@ export default function AdminPanel(props: AdminPanelProps) {
                                 </div>
                               );
                             })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action 2b: League Table */}
+                  <div
+                    id="admin-standings-form"
+                    className={`bg-white p-6 rounded-3xl border shadow-sm space-y-4 scroll-mt-28 ${
+                      editingStandingId
+                        ? "border-yellow-400 ring-2 ring-yellow-400/30"
+                        : "border-slate-100"
+                    }`}
+                  >
+                    <h3 className="font-bold text-base text-slate-950 flex items-center gap-1.5">
+                      <Trophy className="w-5 h-5 text-yellow-500" /> League Table
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Kariobangi Legends&apos; row updates itself from match results. Add or edit the other clubs in{" "}
+                      {clubData.leagueName} here so fans can see where everyone stands.
+                    </p>
+
+                    {editingStandingId ? (
+                      <div className="rounded-xl border border-yellow-300 bg-yellow-50 px-3 py-2 flex items-center justify-between gap-3">
+                        <p className="text-xs font-bold text-slate-800">
+                          Editing {adminStandingTeamName || "team"}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingStandingId(null);
+                            setAdminStandingTeamName("");
+                            setAdminStandingWon("0");
+                            setAdminStandingDrawn("0");
+                            setAdminStandingLost("0");
+                            setAdminStandingGoalsFor("0");
+                            setAdminStandingGoalsAgainst("0");
+                          }}
+                          className="text-[10px] font-black uppercase tracking-wider text-slate-600 hover:text-rose-600 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <form onSubmit={handleSubmitStanding} className="space-y-3 text-xs">
+                      <div className="space-y-1">
+                        <label className="font-bold text-slate-500">Team Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Mathare United"
+                          value={adminStandingTeamName}
+                          onChange={(e) => setAdminStandingTeamName(e.target.value)}
+                          className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+                          required
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Won</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={adminStandingWon}
+                            onChange={(e) => setAdminStandingWon(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Drawn</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={adminStandingDrawn}
+                            onChange={(e) => setAdminStandingDrawn(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Lost</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={adminStandingLost}
+                            onChange={(e) => setAdminStandingLost(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Goals For</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={adminStandingGoalsFor}
+                            onChange={(e) => setAdminStandingGoalsFor(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-500">Goals Against</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={adminStandingGoalsAgainst}
+                            onChange={(e) => setAdminStandingGoalsAgainst(e.target.value)}
+                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={adminBusy === "standing"}
+                        className="w-full bg-slate-950 text-yellow-400 font-bold py-2.5 rounded-xl uppercase tracking-wider hover:bg-slate-900 transition cursor-pointer disabled:opacity-50"
+                      >
+                        {adminBusy === "standing"
+                          ? editingStandingId
+                            ? "Updating Team..."
+                            : "Adding Team..."
+                          : editingStandingId
+                            ? "Update Team"
+                            : "Add Team"}
+                      </button>
+                    </form>
+
+                    {leagueTable.filter((row) => !row.isLegends).length > 0 && (
+                      <div className="space-y-3 border-t border-slate-100 pt-4">
+                        <h4 className="font-black text-sm text-slate-950">Other clubs in the table</h4>
+                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                          {leagueTable
+                            .filter((row) => !row.isLegends)
+                            .map((row) => (
+                              <div
+                                key={row.id}
+                                className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 ${
+                                  editingStandingId === row.id
+                                    ? "border-yellow-400 bg-yellow-50"
+                                    : "border-slate-100 bg-slate-50"
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-xs font-black text-slate-950 truncate">
+                                    #{row.position} {row.teamName}
+                                  </p>
+                                  <p className="text-[10px] text-slate-500">
+                                    P{row.played} W{row.won} D{row.drawn} L{row.lost} &middot; {row.points} pts
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleEditStanding(
+                                        clubData.leagueStandings.find((s) => s.id === row.id)!
+                                      )
+                                    }
+                                    className="inline-flex items-center justify-center gap-1 bg-slate-950 hover:bg-slate-900 text-yellow-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-2 rounded-lg cursor-pointer"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteStanding(row.id as number, row.teamName)}
+                                    className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                    title="Remove team"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                         </div>
                       </div>
                     )}

@@ -89,6 +89,7 @@ import {
   getMatchCountdown,
   hasKickoffTime,
   getEffectiveMatchStatus,
+  buildLeagueTable,
   getHomeAwayTeams,
   getLegendsScore,
   getMatchResult,
@@ -177,6 +178,9 @@ import {
   getNotificationSetup,
   getClubData,
   updateLeagueName,
+  addLeagueStandingRow,
+  updateLeagueStandingRow,
+  deleteLeagueStandingRow,
   markOrderCashPaid,
   getMemberships,
   addAdminMembership,
@@ -309,6 +313,18 @@ export interface ManagementMember {
   createdAt: Date;
 }
 
+export interface LeagueStanding {
+  id: number;
+  teamName: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  updatedAt: Date;
+}
+
 interface ClubWebsiteProps {
   initialData: {
     players: Player[];
@@ -321,6 +337,7 @@ interface ClubWebsiteProps {
     highlights: TeamHighlight[];
     management: ManagementMember[];
     leagueName: string;
+    leagueStandings: LeagueStanding[];
   };
   initialTab?: string;
   initialNewsId?: number | null;
@@ -2119,6 +2136,7 @@ type AdminBusyAction =
   | "player"
   | "management"
   | "fixture"
+  | "standing"
   | "news"
   | "gallery"
   | "highlights"
@@ -2365,6 +2383,11 @@ export default function ClubWebsite({
   const seasonStats = useMemo(
     () => getSeasonStats(mainSquadFixtures),
     [mainSquadFixtures]
+  );
+
+  const leagueTable = useMemo(
+    () => buildLeagueTable(clubData.leagueStandings, seasonStats),
+    [clubData.leagueStandings, seasonStats]
   );
 
   const recentForm = useMemo(
@@ -2823,6 +2846,14 @@ const [notificationConfig, setNotificationConfig] = useState<{
   const [adminMatchType, setAdminMatchType] = useState<string>("league");
   const [adminSquadTeam, setAdminSquadTeam] = useState<string>("main");
   const [editingFixtureId, setEditingFixtureId] = useState<number | null>(null);
+
+  const [adminStandingTeamName, setAdminStandingTeamName] = useState<string>("");
+  const [adminStandingWon, setAdminStandingWon] = useState<string>("0");
+  const [adminStandingDrawn, setAdminStandingDrawn] = useState<string>("0");
+  const [adminStandingLost, setAdminStandingLost] = useState<string>("0");
+  const [adminStandingGoalsFor, setAdminStandingGoalsFor] = useState<string>("0");
+  const [adminStandingGoalsAgainst, setAdminStandingGoalsAgainst] = useState<string>("0");
+  const [editingStandingId, setEditingStandingId] = useState<number | null>(null);
 
   const [adminNewsTitle, setAdminNewsTitle] = useState<string>("");
   const [adminNewsSummary, setAdminNewsSummary] = useState<string>("");
@@ -5550,6 +5581,82 @@ const handleAdminUpdateManagement = async (e: React.FormEvent) => {
         fixtures: prev.fixtures.filter((fixture) => fixture.id !== id),
       }));
       showToast(res.message || "Fixture deleted.");
+    } else {
+      showToast(res.error || "Failed to delete.", "error");
+    }
+  };
+
+  // ========== LEAGUE TABLE (rival standings) ==========
+  const resetStandingForm = () => {
+    setEditingStandingId(null);
+    setAdminStandingTeamName("");
+    setAdminStandingWon("0");
+    setAdminStandingDrawn("0");
+    setAdminStandingLost("0");
+    setAdminStandingGoalsFor("0");
+    setAdminStandingGoalsAgainst("0");
+  };
+
+  const handleEditStanding = (standing: LeagueStanding) => {
+    setEditingStandingId(standing.id);
+    setAdminStandingTeamName(standing.teamName);
+    setAdminStandingWon(String(standing.won));
+    setAdminStandingDrawn(String(standing.drawn));
+    setAdminStandingLost(String(standing.lost));
+    setAdminStandingGoalsFor(String(standing.goalsFor));
+    setAdminStandingGoalsAgainst(String(standing.goalsAgainst));
+    document.getElementById("admin-standings-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleSubmitStanding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminStandingTeamName.trim()) {
+      showToast("Team name is required", "error");
+      return;
+    }
+
+    setAdminBusy("standing");
+    try {
+      const payload = {
+        teamName: adminStandingTeamName,
+        won: parseInt(adminStandingWon) || 0,
+        drawn: parseInt(adminStandingDrawn) || 0,
+        lost: parseInt(adminStandingLost) || 0,
+        goalsFor: parseInt(adminStandingGoalsFor) || 0,
+        goalsAgainst: parseInt(adminStandingGoalsAgainst) || 0,
+      };
+
+      const res = editingStandingId
+        ? await updateLeagueStandingRow(editingStandingId, payload)
+        : await addLeagueStandingRow(payload);
+
+      if (res.success && res.standing) {
+        setClubData((prev) => ({
+          ...prev,
+          leagueStandings: editingStandingId
+            ? prev.leagueStandings.map((row) => (row.id === res.standing.id ? res.standing : row))
+            : [...prev.leagueStandings, res.standing],
+        }));
+        showToast(res.message || "League table updated.");
+        resetStandingForm();
+      } else {
+        showToast(res.error || "Failed to save team.", "error");
+      }
+    } finally {
+      setAdminBusy(null);
+    }
+  };
+
+  const handleDeleteStanding = async (id: number, teamName: string) => {
+    if (!confirm(`Remove "${teamName}" from the league table?`)) return;
+    const res = await deleteLeagueStandingRow(id);
+    if (res.success) {
+      setClubData((prev) => ({
+        ...prev,
+        leagueStandings: prev.leagueStandings.filter((row) => row.id !== id),
+      }));
+      showToast(res.message || "Team removed.");
+      if (editingStandingId === id) resetStandingForm();
     } else {
       showToast(res.error || "Failed to delete.", "error");
     }
@@ -9713,6 +9820,68 @@ useEffect(() => {
               </div>
             )}
 
+            {(clubData.leagueStandings.length > 0 || seasonStats.played > 0) && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-lg font-black text-slate-950">{clubData.leagueName} Table</h3>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Updated by the club
+                  </span>
+                </div>
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-x-auto">
+                  <table className="w-full text-xs sm:text-sm min-w-[560px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        <th className="text-left py-3 pl-4 pr-2">#</th>
+                        <th className="text-left py-3 px-2">Team</th>
+                        <th className="text-center py-3 px-2">P</th>
+                        <th className="text-center py-3 px-2">W</th>
+                        <th className="text-center py-3 px-2">D</th>
+                        <th className="text-center py-3 px-2">L</th>
+                        <th className="text-center py-3 px-2 hidden sm:table-cell">GF</th>
+                        <th className="text-center py-3 px-2 hidden sm:table-cell">GA</th>
+                        <th className="text-center py-3 px-2">GD</th>
+                        <th className="text-center py-3 pr-4 pl-2">Pts</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leagueTable.map((row) => (
+                        <tr
+                          key={row.id}
+                          className={`border-b border-slate-50 last:border-0 ${
+                            row.isLegends ? "bg-emerald-50" : ""
+                          }`}
+                        >
+                          <td className="py-2.5 pl-4 pr-2 font-bold text-slate-500">{row.position}</td>
+                          <td className="py-2.5 px-2 font-black text-slate-950 whitespace-nowrap">
+                            <span className={row.isLegends ? "text-emerald-700" : ""}>
+                              {row.teamName}
+                            </span>
+                          </td>
+                          <td className="text-center py-2.5 px-2 text-slate-700">{row.played}</td>
+                          <td className="text-center py-2.5 px-2 text-slate-700">{row.won}</td>
+                          <td className="text-center py-2.5 px-2 text-slate-700">{row.drawn}</td>
+                          <td className="text-center py-2.5 px-2 text-slate-700">{row.lost}</td>
+                          <td className="text-center py-2.5 px-2 text-slate-700 hidden sm:table-cell">
+                            {row.goalsFor}
+                          </td>
+                          <td className="text-center py-2.5 px-2 text-slate-700 hidden sm:table-cell">
+                            {row.goalsAgainst}
+                          </td>
+                          <td className="text-center py-2.5 px-2 text-slate-700">
+                            {row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}
+                          </td>
+                          <td className="text-center py-2.5 pr-4 pl-2 font-black text-slate-950">
+                            {row.points}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {recentForm.length > 0 && (
               <div className="flex flex-wrap items-center gap-3 bg-white rounded-2xl border border-slate-100 px-4 py-3 shadow-sm">
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
@@ -11481,6 +11650,12 @@ useEffect(() => {
               adminResetStep={adminResetStep}
               adminRole={adminRole}
               adminSquadTeam={adminSquadTeam}
+              adminStandingTeamName={adminStandingTeamName}
+              adminStandingWon={adminStandingWon}
+              adminStandingDrawn={adminStandingDrawn}
+              adminStandingLost={adminStandingLost}
+              adminStandingGoalsFor={adminStandingGoalsFor}
+              adminStandingGoalsAgainst={adminStandingGoalsAgainst}
               adminStatus={adminStatus}
               adminUnseenOrderCount={adminUnseenOrderCount}
               adminVenue={adminVenue}
@@ -11489,7 +11664,9 @@ useEffect(() => {
               editingFixtureId={editingFixtureId}
               editingManagementId={editingManagementId}
               editingPlayerId={editingPlayerId}
+              editingStandingId={editingStandingId}
               fixtureGroups={fixtureGroups}
+              leagueTable={leagueTable}
               handleAddAdminMembership={handleAddAdminMembership}
               handleAddMerchandise={handleAddMerchandise}
               handleAdminAddFixture={handleAdminAddFixture}
@@ -11511,7 +11688,10 @@ useEffect(() => {
               handleClearAllMerchandise={handleClearAllMerchandise}
               handleDeleteHighlight={handleDeleteHighlight}
               handleDeleteMerchandise={handleDeleteMerchandise}
+              handleDeleteStanding={handleDeleteStanding}
               handleEditFixture={handleEditFixture}
+              handleEditStanding={handleEditStanding}
+              handleSubmitStanding={handleSubmitStanding}
               handleMarkOrderCashPaid={handleMarkOrderCashPaid}
               handleNewspaperLogin={handleNewspaperLogin}
               handleNewspaperPasswordReset={handleNewspaperPasswordReset}
@@ -11620,11 +11800,18 @@ useEffect(() => {
               setAdminResetPhone={setAdminResetPhone}
               setAdminResetStep={setAdminResetStep}
               setAdminSquadTeam={setAdminSquadTeam}
+              setAdminStandingTeamName={setAdminStandingTeamName}
+              setAdminStandingWon={setAdminStandingWon}
+              setAdminStandingDrawn={setAdminStandingDrawn}
+              setAdminStandingLost={setAdminStandingLost}
+              setAdminStandingGoalsFor={setAdminStandingGoalsFor}
+              setAdminStandingGoalsAgainst={setAdminStandingGoalsAgainst}
               setAdminStatus={setAdminStatus}
               setAdminVenue={setAdminVenue}
               setBulkPhotoFiles={setBulkPhotoFiles}
               setBulkPhotosOpen={setBulkPhotosOpen}
               setEditingFixtureId={setEditingFixtureId}
+              setEditingStandingId={setEditingStandingId}
               setListedShopItemsOpen={setListedShopItemsOpen}
               setManagementPanelOpen={setManagementPanelOpen}
               setManagementUpdatesOpen={setManagementUpdatesOpen}

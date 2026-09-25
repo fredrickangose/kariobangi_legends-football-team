@@ -573,3 +573,78 @@ export function getRecentForm(fixtures: FixtureLike[], limit = 5): MatchResult[]
     .filter((result): result is MatchResult => result !== null)
     .slice(0, limit);
 }
+
+export interface RivalStandingRow {
+  id: number;
+  teamName: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+}
+
+export interface LeagueTableRow {
+  id: number | "legends";
+  teamName: string;
+  isLegends: boolean;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  points: number;
+  position: number;
+}
+
+/**
+ * Merges the admin-entered rival standings with Legends FC's own record
+ * (derived from actual fixtures via getSeasonStats) and ranks everyone
+ * using standard football tie-break rules: points, then goal difference,
+ * then goals scored, then name.
+ */
+export function buildLeagueTable(
+  rivals: RivalStandingRow[],
+  legendsStats: ReturnType<typeof getSeasonStats>
+): LeagueTableRow[] {
+  const rows: Omit<LeagueTableRow, "position">[] = [
+    {
+      id: "legends",
+      teamName: CLUB_FULL_NAME,
+      isLegends: true,
+      played: legendsStats.played,
+      won: legendsStats.wins,
+      drawn: legendsStats.draws,
+      lost: legendsStats.losses,
+      goalsFor: legendsStats.goalsFor,
+      goalsAgainst: legendsStats.goalsAgainst,
+      goalDifference: legendsStats.goalDifference,
+      points: legendsStats.points,
+    },
+    ...rivals.map((rival) => ({
+      id: rival.id,
+      teamName: rival.teamName,
+      isLegends: false,
+      played: rival.played,
+      won: rival.won,
+      drawn: rival.drawn,
+      lost: rival.lost,
+      goalsFor: rival.goalsFor,
+      goalsAgainst: rival.goalsAgainst,
+      goalDifference: rival.goalsFor - rival.goalsAgainst,
+      points: rival.won * 3 + rival.drawn,
+    })),
+  ];
+
+  rows.sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    if (b.goalDifference !== a.goalDifference) return b.goalDifference - a.goalDifference;
+    if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+    return a.teamName.localeCompare(b.teamName);
+  });
+
+  return rows.map((row, index) => ({ ...row, position: index + 1 }));
+}
