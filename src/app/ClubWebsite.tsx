@@ -1015,7 +1015,7 @@ function SocialIconLink({
 }
 
 function SocialMediaLinks() {
-  const tiktokUrl = "";
+  const tiktokUrl = "https://www.tiktok.com/@kariobangi_legends_fc";
 
   return (
     <div className="pt-2">
