@@ -788,6 +788,25 @@ export async function deleteFixture(fixtureId: number) {
   }
 }
 
+/** Lightweight poll so fans watching a live match see score updates as the admin enters them. */
+export async function getFixtureScores() {
+  try {
+    const rows = await db
+      .select({
+        id: fixtures.id,
+        homeScore: fixtures.homeScore,
+        awayScore: fixtures.awayScore,
+        status: fixtures.status,
+      })
+      .from(fixtures);
+
+    return { success: true, fixtures: rows };
+  } catch (error) {
+    console.error("Get fixture scores failed:", error);
+    return { success: false, error: String(error), fixtures: [] };
+  }
+}
+
 // ========== LIVE MATCH COMMENTARY ==========
 
 export async function getMatchUpdates(fixtureId: number) {

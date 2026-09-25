@@ -184,6 +184,7 @@ export function getLegendsScore(fixture: FixtureLike): {
 
 export function isFixtureFinished(fixture: FixtureLike): boolean {
   const status = getEffectiveMatchStatus(fixture);
+  if (status === "live") return false;
   return (
     status === "completed" ||
     status === "cancelled" ||

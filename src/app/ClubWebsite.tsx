@@ -90,6 +90,7 @@ import {
   hasKickoffTime,
   getEffectiveMatchStatus,
   getHomeAwayTeams,
+  getLegendsScore,
   getMatchResult,
   getMatchStatusMeta,
   getMatchTypeMeta,
@@ -163,6 +164,7 @@ import {
   addFixture,
   updateFixture,
   deleteFixture,
+  getFixtureScores,
   getMatchUpdates,
   addMatchUpdate,
   deleteMatchUpdate,
@@ -1725,7 +1727,7 @@ function MatchScoreboard({
   variant?: "default" | "hero" | "compact";
 }) {
   const { home, away } = getHomeAwayTeams(fixture);
-  const finished = isFixtureFinished(fixture);
+  const isLive = getEffectiveMatchStatus(fixture) === "live";
   const isHero = variant === "hero";
   const isCompact = variant === "compact";
   const logoSize = isHero
@@ -1769,36 +1771,44 @@ function MatchScoreboard({
         </div>
       </div>
 
-      <div className={`flex flex-col items-center justify-center ${isHero ? "py-2" : ""}`}>
-        {finished && fixture.homeScore !== null && fixture.awayScore !== null ? (
-          <div className="flex items-center gap-2">
-            <span
-              className={`font-black ${
-                isHero ? "text-3xl sm:text-4xl text-white" : "text-lg text-slate-950"
-              }`}
-            >
-              {fixture.homeScore}
-            </span>
-            <span className={`font-bold ${isHero ? "text-white/40" : "text-slate-300"}`}>
-              -
-            </span>
-            <span
-              className={`font-black ${
-                isHero ? "text-3xl sm:text-4xl text-white" : "text-lg text-slate-950"
-              }`}
-            >
-              {fixture.awayScore}
-            </span>
-          </div>
+      <div className={`flex flex-col items-center justify-center gap-1 ${isHero ? "py-2" : ""}`}>
+        {fixture.homeScore !== null && fixture.awayScore !== null ? (
+          <>
+            {isLive && (
+              <span className="flex items-center gap-1 text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-rose-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                Live
+              </span>
+            )}
+            <div className="flex items-center gap-2">
+              <span
+                className={`font-black ${
+                  isHero ? "text-3xl sm:text-4xl text-white" : "text-lg text-slate-950"
+                }`}
+              >
+                {fixture.homeScore}
+              </span>
+              <span className={`font-bold ${isHero ? "text-white/40" : "text-slate-300"}`}>
+                -
+              </span>
+              <span
+                className={`font-black ${
+                  isHero ? "text-3xl sm:text-4xl text-white" : "text-lg text-slate-950"
+                }`}
+              >
+                {fixture.awayScore}
+              </span>
+            </div>
+          </>
         ) : (
           <div
             className={`rounded-full flex items-center justify-center font-black uppercase ${
               isHero
                 ? "w-16 h-16 sm:w-20 sm:h-20 bg-white/5 border border-white/10 text-white text-xl"
                 : "px-3 py-1.5 bg-slate-100 text-slate-500 text-[10px] tracking-wider"
-            }`}
+            } ${isLive ? "!bg-rose-600 !text-white animate-pulse" : ""}`}
           >
-            {getEffectiveMatchStatus(fixture) === "live" ? "LIVE" : "VS"}
+            {isLive ? "LIVE" : "VS"}
           </div>
         )}
         {!isCompact && (
@@ -2286,6 +2296,57 @@ export default function ClubWebsite({
     () => clubData.fixtures.filter((fixture) => normalizeSquadTeam(fixture.squadTeam) === "wazee"),
     [clubData.fixtures]
   );
+
+  const hasLiveFixture = useMemo(
+    () => clubData.fixtures.some((fixture) => getEffectiveMatchStatus(fixture) === "live"),
+    // liveStatusTick so a match that has just kicked off (or just ended) is
+    // picked up even though clubData.fixtures itself hasn't changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clubData.fixtures, liveStatusTick]
+  );
+
+  // While any match is live, poll for score/status updates so fans watching
+  // the homepage / Match Centre see the score change as the admin enters it,
+  // without needing to reload the page.
+  useEffect(() => {
+    if (!hasLiveFixture) return;
+
+    let cancelled = false;
+
+    const pollScores = async () => {
+      const res = await getFixtureScores();
+      if (cancelled || !res.success) return;
+
+      setClubData((prev) => {
+        let changed = false;
+        const nextFixtures = prev.fixtures.map((fixture) => {
+          const update = res.fixtures.find((row) => row.id === fixture.id);
+          if (
+            !update ||
+            (update.homeScore === fixture.homeScore &&
+              update.awayScore === fixture.awayScore &&
+              update.status === fixture.status)
+          ) {
+            return fixture;
+          }
+          changed = true;
+          return {
+            ...fixture,
+            homeScore: update.homeScore,
+            awayScore: update.awayScore,
+            status: update.status,
+          };
+        });
+        return changed ? { ...prev, fixtures: nextFixtures } : prev;
+      });
+    };
+
+    const interval = window.setInterval(pollScores, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [hasLiveFixture]);
 
   const fixtureGroups = useMemo(
     () => partitionFixtures(mainSquadFixtures, todayString),
@@ -7504,14 +7565,34 @@ useEffect(() => {
 
           </div>
 
-          {/* ================= VS ================= */}
-          <div className="flex flex-col items-center">
+          {/* ================= VS / LIVE SCORE ================= */}
+          <div className="flex flex-col items-center gap-2">
 
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shadow-xl">
-              <span className="text-xl sm:text-2xl font-black text-white">
-                VS
-              </span>
-            </div>
+            {featuredFixtureIsLive &&
+            featuredFixture.homeScore !== null &&
+            featuredFixture.awayScore !== null ? (
+              <>
+                <span className="flex items-center gap-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-rose-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                  Live Score
+                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl sm:text-4xl font-black text-white">
+                    {getLegendsScore(featuredFixture).legends}
+                  </span>
+                  <span className="text-white/40 font-bold text-xl">-</span>
+                  <span className="text-3xl sm:text-4xl font-black text-white">
+                    {getLegendsScore(featuredFixture).opponent}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center shadow-xl">
+                <span className="text-xl sm:text-2xl font-black text-white">
+                  {featuredFixtureIsLive ? "LIVE" : "VS"}
+                </span>
+              </div>
+            )}
 
           </div>
 
