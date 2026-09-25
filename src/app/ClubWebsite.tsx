@@ -8279,14 +8279,22 @@ useEffect(() => {
             className="group bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col"
           >
 
-            {/* News image — full-bleed, cropped to fill for a punchy editorial look */}
-            <div className="relative overflow-hidden h-56 sm:h-64">
+            {/* News image — full photo always visible, blurred backdrop fills the frame */}
+            <div className="relative overflow-hidden h-56 sm:h-64 bg-slate-950">
+              <Image
+                src={item.imageUrl}
+                alt=""
+                aria-hidden="true"
+                fill
+                sizes="(min-width: 768px) 50vw, 100vw"
+                className="scale-110 object-cover opacity-40 blur-2xl"
+              />
               <Image
                 src={item.imageUrl}
                 alt={item.title}
                 fill
                 sizes="(min-width: 768px) 50vw, 100vw"
-                className="object-cover object-center group-hover:scale-[1.06] transition-transform duration-700 ease-out"
+                className="object-contain group-hover:scale-[1.06] transition-transform duration-700 ease-out"
               />
 
               {/* Mood gradient for legibility + depth */}
