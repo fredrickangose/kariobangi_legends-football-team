@@ -3770,7 +3770,6 @@ const handleCustomerLogin = async (e: React.FormEvent) => {
         setAdminRole("admin");
         setLoginIdentifier("");
         setLoginPassword("");
-        await loadAdminOrders();
         setActiveTab("admin");
         window.scrollTo({ top: 0, behavior: "smooth" });
         showToast("Signed in successfully.");
@@ -4403,8 +4402,6 @@ useIdleSessionLock({
   setIsAdminAuthenticated(true);
   setAdminRole("admin");
   setAdminPassword("");
-
-  await loadAdminOrders();
 
   setActiveTab("admin");
   window.scrollTo({ top: 0, behavior: "smooth" });

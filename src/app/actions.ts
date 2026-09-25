@@ -35,6 +35,7 @@ import {
   verifyCustomerToken,
 } from "@/lib/customer-auth";
 import { getPhoneLookupVariants } from "@/lib/link-customer-orders";
+import { deleteUploadedMedia, deleteUploadedMediaBatch } from "@/lib/storage";
 import {
   ensurePressAccount,
   parseAdminSession,
@@ -321,6 +322,16 @@ export async function updatePlayer(
       };
     }
 
+    let previousImageUrl: string | null = null;
+    if (data.imageUrl !== undefined) {
+      const [existing] = await db
+        .select({ imageUrl: players.imageUrl })
+        .from(players)
+        .where(eq(players.id, playerId))
+        .limit(1);
+      previousImageUrl = existing?.imageUrl ?? null;
+    }
+
     const [player] = await db
       .update(players)
       .set({
@@ -338,6 +349,10 @@ export async function updatePlayer(
 
     if (!player) {
       return { success: false, error: "Player not found." };
+    }
+
+    if (previousImageUrl && previousImageUrl !== data.imageUrl) {
+      await deleteUploadedMedia(previousImageUrl);
     }
 
     return {
@@ -471,6 +486,12 @@ export async function updatePlayerImage(
       return { success: false, error: auth.error };
     }
 
+    const [existing] = await db
+      .select({ imageUrl: players.imageUrl })
+      .from(players)
+      .where(eq(players.id, playerId))
+      .limit(1);
+
     const [player] = await db
       .update(players)
       .set({ imageUrl })
@@ -479,6 +500,10 @@ export async function updatePlayerImage(
 
     if (!player) {
       return { success: false, error: "Player not found." };
+    }
+
+    if (existing?.imageUrl && existing.imageUrl !== imageUrl) {
+      await deleteUploadedMedia(existing.imageUrl);
     }
 
     return {
@@ -504,6 +529,12 @@ export async function updateManagementImage(
       return { success: false, error: auth.error };
     }
 
+    const [existing] = await db
+      .select({ imageUrl: management.imageUrl })
+      .from(management)
+      .where(eq(management.id, managementId))
+      .limit(1);
+
     const [member] = await db
       .update(management)
       .set({ imageUrl })
@@ -512,6 +543,10 @@ export async function updateManagementImage(
 
     if (!member) {
       return { success: false, error: "Management official not found." };
+    }
+
+    if (existing?.imageUrl && existing.imageUrl !== imageUrl) {
+      await deleteUploadedMedia(existing.imageUrl);
     }
 
     return {
@@ -534,9 +569,14 @@ export async function deletePlayer(playerId: number) {
       return { success: false, error: auth.error };
     }
 
-    await db
+    const [deleted] = await db
       .delete(players)
-      .where(eq(players.id, playerId));
+      .where(eq(players.id, playerId))
+      .returning({ imageUrl: players.imageUrl });
+
+    if (deleted?.imageUrl) {
+      await deleteUploadedMedia(deleted.imageUrl);
+    }
 
     return {
       success: true,
@@ -617,12 +657,20 @@ export async function updateFixture(
       return { success: false, error: auth.error };
     }
 
+    const [existing] = await db
+      .select({ opponentLogoUrl: fixtures.opponentLogoUrl })
+      .from(fixtures)
+      .where(eq(fixtures.id, fixtureId))
+      .limit(1);
+
+    const nextLogoUrl =
+      data.opponentLogoUrl !== undefined ? data.opponentLogoUrl : null;
+
     const [fixture] = await db
       .update(fixtures)
       .set({
         opponent: data.opponent,
-        opponentLogoUrl:
-          data.opponentLogoUrl !== undefined ? data.opponentLogoUrl : null,
+        opponentLogoUrl: nextLogoUrl,
         date: data.date,
         isHome: data.isHome,
         status: data.status,
@@ -639,6 +687,10 @@ export async function updateFixture(
 
     if (!fixture) {
       return { success: false, error: "Fixture not found." };
+    }
+
+    if (existing?.opponentLogoUrl && existing.opponentLogoUrl !== nextLogoUrl) {
+      await deleteUploadedMedia(existing.opponentLogoUrl);
     }
 
     return {
@@ -662,9 +714,14 @@ export async function deleteFixture(fixtureId: number) {
       return { success: false, error: auth.error };
     }
 
-    await db
+    const [deleted] = await db
       .delete(fixtures)
-      .where(eq(fixtures.id, fixtureId));
+      .where(eq(fixtures.id, fixtureId))
+      .returning({ opponentLogoUrl: fixtures.opponentLogoUrl });
+
+    if (deleted?.opponentLogoUrl) {
+      await deleteUploadedMedia(deleted.opponentLogoUrl);
+    }
 
     return {
       success: true,
@@ -723,6 +780,12 @@ export async function updateNewsImage(
       return { success: false, error: auth.error };
     }
 
+    const [existing] = await db
+      .select({ imageUrl: news.imageUrl })
+      .from(news)
+      .where(eq(news.id, newsId))
+      .limit(1);
+
     const [article] = await db
       .update(news)
       .set({ imageUrl })
@@ -731,6 +794,10 @@ export async function updateNewsImage(
 
     if (!article) {
       return { success: false, error: "News article not found." };
+    }
+
+    if (existing?.imageUrl && existing.imageUrl !== imageUrl) {
+      await deleteUploadedMedia(existing.imageUrl);
     }
 
     return {
@@ -753,9 +820,14 @@ export async function deleteNews(newsId: number) {
       return { success: false, error: auth.error };
     }
 
-    await db
+    const [deleted] = await db
       .delete(news)
-      .where(eq(news.id, newsId));
+      .where(eq(news.id, newsId))
+      .returning({ imageUrl: news.imageUrl });
+
+    if (deleted?.imageUrl) {
+      await deleteUploadedMedia(deleted.imageUrl);
+    }
 
     return {
       success: true,
@@ -817,6 +889,12 @@ export async function updateGalleryImage(
       return { success: false, error: auth.error };
     }
 
+    const [existing] = await db
+      .select({ imageUrl: gallery.imageUrl })
+      .from(gallery)
+      .where(eq(gallery.id, galleryId))
+      .limit(1);
+
     const [item] = await db
       .update(gallery)
       .set({
@@ -828,6 +906,10 @@ export async function updateGalleryImage(
 
     if (!item) {
       return { success: false, error: "Gallery photo not found." };
+    }
+
+    if (existing?.imageUrl && existing.imageUrl !== imageUrl) {
+      await deleteUploadedMedia(existing.imageUrl);
     }
 
     return {
@@ -852,9 +934,14 @@ export async function deleteGalleryImage(galleryId: number) {
       return { success: false, error: auth.error };
     }
 
-    await db
+    const [deleted] = await db
       .delete(gallery)
-      .where(eq(gallery.id, galleryId));
+      .where(eq(gallery.id, galleryId))
+      .returning({ imageUrl: gallery.imageUrl });
+
+    if (deleted?.imageUrl) {
+      await deleteUploadedMedia(deleted.imageUrl);
+    }
 
     return {
       success: true,
@@ -924,7 +1011,17 @@ export async function deleteTeamHighlight(highlightId: number) {
       return { success: false, error: auth.error };
     }
 
-    await db.delete(teamHighlights).where(eq(teamHighlights.id, highlightId));
+    const [deleted] = await db
+      .delete(teamHighlights)
+      .where(eq(teamHighlights.id, highlightId))
+      .returning({
+        videoUrl: teamHighlights.videoUrl,
+        thumbnailUrl: teamHighlights.thumbnailUrl,
+      });
+
+    if (deleted) {
+      await deleteUploadedMediaBatch([deleted.videoUrl, deleted.thumbnailUrl]);
+    }
 
     return {
       success: true,
@@ -1145,6 +1242,12 @@ export async function updateMerchandiseImage(
       return { success: false, error: auth.error };
     }
 
+    const [existing] = await db
+      .select({ imageUrl: merchandise.imageUrl })
+      .from(merchandise)
+      .where(eq(merchandise.id, merchId))
+      .limit(1);
+
     const [item] = await db
       .update(merchandise)
       .set({ imageUrl })
@@ -1153,6 +1256,10 @@ export async function updateMerchandiseImage(
 
     if (!item) {
       return { success: false, error: "Merchandise item not found." };
+    }
+
+    if (existing?.imageUrl && existing.imageUrl !== imageUrl) {
+      await deleteUploadedMedia(existing.imageUrl);
     }
 
     return {
@@ -1177,9 +1284,14 @@ export async function deleteMerchandise(merchId: number) {
       return { success: false, error: auth.error };
     }
 
-    await db
+    const [deleted] = await db
       .delete(merchandise)
-      .where(eq(merchandise.id, merchId));
+      .where(eq(merchandise.id, merchId))
+      .returning({ imageUrl: merchandise.imageUrl });
+
+    if (deleted?.imageUrl) {
+      await deleteUploadedMedia(deleted.imageUrl);
+    }
 
     return {
       success: true,
@@ -1203,8 +1315,12 @@ export async function clearAllMerchandise() {
       return { success: false, error: auth.error };
     }
 
-    const existing = await db.select({ id: merchandise.id }).from(merchandise);
+    const existing = await db
+      .select({ id: merchandise.id, imageUrl: merchandise.imageUrl })
+      .from(merchandise);
     await db.delete(merchandise);
+
+    await deleteUploadedMediaBatch(existing.map((item) => item.imageUrl));
 
     return {
       success: true,
@@ -1278,6 +1394,12 @@ export async function updateManagement(
       return { success: false, error: auth.error };
     }
 
+    const [existing] = await db
+      .select({ imageUrl: management.imageUrl })
+      .from(management)
+      .where(eq(management.id, managementId))
+      .limit(1);
+
     const [member] = await db
       .update(management)
       .set({
@@ -1294,6 +1416,10 @@ export async function updateManagement(
 
     if (!member) {
       return { success: false, error: "Management official not found." };
+    }
+
+    if (existing?.imageUrl && existing.imageUrl !== (data.imageUrl || "")) {
+      await deleteUploadedMedia(existing.imageUrl);
     }
 
     return {
@@ -1363,9 +1489,14 @@ export async function deleteManagement(managementId: number) {
       return { success: false, error: auth.error };
     }
 
-    await db
+    const [deleted] = await db
       .delete(management)
-      .where(eq(management.id, managementId));
+      .where(eq(management.id, managementId))
+      .returning({ imageUrl: management.imageUrl });
+
+    if (deleted?.imageUrl) {
+      await deleteUploadedMedia(deleted.imageUrl);
+    }
 
     return {
       success: true,
