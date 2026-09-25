@@ -140,6 +140,14 @@ export const leagueStandings = pgTable("league_standings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const motmVotes = pgTable("motm_votes", {
+  id: serial("id").primaryKey(),
+  fixtureId: integer("fixture_id").notNull(),
+  playerId: integer("player_id").notNull(),
+  customerId: integer("customer_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const pressAccounts = pgTable("press_accounts", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),

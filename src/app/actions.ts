@@ -18,6 +18,7 @@ import {
   memberships,
   clubSettings,
   leagueStandings,
+  motmVotes,
 } from "@/db/schema";
 import { seedDatabaseIfNeeded } from "@/db/seed";
 import { desc, asc, eq, or, and, inArray, isNull, isNotNull } from "drizzle-orm";
@@ -311,6 +312,77 @@ export async function deleteLeagueStandingRow(id: number) {
     return { success: true, id, message: "Team removed from the league table." };
   } catch (error) {
     console.error("Delete league standing failed:", error);
+    return { success: false, error: String(error) };
+  }
+}
+
+// ========== MAN OF THE MATCH VOTING ==========
+
+export async function getMotmResults(fixtureId: number) {
+  try {
+    const votes = await db
+      .select()
+      .from(motmVotes)
+      .where(eq(motmVotes.fixtureId, fixtureId));
+
+    const tally = new Map<number, number>();
+    for (const vote of votes) {
+      tally.set(vote.playerId, (tally.get(vote.playerId) || 0) + 1);
+    }
+
+    let myVote: number | null = null;
+    const cookieStore = await cookies();
+    const customerId = verifyCustomerToken(
+      cookieStore.get("kariobangi_customer")?.value
+    );
+    if (customerId) {
+      const mine = votes.find((vote) => vote.customerId === customerId);
+      myVote = mine ? mine.playerId : null;
+    }
+
+    return {
+      success: true,
+      totalVotes: votes.length,
+      tally: Array.from(tally.entries()).map(([playerId, count]) => ({ playerId, count })),
+      myVote,
+    };
+  } catch (error) {
+    console.error("Get MOTM results failed:", error);
+    return { success: false, error: String(error), totalVotes: 0, tally: [], myVote: null };
+  }
+}
+
+export async function submitMotmVote(fixtureId: number, playerId: number) {
+  try {
+    const cookieStore = await cookies();
+    const customerId = verifyCustomerToken(
+      cookieStore.get("kariobangi_customer")?.value
+    );
+
+    if (!customerId) {
+      return { success: false, error: "Please sign in to vote for Man of the Match." };
+    }
+
+    const [existing] = await db
+      .select()
+      .from(motmVotes)
+      .where(
+        and(eq(motmVotes.fixtureId, fixtureId), eq(motmVotes.customerId, customerId))
+      )
+      .limit(1);
+
+    if (existing) {
+      await db
+        .update(motmVotes)
+        .set({ playerId, createdAt: new Date() })
+        .where(eq(motmVotes.id, existing.id));
+    } else {
+      await db.insert(motmVotes).values({ fixtureId, playerId, customerId });
+    }
+
+    return { success: true, message: "Your Man of the Match vote is in!" };
+  } catch (error) {
+    console.error("Submit MOTM vote failed:", error);
     return { success: false, error: String(error) };
   }
 }

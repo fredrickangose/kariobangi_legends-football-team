@@ -167,6 +167,8 @@ import {
   deleteFixture,
   getFixtureScores,
   getMatchUpdates,
+  getMotmResults,
+  submitMotmVote,
   addMatchUpdate,
   deleteMatchUpdate,
   getOrders,
@@ -1990,6 +1992,144 @@ function MatchFixtureCard({
   );
 }
 
+function ManOfTheMatchPoll({
+  fixture,
+  candidates,
+  customerSignedIn,
+  onRequireSignIn,
+}: {
+  fixture: Fixture;
+  candidates: Player[];
+  customerSignedIn: boolean;
+  onRequireSignIn: () => void;
+}) {
+  const [totalVotes, setTotalVotes] = useState(0);
+  const [tally, setTally] = useState<{ playerId: number; count: number }[]>([]);
+  const [myVote, setMyVote] = useState<number | null>(null);
+  const [voting, setVoting] = useState(false);
+
+  const loadResults = useCallback(async () => {
+    const res = await getMotmResults(fixture.id);
+    if (res.success) {
+      setTotalVotes(res.totalVotes);
+      setTally(res.tally);
+      setMyVote(res.myVote);
+    }
+  }, [fixture.id]);
+
+  useEffect(() => {
+    loadResults();
+  }, [loadResults]);
+
+  const handleVote = async (playerId: number) => {
+    if (!customerSignedIn) {
+      onRequireSignIn();
+      return;
+    }
+    if (voting || myVote === playerId) return;
+
+    setVoting(true);
+    const previousVote = myVote;
+    setMyVote(playerId);
+    try {
+      const res = await submitMotmVote(fixture.id, playerId);
+      if (res.success) {
+        await loadResults();
+      } else {
+        setMyVote(previousVote);
+      }
+    } finally {
+      setVoting(false);
+    }
+  };
+
+  if (candidates.length === 0) return null;
+
+  const tallyMap = new Map(tally.map((entry) => [entry.playerId, entry.count]));
+  const topVoted = candidates
+    .map((player) => ({ player, votes: tallyMap.get(player.id) || 0 }))
+    .filter((entry) => entry.votes > 0)
+    .sort((a, b) => b.votes - a.votes)
+    .slice(0, 5);
+
+  return (
+    <div className="rounded-3xl border border-slate-100 bg-white p-5 sm:p-6 shadow-sm space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-yellow-600">Fan Vote</p>
+          <h3 className="text-lg font-black text-slate-950">Man of the Match</h3>
+        </div>
+        {totalVotes > 0 && (
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">
+            {totalVotes} vote{totalVotes !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      {!customerSignedIn && (
+        <button
+          type="button"
+          onClick={onRequireSignIn}
+          className="w-full text-left text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 hover:bg-emerald-100 transition cursor-pointer"
+        >
+          Sign in to cast your vote →
+        </button>
+      )}
+
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+        {candidates.map((player) => {
+          const isMine = myVote === player.id;
+          return (
+            <button
+              key={player.id}
+              type="button"
+              disabled={voting}
+              onClick={() => handleVote(player.id)}
+              className={`shrink-0 flex flex-col items-center gap-1.5 px-3 py-2.5 rounded-2xl border transition cursor-pointer disabled:opacity-60 ${
+                isMine
+                  ? "border-yellow-400 bg-yellow-50 ring-2 ring-yellow-400/40"
+                  : "border-slate-100 bg-slate-50 hover:border-emerald-200 hover:bg-emerald-50"
+              }`}
+            >
+              <span
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-black ${
+                  isMine ? "bg-yellow-400 text-slate-950" : "bg-slate-950 text-yellow-400"
+                }`}
+              >
+                {player.jerseyNumber}
+              </span>
+              <span className="text-[10px] font-bold text-slate-700 whitespace-nowrap max-w-[80px] truncate">
+                {player.name}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {topVoted.length > 0 && (
+        <div className="space-y-2 pt-2 border-t border-slate-100">
+          {topVoted.map(({ player, votes }) => {
+            const pct = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+            return (
+              <div key={player.id} className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                  <span>
+                    #{player.jerseyNumber} {player.name}
+                  </span>
+                  <span className="text-slate-400">{pct}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                  <div className="h-full bg-yellow-400 rounded-full" style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const MATCH_EVENT_ICONS: Record<string, string> = {
   goal: "⚽",
   card: "🟨",
@@ -2216,6 +2356,11 @@ export default function ClubWebsite({
     () =>
       [...clubData.players].sort((a, b) => a.jerseyNumber - b.jerseyNumber),
     [clubData.players]
+  );
+
+  const motmCandidates = useMemo(
+    () => squadPlayersSorted.filter((player) => player.position !== "Wazee Legend"),
+    [squadPlayersSorted]
   );
 
   const managementGrouped = useMemo(
@@ -7911,6 +8056,15 @@ useEffect(() => {
           </button>
         </div>
       </div>
+    )}
+
+    {recentFixtures[0] && getMatchResult(recentFixtures[0]) && (
+      <ManOfTheMatchPoll
+        fixture={recentFixtures[0]}
+        candidates={motmCandidates}
+        customerSignedIn={Boolean(customerProfile?.id)}
+        onRequireSignIn={() => goToTab("account")}
+      />
     )}
 
     {/* Mobile fixtures link */}
