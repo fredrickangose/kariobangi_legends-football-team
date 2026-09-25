@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { type AdminMembershipStatus, MEMBERSHIP_PLANS, type MembershipPlanId, formatMembershipExpiry } from "@/lib/membership";
 import { ArrowRight, Award, Banknote, BookOpen, Calendar, Camera, ChevronLeft, Clock, Film, ImageIcon, LogOut, MessageCircle, MessageSquare, Newspaper, Package, Play, Shield, ShoppingBag, Trash2, User, UserPlus, Users } from "lucide-react";
@@ -32,6 +33,7 @@ import {
 
 interface AdminPanelProps {
   activeTab: string;
+  handleUpdateLeagueName: (leagueName: string) => Promise<void>;
   adminArchivedOrders: any[];
   adminAwayScore: string;
   adminBusy: "player" | "management" | "fixture" | "news" | "gallery" | "highlights" | "merch" | "merch-clear" | "merch-price" | "merch-stock" | "merch-category" | "merch-details" | "replace-image" | "remove-image" | "bulk-photos" | null;
@@ -101,7 +103,7 @@ interface AdminPanelProps {
   adminUnseenOrderCount: number;
   adminVenue: string;
   bulkPhotosOpen: boolean;
-  clubData: { players: Player[]; fixtures: Fixture[]; news: NewsItem[]; merchandise: MerchandiseItem[]; donations: Donation[]; fanMessages: FanMessage[]; gallery: GalleryItem[]; highlights: TeamHighlight[]; management: ManagementMember[]; };
+  clubData: { players: Player[]; fixtures: Fixture[]; news: NewsItem[]; merchandise: MerchandiseItem[]; donations: Donation[]; fanMessages: FanMessage[]; gallery: GalleryItem[]; highlights: TeamHighlight[]; management: ManagementMember[]; leagueName: string; };
   editingFixtureId: number | null;
   editingManagementId: number | null;
   editingPlayerId: number | null;
@@ -277,9 +279,57 @@ interface AdminPanelProps {
   visibleAdminMemberships: { id: number; customerId: number; fullName: string; phoneNumber: string; planId: string; planName: string; amount: number; paymentMethod: string; paymentStatus: string; status: AdminMembershipStatus; mpesaReceiptNumber: string | null; expiresAt: string; createdAt: string; }[];
 }
 
+function LeagueNameSettings({
+  currentValue,
+  onSave,
+}: {
+  currentValue: string;
+  onSave: (value: string) => Promise<void>;
+}) {
+  const [value, setValue] = useState(currentValue);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setValue(currentValue);
+  }, [currentValue]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === currentValue) return;
+
+    setSaving(true);
+    try {
+      await onSave(trimmed);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="e.g. FKF Division One, National Super League, Kenya Premier League"
+        className="flex-1 text-sm p-3 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      />
+      <button
+        type="submit"
+        disabled={saving || !value.trim() || value.trim() === currentValue}
+        className="shrink-0 inline-flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-900 text-yellow-400 font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl disabled:opacity-50 cursor-pointer"
+      >
+        {saving ? "Saving..." : "Save"}
+      </button>
+    </form>
+  );
+}
+
 export default function AdminPanel(props: AdminPanelProps) {
   const {
     activeTab,
+    handleUpdateLeagueName,
     adminArchivedOrders,
     adminAwayScore,
     adminBusy,
@@ -2796,6 +2846,22 @@ export default function AdminPanel(props: AdminPanelProps) {
                       ))}
                     </div>
                   </AdminCollapsibleSection>
+                )}
+
+                {adminRole === "admin" && (
+                  <div className="bg-white rounded-3xl border border-emerald-100 shadow-sm p-6 sm:p-8 space-y-5 max-w-2xl">
+                    <div className="space-y-1">
+                      <h3 className="font-black text-lg text-slate-950 flex items-center gap-2">
+                        <Award className="w-5 h-5 text-emerald-600" />
+                        Club League / Competition
+                      </h3>
+                      <p className="text-sm text-slate-600">
+                        This name is shown across the site (Match Centre, Squad, Shop, Donations). Update it here whenever the club moves divisions or leagues &mdash; no developer needed.
+                      </p>
+                    </div>
+
+                    <LeagueNameSettings currentValue={clubData.leagueName} onSave={handleUpdateLeagueName} />
+                  </div>
                 )}
 
                 {adminRole === "admin" && (

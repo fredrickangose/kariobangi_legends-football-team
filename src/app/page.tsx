@@ -172,6 +172,7 @@ export default async function HomePage({ searchParams }: PageProps) {
     gallery: clubDataResult.gallery || [],
     highlights: clubDataResult.highlights || [],
     management: clubDataResult.management || [],
+    leagueName: clubDataResult.leagueName || "FKF Division One",
   };
 
   const initialNewsId = Number(params.news);

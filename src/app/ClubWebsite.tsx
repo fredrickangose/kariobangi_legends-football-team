@@ -83,7 +83,6 @@ import {
   sortManagementMembers,
 } from "@/lib/management-roles";
 import {
-  COMPETITION_NAME,
   buildFixtureIcs,
   combineFixtureDateTime,
   formatKickoff,
@@ -175,6 +174,7 @@ import {
   trackOrder,
   getNotificationSetup,
   getClubData,
+  updateLeagueName,
   markOrderCashPaid,
   getMemberships,
   addAdminMembership,
@@ -318,6 +318,7 @@ interface ClubWebsiteProps {
     gallery: GalleryItem[];
     highlights: TeamHighlight[];
     management: ManagementMember[];
+    leagueName: string;
   };
   initialTab?: string;
   initialNewsId?: number | null;
@@ -3084,6 +3085,16 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
     const result = await getClubData();
     if (result.success && result.donations) {
       setClubData((prev) => ({ ...prev, donations: result.donations }));
+    }
+  };
+
+  const handleUpdateLeagueName = async (leagueName: string) => {
+    const res = await updateLeagueName(leagueName);
+    if (res.success && res.leagueName) {
+      setClubData((prev) => ({ ...prev, leagueName: res.leagueName! }));
+      showToast("League name updated across the site.");
+    } else {
+      showToast(res.error || "Unable to update league name.", "error");
     }
   };
 
@@ -7217,7 +7228,7 @@ useEffect(() => {
 
           <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-600/90 text-white text-[9px] sm:text-[10px] font-black uppercase tracking-widest shadow-lg">
             <Activity className="w-3.5 h-3.5 animate-pulse" />
-            FKF Division One
+            {clubData.leagueName}
           </span>
 
           <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/80 border border-white/10 text-slate-200 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest backdrop-blur-sm">
@@ -9329,7 +9340,7 @@ useEffect(() => {
             <div className="max-w-2xl space-y-2">
               <h2 className="text-3xl font-black text-slate-950 tracking-tight">Kariobangi Legends Squad</h2>
               <p className="text-sm text-slate-600">
-                Meet our local champions playing in Division One. These players are molded from the local neighborhoods and represent our pride on the field.
+                Meet our local champions playing in {clubData.leagueName}. These players are molded from the local neighborhoods and represent our pride on the field.
               </p>
             </div>
 
@@ -9501,7 +9512,7 @@ useEffect(() => {
                     </div>
                     <p className="text-sm text-slate-600 max-w-2xl">
                       Club legends and veteran players who turn out for Kariobangi Legends in friendly and
-                      community matches, kept separate from the competitive Division One squad above.
+                      community matches, kept separate from the competitive {clubData.leagueName} squad above.
                     </p>
 
                     <div className="flex flex-wrap gap-3">
@@ -9561,7 +9572,7 @@ useEffect(() => {
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
-                  {COMPETITION_NAME}
+                  {clubData.leagueName}
                 </span>
               </div>
               <h2 className="text-3xl font-black text-slate-950 tracking-tight">
@@ -10021,7 +10032,7 @@ useEffect(() => {
             <div className="max-w-2xl space-y-2">
               <h2 className="text-3xl font-black text-slate-950 tracking-tight">Official Fan Shop</h2>
               <p className="text-sm text-slate-600">
-                100% of profit goes directly toward sponsoring player boots, school scholarships, and match travel for our Division One squad.
+                100% of profit goes directly toward sponsoring player boots, school scholarships, and match travel for our {clubData.leagueName} squad.
               </p>
             </div>
 
@@ -10375,7 +10386,7 @@ useEffect(() => {
                     Donate to Kariobangi Legends FC
                   </h2>
                   <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
-                    Division One football demands more than passion. Your donation helps us provide
+                    {clubData.leagueName} football demands more than passion. Your donation helps us provide
                     boots, academy programmes, match travel, and daily training for young players
                     from Kariobangi North. Give in KES via M-Pesa or in USD, GBP, and EUR from abroad.
                     Membership is yearly support; a donation here is an extra gift today.
@@ -10629,7 +10640,7 @@ useEffect(() => {
                   <ul className="space-y-2 text-xs text-slate-600 leading-relaxed">
                     <li className="flex gap-2">
                       <span className="text-emerald-600 font-black">•</span>
-                      FKF Division One registration and league operations
+                      {clubData.leagueName} registration and league operations
                     </li>
                     <li className="flex gap-2">
                       <span className="text-emerald-600 font-black">•</span>
@@ -11307,6 +11318,7 @@ useEffect(() => {
         {activeTab === "admin" && (
           <AdminPanel
               activeTab={activeTab}
+              handleUpdateLeagueName={handleUpdateLeagueName}
               adminArchivedOrders={adminArchivedOrders}
               adminAwayScore={adminAwayScore}
               adminBusy={adminBusy}
@@ -11637,7 +11649,7 @@ useEffect(() => {
                 ) : (
                   <div className="space-y-4">
                     <p className="text-xs text-slate-400">
-                      Buying items directly finances the team&apos;s Division One league expenses.
+                      Buying items directly finances the team&apos;s {clubData.leagueName} league expenses.
                     </p>
 
                     <div className="space-y-3">

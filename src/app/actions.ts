@@ -16,6 +16,7 @@ import {
   orderItems,
   customers,
   memberships,
+  clubSettings,
 } from "@/db/schema";
 import { seedDatabaseIfNeeded } from "@/db/seed";
 import { desc, asc, eq, or, and, inArray, isNull, isNotNull } from "drizzle-orm";
@@ -75,6 +76,20 @@ async function requireNewsEditor() {
   return { ok: true as const, role: parseAdminSession(token)! };
 }
 
+const DEFAULT_LEAGUE_NAME = "FKF Division One";
+
+async function getOrCreateClubSettings() {
+  const [existing] = await db.select().from(clubSettings).limit(1);
+  if (existing) return existing;
+
+  const [created] = await db
+    .insert(clubSettings)
+    .values({ leagueName: DEFAULT_LEAGUE_NAME })
+    .returning();
+
+  return created;
+}
+
 export async function getClubData() {
   await ensureDatabaseSchema();
   await ensurePressAccount();
@@ -82,6 +97,7 @@ export async function getClubData() {
   await seedDatabaseIfNeeded();
 
   try {
+    const settings = await getOrCreateClubSettings();
     const allPlayers = await db.select().from(players).orderBy(asc(players.jerseyNumber));
     const allFixtures = await db.select().from(fixtures).orderBy(asc(fixtures.date));
     const allNews = await db.select().from(news).orderBy(desc(news.createdAt));
@@ -122,6 +138,7 @@ export async function getClubData() {
       gallery: allGallery,
       highlights: allHighlights,
       management: allManagement,
+      leagueName: settings.leagueName,
       success: true,
     };
   } catch (error) {
@@ -136,9 +153,41 @@ export async function getClubData() {
       gallery: [],
       highlights: [],
       management: [],
+      leagueName: DEFAULT_LEAGUE_NAME,
       success: false,
       error: String(error),
     };
+  }
+}
+
+export async function updateLeagueName(leagueName: string) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const trimmed = leagueName.trim();
+    if (!trimmed) {
+      return { success: false, error: "League/competition name is required." };
+    }
+
+    const existing = await getOrCreateClubSettings();
+
+    const [updated] = await db
+      .update(clubSettings)
+      .set({ leagueName: trimmed, updatedAt: new Date() })
+      .where(eq(clubSettings.id, existing.id))
+      .returning();
+
+    return {
+      success: true,
+      message: "League name updated across the site.",
+      leagueName: updated.leagueName,
+    };
+  } catch (error) {
+    console.error("Update league name failed:", error);
+    return { success: false, error: String(error) };
   }
 }
 

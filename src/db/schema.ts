@@ -122,6 +122,12 @@ export const adminSettings = pgTable("admin_settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const clubSettings = pgTable("club_settings", {
+  id: serial("id").primaryKey(),
+  leagueName: text("league_name").default("FKF Division One").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const pressAccounts = pgTable("press_accounts", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
