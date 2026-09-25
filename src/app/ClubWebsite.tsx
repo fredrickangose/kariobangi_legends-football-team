@@ -2001,6 +2001,8 @@ export default function ClubWebsite({
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [galleryCarouselIndex, setGalleryCarouselIndex] = useState(0);
   const [galleryCarouselPaused, setGalleryCarouselPaused] = useState(false);
+  const carouselDragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const carouselDidSwipeRef = useRef(false);
 
   useEffect(() => {
     setClubData(initialData);
@@ -2201,6 +2203,44 @@ useEffect(() => {
 
   return () => clearInterval(interval);
 }, [carouselGallery.length, galleryCarouselPaused]);
+
+  const goToPrevCarouselSlide = useCallback(() => {
+    setGalleryCarouselIndex((current) =>
+      current === 0 ? carouselGallery.length - 1 : current - 1
+    );
+  }, [carouselGallery.length]);
+
+  const goToNextCarouselSlide = useCallback(() => {
+    setGalleryCarouselIndex((current) =>
+      current === carouselGallery.length - 1 ? 0 : current + 1
+    );
+  }, [carouselGallery.length]);
+
+  const handleCarouselDragStart = useCallback((x: number, y: number) => {
+    carouselDragStartRef.current = { x, y };
+  }, []);
+
+  const handleCarouselDragEnd = useCallback(
+    (x: number, y: number) => {
+      const start = carouselDragStartRef.current;
+      carouselDragStartRef.current = null;
+      if (!start) return;
+
+      const deltaX = x - start.x;
+      const deltaY = y - start.y;
+
+      // Ignore mostly-vertical gestures (scrolling) and tiny/accidental drags.
+      if (Math.abs(deltaX) < 40 || Math.abs(deltaX) < Math.abs(deltaY)) return;
+
+      carouselDidSwipeRef.current = true;
+      if (deltaX > 0) {
+        goToPrevCarouselSlide();
+      } else {
+        goToNextCarouselSlide();
+      }
+    },
+    [goToPrevCarouselSlide, goToNextCarouselSlide]
+  );
 
   // Gallery filter state
   const [selectedGalleryCategory, setSelectedGalleryCategory] = useState<string>("All");
@@ -7514,11 +7554,27 @@ useEffect(() => {
       onMouseEnter={() => setGalleryCarouselPaused(true)}
       onMouseLeave={() => setGalleryCarouselPaused(false)}
     >
-      <div className="relative aspect-[4/3] sm:aspect-[16/10] bg-slate-950">
+      <div
+        className="relative aspect-[4/3] sm:aspect-[16/10] bg-slate-950 touch-pan-y cursor-grab active:cursor-grabbing select-none"
+        onTouchStart={(e) => handleCarouselDragStart(e.touches[0].clientX, e.touches[0].clientY)}
+        onTouchEnd={(e) => handleCarouselDragEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY)}
+        onPointerDown={(e) => {
+          if (e.pointerType === "touch") return;
+          handleCarouselDragStart(e.clientX, e.clientY);
+        }}
+        onPointerUp={(e) => {
+          if (e.pointerType === "touch") return;
+          handleCarouselDragEnd(e.clientX, e.clientY);
+        }}
+      >
           {carouselGallery.map((item, index) => (
             <div
               key={item.id}
               onClick={() => {
+                if (carouselDidSwipeRef.current) {
+                  carouselDidSwipeRef.current = false;
+                  return;
+                }
                 if (index !== safeGalleryCarouselIndex) return;
                 setActiveTab("gallery");
                 setSelectedGalleryImage(item);
@@ -7544,8 +7600,10 @@ useEffect(() => {
                 alt={item.caption || "Kariobangi Legends FC"}
                 fill
                 sizes="100vw"
-                className={`z-10 object-contain transition-transform duration-[4000ms] ease-out ${
-                  index === safeGalleryCarouselIndex ? "scale-100" : "scale-[1.04]"
+                className={`z-10 object-contain transition-transform ease-out ${
+                  index === safeGalleryCarouselIndex
+                    ? "scale-110 duration-[6000ms]"
+                    : "scale-100 duration-0"
                 }`}
               />
               <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-slate-950/0 group-hover/photo:bg-slate-950/20 transition-colors duration-300">
@@ -7589,11 +7647,7 @@ useEffect(() => {
             <>
               <button
                 type="button"
-                onClick={() =>
-                  setGalleryCarouselIndex((current) =>
-                    current === 0 ? carouselGallery.length - 1 : current - 1
-                  )
-                }
+                onClick={goToPrevCarouselSlide}
                 className="absolute left-3 top-1/2 z-30 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-yellow-400 hover:text-slate-950 sm:left-5 sm:h-12 sm:w-12"
                 aria-label="Previous photo"
               >
@@ -7601,11 +7655,7 @@ useEffect(() => {
               </button>
               <button
                 type="button"
-                onClick={() =>
-                  setGalleryCarouselIndex((current) =>
-                    current === carouselGallery.length - 1 ? 0 : current + 1
-                  )
-                }
+                onClick={goToNextCarouselSlide}
                 className="absolute right-3 top-1/2 z-30 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-yellow-400 hover:text-slate-950 sm:right-5 sm:h-12 sm:w-12"
                 aria-label="Next photo"
               >
@@ -7818,24 +7868,27 @@ useEffect(() => {
             className="group bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col"
           >
 
-            {/* News image — full photo visible, no cropping */}
-            <div className="relative bg-gradient-to-b from-slate-50 to-slate-100 border-b border-slate-100 overflow-hidden h-56 sm:h-60">
+            {/* News image — full-bleed, cropped to fill for a punchy editorial look */}
+            <div className="relative overflow-hidden h-56 sm:h-64">
               <Image
                 src={item.imageUrl}
                 alt={item.title}
                 fill
                 sizes="(min-width: 768px) 50vw, 100vw"
-                className="object-contain p-4 sm:p-5 group-hover:scale-[1.02] transition-transform duration-500 ease-out"
+                className="object-cover object-center group-hover:scale-[1.06] transition-transform duration-700 ease-out"
               />
 
+              {/* Mood gradient for legibility + depth */}
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/5 to-transparent" />
+
               {/* Category */}
-              <span className="absolute top-4 left-4 inline-flex items-center gap-1.5 bg-slate-950/90 text-yellow-400 text-[9px] font-black uppercase tracking-widest px-3 py-2 rounded-full backdrop-blur-sm">
-                <Activity className="w-3 h-3" />
+              <span className="absolute top-4 left-4 inline-flex items-center gap-1.5 bg-white/95 text-slate-950 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full shadow-md backdrop-blur-sm">
+                <Activity className="w-3 h-3 text-emerald-600" />
                 Official Update
               </span>
 
               {/* News number */}
-              <span className="absolute bottom-4 right-4 w-9 h-9 rounded-full bg-white/90 text-slate-950 flex items-center justify-center text-xs font-black shadow-lg">
+              <span className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-950/50 text-white flex items-center justify-center text-[11px] font-black backdrop-blur-sm ring-1 ring-white/20">
                 0{index + 1}
               </span>
 
