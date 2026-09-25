@@ -2299,6 +2299,14 @@ export default function ClubWebsite({
   const upcomingFixtures = fixtureGroups.upcoming;
   const recentFixtures = fixtureGroups.recent;
 
+  // The home hero should show a match actually happening right now over a
+  // future one — otherwise it skips straight past a live match to whatever
+  // comes after it, since "upcoming" deliberately excludes live fixtures.
+  const featuredFixture = fixtureGroups.live[0] ?? upcomingFixtures[0];
+  const featuredFixtureIsLive = Boolean(
+    featuredFixture && getEffectiveMatchStatus(featuredFixture) === "live"
+  );
+
   const filterByMatchType = useCallback(
     <T extends { matchType?: string | null }>(fixtures: T[]) =>
       matchTypeFilter === "all"
@@ -7368,21 +7376,21 @@ useEffect(() => {
             </section>
 
             {/* ================= NEXT MATCH ================= */}
-{upcomingFixtures.length > 0 && (
+{featuredFixture && (
   <section className="space-y-5">
 
     {/* Section heading */}
     <div className="flex items-end justify-between gap-4">
       <div>
         <div className="flex items-center gap-2 mb-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-emerald-600">
+          <span className={`w-2 h-2 rounded-full animate-pulse ${featuredFixtureIsLive ? "bg-rose-500" : "bg-emerald-500"}`} />
+          <span className={`text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] ${featuredFixtureIsLive ? "text-rose-600" : "text-emerald-600"}`}>
             Matchday
           </span>
         </div>
 
         <h2 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight">
-          Next Match
+          {featuredFixtureIsLive ? "Live Now" : "Next Match"}
         </h2>
       </div>
 
@@ -7409,21 +7417,21 @@ useEffect(() => {
 
         <div className="flex flex-wrap items-center justify-between gap-3">
 
-          {/* Next match badge */}
-          <span className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest shadow-lg">
+          {/* Next match / live badge */}
+          <span className={`inline-flex items-center gap-2 text-white px-4 py-2 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest shadow-lg ${featuredFixtureIsLive ? "bg-rose-600" : "bg-emerald-600"}`}>
             <Activity className="w-3.5 h-3.5 animate-pulse" />
-            Next Match
+            {featuredFixtureIsLive ? "Live Now" : "Next Match"}
           </span>
 
           {/* Home / Away */}
           <span
             className={`px-3 py-1.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest ${
-              upcomingFixtures[0].isHome
+              featuredFixture.isHome
                 ? "bg-yellow-400 text-slate-950"
                 : "bg-white/10 text-slate-200 border border-white/10"
             }`}
           >
-            {upcomingFixtures[0].isHome ? "Home Match" : "Away Match"}
+            {featuredFixture.isHome ? "Home Match" : "Away Match"}
           </span>
 
         </div>
@@ -7450,7 +7458,7 @@ useEffect(() => {
             </div>
 
             <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.25em] text-emerald-400 mb-2">
-              {upcomingFixtures[0].isHome ? "Home" : "Away"}
+              {featuredFixture.isHome ? "Home" : "Away"}
             </p>
 
             <h3 className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight">
@@ -7479,10 +7487,10 @@ useEffect(() => {
 
             {/* Opponent logo */}
             <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white border border-white/20 flex items-center justify-center shadow-xl mb-4 overflow-hidden p-2">
-              {upcomingFixtures[0].opponentLogoUrl ? (
+              {featuredFixture.opponentLogoUrl ? (
                 <Image
-                  src={upcomingFixtures[0].opponentLogoUrl}
-                  alt={`${upcomingFixtures[0].opponent} logo`}
+                  src={featuredFixture.opponentLogoUrl}
+                  alt={`${featuredFixture.opponent} logo`}
                   width={112}
                   height={112}
                   className="w-full h-full object-contain"
@@ -7497,7 +7505,7 @@ useEffect(() => {
             </p>
 
             <h3 className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight">
-              {upcomingFixtures[0].opponent}
+              {featuredFixture.opponent}
             </h3>
 
           </div>
@@ -7522,14 +7530,14 @@ useEffect(() => {
                 Kick-off
               </p>
               <p className="text-sm font-bold text-white">
-                {formatKickoff(upcomingFixtures[0].date)}
+                {formatKickoff(featuredFixture.date)}
               </p>
             </div>
           </div>
 
           {/* Venue */}
           <a
-            href={getGoogleDirectionsUrl(upcomingFixtures[0].venue)}
+            href={getGoogleDirectionsUrl(featuredFixture.venue)}
             target="_blank"
             rel="noopener noreferrer"
             title="Get directions on Google Maps"
@@ -7544,9 +7552,9 @@ useEffect(() => {
                 Venue
               </p>
               <p className="text-sm font-bold text-white truncate max-w-[180px] group-hover:underline">
-                {upcomingFixtures[0].venue}
+                {featuredFixture.venue}
               </p>
-              {isClubHomeVenue(upcomingFixtures[0].venue) && (
+              {isClubHomeVenue(featuredFixture.venue) && (
                 <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
                   {HOME_GROUND.landmark}, {HOME_GROUND.constituency}
                 </p>
@@ -7565,7 +7573,7 @@ useEffect(() => {
                 Status
               </p>
               <p className="text-sm font-bold text-white capitalize">
-                {getMatchStatusMeta(upcomingFixtures[0]).label}
+                {getMatchStatusMeta(featuredFixture).label}
               </p>
             </div>
           </div>
@@ -7575,7 +7583,21 @@ useEffect(() => {
       </div>
 
       <div className="relative z-10 px-5 sm:px-8 pt-4">
-        <MatchCountdown date={upcomingFixtures[0].date} />
+        {featuredFixtureIsLive ? (
+          <button
+            type="button"
+            onClick={() => setActiveTab("fixtures")}
+            className="w-full flex items-center justify-center gap-3 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-4 sm:px-5 text-rose-300 hover:bg-rose-500/15 transition cursor-pointer"
+          >
+            <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
+            <span className="text-sm font-bold">
+              Match in progress — follow live updates in the Match Centre
+            </span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        ) : (
+          <MatchCountdown date={featuredFixture.date} />
+        )}
       </div>
 
       <div className="relative z-10 px-5 sm:px-8 pb-2">
@@ -7584,10 +7606,10 @@ useEffect(() => {
             Match preview
           </p>
           <p className="text-sm text-slate-200 leading-relaxed">
-            {getMatchTypeMeta(upcomingFixtures[0].matchType).label}{" "}
-            {upcomingFixtures[0].isHome ? "at home" : "on the road"} against{" "}
-            {upcomingFixtures[0].opponent}. Kick-off {formatKickoff(upcomingFixtures[0].date)} at{" "}
-            {upcomingFixtures[0].venue}.
+            {getMatchTypeMeta(featuredFixture.matchType).label}{" "}
+            {featuredFixture.isHome ? "at home" : "on the road"} against{" "}
+            {featuredFixture.opponent}. Kick-off {formatKickoff(featuredFixture.date)} at{" "}
+            {featuredFixture.venue}.
             {recentForm.length > 0
               ? ` Recent league form: ${recentForm
                   .map((result) => getResultLabel(result))
@@ -7610,9 +7632,9 @@ useEffect(() => {
         </button>
 
         <GetDirectionsLink
-          venue={upcomingFixtures[0].venue}
+          venue={featuredFixture.venue}
           variant="outline-dark"
-          label={upcomingFixtures[0].isHome ? "Directions to the Ground" : "Directions to Venue"}
+          label={featuredFixture.isHome ? "Directions to the Ground" : "Directions to Venue"}
           className="w-full py-4 text-xs sm:text-sm"
         />
 
