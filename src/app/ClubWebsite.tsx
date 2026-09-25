@@ -2257,10 +2257,24 @@ export default function ClubWebsite({
     return links;
   }, [managementGrouped]);
 
+  // Ticks periodically so fixture status (upcoming -> live -> completed,
+  // derived purely from kickoff time) re-evaluates on an already-open page
+  // instead of freezing at whatever it was when the page first loaded.
+  const [liveStatusTick, setLiveStatusTick] = useState(0);
+  useEffect(() => {
+    const interval = window.setInterval(() => setLiveStatusTick((t) => t + 1), 60000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const todayString = useMemo(() => {
     const today = new Date();
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  }, []);
+    // Recomputed on every tick even though the resulting string is often
+    // unchanged — that's fine, it's cheap. What matters is that anything
+    // downstream keying off liveStatusTick directly (not just this string)
+    // is guaranteed to re-run even when the calendar day hasn't rolled over.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveStatusTick]);
 
   const mainSquadFixtures = useMemo(
     () => clubData.fixtures.filter((fixture) => normalizeSquadTeam(fixture.squadTeam) === "main"),
@@ -2274,12 +2288,16 @@ export default function ClubWebsite({
 
   const fixtureGroups = useMemo(
     () => partitionFixtures(mainSquadFixtures, todayString),
-    [mainSquadFixtures, todayString]
+    // liveStatusTick guarantees a re-derive even when todayString's value
+    // (a date-only string) hasn't itself changed since the last tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mainSquadFixtures, todayString, liveStatusTick]
   );
 
   const wazeeFixtureGroups = useMemo(
     () => partitionFixtures(wazeeFixtures, todayString),
-    [wazeeFixtures, todayString]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wazeeFixtures, todayString, liveStatusTick]
   );
 
   const seasonStats = useMemo(
@@ -7418,8 +7436,12 @@ useEffect(() => {
         <div className="flex flex-wrap items-center justify-between gap-3">
 
           {/* Next match / live badge */}
-          <span className={`inline-flex items-center gap-2 text-white px-4 py-2 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest shadow-lg ${featuredFixtureIsLive ? "bg-rose-600" : "bg-emerald-600"}`}>
-            <Activity className="w-3.5 h-3.5 animate-pulse" />
+          <span
+            className={`inline-flex items-center gap-2 text-white px-4 py-2 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest shadow-lg ${
+              featuredFixtureIsLive ? "bg-rose-600 animate-pulse" : "bg-emerald-600"
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" />
             {featuredFixtureIsLive ? "Live Now" : "Next Match"}
           </span>
 
