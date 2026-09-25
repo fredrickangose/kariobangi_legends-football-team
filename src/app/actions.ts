@@ -4,6 +4,7 @@ import { db, ensureDatabaseSchema } from "@/db";
 import {
   players,
   fixtures,
+  matchUpdates,
   news,
   merchandise,
   donations,
@@ -723,6 +724,8 @@ export async function deleteFixture(fixtureId: number) {
       await deleteUploadedMedia(deleted.opponentLogoUrl);
     }
 
+    await db.delete(matchUpdates).where(eq(matchUpdates.fixtureId, fixtureId));
+
     return {
       success: true,
       message: "Fixture deleted successfully!",
@@ -735,6 +738,76 @@ export async function deleteFixture(fixtureId: number) {
     };
   }
 }
+
+// ========== LIVE MATCH COMMENTARY ==========
+
+export async function getMatchUpdates(fixtureId: number) {
+  try {
+    const updates = await db
+      .select()
+      .from(matchUpdates)
+      .where(eq(matchUpdates.fixtureId, fixtureId))
+      .orderBy(desc(matchUpdates.createdAt));
+
+    return { success: true, updates };
+  } catch (error) {
+    console.error("Get match updates failed:", error);
+    return { success: false, error: String(error), updates: [] };
+  }
+}
+
+export async function addMatchUpdate(data: {
+  fixtureId: number;
+  minute: string;
+  eventType?: string;
+  message: string;
+}) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    const minute = data.minute.trim();
+    const message = data.message.trim();
+
+    if (!minute || !message) {
+      return { success: false, error: "Minute and update text are required." };
+    }
+
+    const [update] = await db
+      .insert(matchUpdates)
+      .values({
+        fixtureId: data.fixtureId,
+        minute,
+        eventType: data.eventType || "note",
+        message,
+      })
+      .returning();
+
+    return { success: true, message: "Update posted.", update };
+  } catch (error) {
+    console.error("Add match update failed:", error);
+    return { success: false, error: String(error) };
+  }
+}
+
+export async function deleteMatchUpdate(updateId: number) {
+  try {
+    const auth = await requireFullAdmin();
+    if (!auth.ok) {
+      return { success: false, error: auth.error };
+    }
+
+    await db.delete(matchUpdates).where(eq(matchUpdates.id, updateId));
+
+    return { success: true, message: "Update removed.", updateId };
+  } catch (error) {
+    console.error("Delete match update failed:", error);
+    return { success: false, error: String(error) };
+  }
+}
+
 // ========== NEWS ==========
 
 export async function addNews(data: {

@@ -164,6 +164,9 @@ import {
   addFixture,
   updateFixture,
   deleteFixture,
+  getMatchUpdates,
+  addMatchUpdate,
+  deleteMatchUpdate,
   getOrders,
   updateOrderStatus,
   markAdminOrdersSeen,
@@ -1945,9 +1948,157 @@ function MatchFixtureCard({
       </div>
 
       {mode === "live" && (
-        <div className="px-4 py-2 bg-rose-50 border-t border-rose-100 text-[10px] font-bold uppercase tracking-wider text-rose-700">
-          Match in progress · {statusMeta.label}
+        <>
+          <div className="px-4 py-2 bg-rose-50 border-t border-rose-100 text-[10px] font-bold uppercase tracking-wider text-rose-700">
+            Match in progress · {statusMeta.label}
+          </div>
+          <LiveMatchFeed
+            fixtureId={fixture.id}
+            canManage={isAdminAuthenticated}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+const MATCH_EVENT_ICONS: Record<string, string> = {
+  goal: "⚽",
+  card: "🟨",
+  sub: "🔁",
+  kickoff: "🏁",
+  fulltime: "🔚",
+  note: "📝",
+};
+
+function LiveMatchFeed({
+  fixtureId,
+  canManage,
+}: {
+  fixtureId: number;
+  canManage: boolean;
+}) {
+  const [updates, setUpdates] = useState<
+    { id: number; minute: string; eventType: string; message: string }[]
+  >([]);
+  const [loaded, setLoaded] = useState(false);
+  const [minuteInput, setMinuteInput] = useState("");
+  const [eventTypeInput, setEventTypeInput] = useState("note");
+  const [messageInput, setMessageInput] = useState("");
+  const [posting, setPosting] = useState(false);
+
+  const loadUpdates = useCallback(async () => {
+    const res = await getMatchUpdates(fixtureId);
+    if (res.success) {
+      setUpdates(res.updates as typeof updates);
+    }
+    setLoaded(true);
+  }, [fixtureId]);
+
+  useEffect(() => {
+    loadUpdates();
+    const interval = setInterval(loadUpdates, 20000);
+    return () => clearInterval(interval);
+  }, [loadUpdates]);
+
+  const handlePost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!minuteInput.trim() || !messageInput.trim()) return;
+
+    setPosting(true);
+    try {
+      const res = await addMatchUpdate({
+        fixtureId,
+        minute: minuteInput.trim(),
+        eventType: eventTypeInput,
+        message: messageInput.trim(),
+      });
+      if (res.success) {
+        setMinuteInput("");
+        setMessageInput("");
+        await loadUpdates();
+      }
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    setUpdates((prev) => prev.filter((u) => u.id !== id));
+    await deleteMatchUpdate(id);
+  };
+
+  return (
+    <div className="border-t border-rose-100 bg-white">
+      {loaded && updates.length === 0 && !canManage ? null : (
+        <div className="px-4 py-3 space-y-2 max-h-56 overflow-y-auto">
+          {updates.length === 0 ? (
+            <p className="text-[11px] text-slate-400 italic">
+              No updates posted yet.
+            </p>
+          ) : (
+            updates.map((u) => (
+              <div key={u.id} className="flex items-start gap-2 text-xs group/update">
+                <span className="shrink-0 font-black text-rose-600 tabular-nums w-10">
+                  {u.minute}
+                </span>
+                <span className="shrink-0">{MATCH_EVENT_ICONS[u.eventType] || "📝"}</span>
+                <span className="text-slate-700 flex-1">{u.message}</span>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(u.id)}
+                    className="opacity-0 group-hover/update:opacity-100 text-slate-300 hover:text-rose-600 transition"
+                    aria-label="Delete update"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            ))
+          )}
         </div>
+      )}
+
+      {canManage && (
+        <form
+          onSubmit={handlePost}
+          className="px-4 py-3 border-t border-slate-100 bg-slate-50 flex flex-wrap gap-2 items-center"
+        >
+          <input
+            type="text"
+            placeholder="Min"
+            value={minuteInput}
+            onChange={(e) => setMinuteInput(e.target.value)}
+            className="w-14 text-xs p-2 rounded-lg border border-slate-200 bg-white"
+          />
+          <select
+            value={eventTypeInput}
+            onChange={(e) => setEventTypeInput(e.target.value)}
+            className="text-xs p-2 rounded-lg border border-slate-200 bg-white"
+          >
+            <option value="note">Note</option>
+            <option value="goal">Goal</option>
+            <option value="card">Card</option>
+            <option value="sub">Substitution</option>
+            <option value="kickoff">Kick-off</option>
+            <option value="fulltime">Full-time</option>
+          </select>
+          <input
+            type="text"
+            placeholder="What happened?"
+            value={messageInput}
+            onChange={(e) => setMessageInput(e.target.value)}
+            className="flex-1 min-w-[140px] text-xs p-2 rounded-lg border border-slate-200 bg-white"
+          />
+          <button
+            type="submit"
+            disabled={posting || !minuteInput.trim() || !messageInput.trim()}
+            className="text-[10px] font-black uppercase tracking-wider bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg disabled:opacity-50 cursor-pointer"
+          >
+            {posting ? "Posting..." : "Post"}
+          </button>
+        </form>
       )}
     </div>
   );

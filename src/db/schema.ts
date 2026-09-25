@@ -26,6 +26,15 @@ export const fixtures = pgTable("fixtures", {
   squadTeam: text("squad_team").default("main").notNull(), // 'main', 'wazee'
 });
 
+export const matchUpdates = pgTable("match_updates", {
+  id: serial("id").primaryKey(),
+  fixtureId: integer("fixture_id").notNull(),
+  minute: text("minute").notNull(), // e.g. "23'", "HT", "45+2'"
+  eventType: text("event_type").default("note").notNull(), // 'goal', 'card', 'sub', 'note', 'kickoff', 'fulltime'
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const news = pgTable("news", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
