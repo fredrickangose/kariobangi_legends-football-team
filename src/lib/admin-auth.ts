@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { adminSettings, pressAccounts } from "@/db/schema";
 import { hashPassword, verifyPassword } from "@/lib/customer-auth";
 import { normalizeKenyaPhone } from "@/lib/order-tracking";
-import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
+import { ADMIN_SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
 
 export type AdminRole = "admin" | "news_editor";
 
@@ -53,7 +53,7 @@ export function parseAdminSession(token: string | undefined): AdminRole | null {
 
   const issuedAt = Number(issuedAtRaw);
 
-  if (!Number.isFinite(issuedAt) || Date.now() - issuedAt > SESSION_MAX_AGE_SECONDS * 1000) {
+  if (!Number.isFinite(issuedAt) || Date.now() - issuedAt > ADMIN_SESSION_MAX_AGE_SECONDS * 1000) {
     return null;
   }
 

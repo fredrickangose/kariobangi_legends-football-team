@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { db } from "@/db";
 import { adminSettings } from "@/db/schema";
 import { createAdminToken, verifyAdminPassword } from "@/lib/admin-auth";
-import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
+import { ADMIN_SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
 import {
   clearFailedAttempts,
   getClientIp,
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: SESSION_MAX_AGE_SECONDS,
+      maxAge: ADMIN_SESSION_MAX_AGE_SECONDS,
     });
 
     return response;

@@ -9,7 +9,7 @@ import {
   refreshAdminToken,
   verifyAdminToken,
 } from "@/lib/admin-auth";
-import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
+import { ADMIN_SESSION_MAX_AGE_SECONDS, SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
 
 export async function GET() {
   try {
@@ -85,7 +85,7 @@ export async function POST() {
           secure: process.env.NODE_ENV === "production",
           sameSite: "lax",
           path: "/",
-          maxAge: SESSION_MAX_AGE_SECONDS,
+          maxAge: ADMIN_SESSION_MAX_AGE_SECONDS,
         });
       }
     }
