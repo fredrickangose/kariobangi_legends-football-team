@@ -7067,14 +7067,23 @@ useEffect(() => {
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className={`lg:hidden w-11 h-11 flex items-center justify-center rounded-xl border transition-all duration-200 cursor-pointer ${
+                className={`lg:hidden relative w-11 h-11 flex items-center justify-center rounded-xl border transition-all duration-200 cursor-pointer ${
                   mobileMenuOpen
                     ? "border-slate-950 bg-slate-950 text-yellow-400"
                     : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-950"
                 }`}
-                aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+                aria-label={
+                  mobileMenuOpen
+                    ? "Close navigation menu"
+                    : hasLiveFixture
+                      ? "Open navigation menu — match live now"
+                      : "Open navigation menu"
+                }
               >
                 {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                {hasLiveFixture && !mobileMenuOpen && (
+                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-rose-500 ring-2 ring-white animate-pulse" />
+                )}
               </button>
             </div>
 
@@ -7123,6 +7132,11 @@ useEffect(() => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {[
                         { id: "home", label: "Home", icon: Home },
+                        {
+                          id: "fixtures",
+                          label: hasLiveFixture ? "Matches — Live Now" : "Matches",
+                          icon: CalendarDays,
+                        },
                         ...(navAccountAction.signedIn
                           ? [
                               {
@@ -7141,6 +7155,7 @@ useEffect(() => {
                       ].map((tab) => {
                         const Icon = tab.icon;
                         const isActive = activeTab === tab.id;
+                        const isLiveMatches = tab.id === "fixtures" && hasLiveFixture;
                         return (
                           <button
                             type="button"
@@ -7148,14 +7163,21 @@ useEffect(() => {
                             onClick={() =>
                               tab.id === "account" ? openAccountTab() : goToTab(tab.id)
                             }
-                            className={`flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                            className={`relative flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border transition-all ${
                               isActive
-                                ? "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
-                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                                ? isLiveMatches
+                                  ? "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/20"
+                                  : "bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20"
+                                : isLiveMatches
+                                  ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
+                                  : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
                             }`}
                           >
                             <Icon className="w-4 h-4 shrink-0" />
                             <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
+                            {isLiveMatches && !isActive && (
+                              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                            )}
                           </button>
                         );
                       })}
@@ -7164,7 +7186,7 @@ useEffect(() => {
 
                   <MobileNavSection
                     title="Club"
-                    subtitle="Story, leadership, squad, and matches"
+                    subtitle="Story, leadership, and squad"
                     activeTab={activeTab}
                     onNavigate={goToTab}
                     items={[
@@ -7185,12 +7207,6 @@ useEffect(() => {
                         label: "Squad",
                         description: "First team and youth players",
                         icon: Users,
-                      },
-                      {
-                        id: "fixtures",
-                        label: "Matches",
-                        description: "Fixtures and results",
-                        icon: CalendarDays,
                       },
                     ]}
                   />
