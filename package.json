@@ -1,25 +1,25 @@
 {
   "name": "nextjs-postgresql-template",
   "private": true,
- "scripts": {
-  "dev": "next dev",
-  "build": "next build",
-  "start": "next start",
-  "lint": "eslint .",
-  "typecheck": "tsc --noEmit",
-  "db:push": "drizzle-kit push",
-  "db:fix-fixtures-logo": "node scripts/migrate-fixtures-logo.mjs",
-  "db:fix-fixtures-match-type": "node scripts/migrate-fixtures-match-type.mjs",
-  "db:fix-account-messages": "node scripts/migrate-account-messages.mjs",
-  "db:clear-squad-management": "node scripts/clear-squad-management.mjs",
-  "db:clear-merchandise": "node scripts/clear-merchandise.mjs"
-},
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "db:push": "drizzle-kit push",
+    "db:fix-fixtures-logo": "node scripts/migrate-fixtures-logo.mjs",
+    "db:fix-fixtures-match-type": "node scripts/migrate-fixtures-match-type.mjs",
+    "db:fix-account-messages": "node scripts/migrate-account-messages.mjs",
+    "db:clear-squad-management": "node scripts/clear-squad-management.mjs",
+    "db:clear-merchandise": "node scripts/clear-merchandise.mjs"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
     "dotenv": "17.3.1",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.33.0",
-    "next": "^16.3.2",
+    "next": "^16.3.6",
     "pg": "8.20.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
@@ -33,7 +33,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
-    "postcss": "8.5.8",
+    "postcss": "8.5.28",
     "tailwindcss": "4.1.17",
     "typescript": "5.9.3"
   }
