@@ -29,6 +29,7 @@ export async function POST(request: Request) {
     const phone = String(body.phone || "").trim();
     const name = String(body.name || "").trim();
     const deliveryAddress = String(body.deliveryAddress || "").trim();
+    const note = String(body.note || "").trim().slice(0, 500);
     const cart = Array.isArray(body.cart)
       ? (body.cart as CheckoutCartItem[])
       : [];
@@ -129,6 +130,7 @@ export async function POST(request: Request) {
         customerName: name,
         phone,
         deliveryAddress,
+        note,
         amount,
         paymentMethod: "mpesa",
         cart: validatedCart,

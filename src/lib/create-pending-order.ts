@@ -8,6 +8,7 @@ export async function createPendingOrder(input: {
   customerName: string;
   phone: string;
   deliveryAddress: string;
+  note?: string;
   amount: number;
   paymentMethod: "mpesa" | "cash";
   cart: CheckoutCartItem[];
@@ -27,6 +28,7 @@ export async function createPendingOrder(input: {
       paymentMethod: input.paymentMethod,
       paymentStatus: "pending",
       deliveryAddress: input.deliveryAddress,
+      orderNote: input.note?.trim() || null,
     })
     .returning({ id: orders.id });
 

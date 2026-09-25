@@ -163,6 +163,7 @@ export const orders = pgTable("orders", {
   transactionDate: text("transaction_date"),
 
   deliveryAddress: text("delivery_address"),
+  orderNote: text("order_note"),
 
   adminSeenAt: timestamp("admin_seen_at"),
   archivedAt: timestamp("archived_at"),

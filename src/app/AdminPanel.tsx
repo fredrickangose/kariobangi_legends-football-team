@@ -3404,6 +3404,18 @@ export default function AdminPanel(props: AdminPanelProps) {
                     </div>
                   )}
 
+                  {order.orderNote && (
+                    <div className="sm:col-span-2 rounded-lg bg-amber-50 border border-amber-100 px-2.5 py-2">
+                      <span className="text-amber-700 block text-[10px] font-black uppercase tracking-wider">
+                        Fan Note
+                      </span>
+
+                      <span className="font-semibold text-amber-900 whitespace-pre-wrap">
+                        {order.orderNote}
+                      </span>
+                    </div>
+                  )}
+
                   <div>
                     <span className="text-slate-400 block">
                       Payment Method

@@ -2269,6 +2269,7 @@ useEffect(() => {
   // Checkout states
   const [checkoutName, setCheckoutName] = useState<string>("");
   const [checkoutDeliveryAddress, setCheckoutDeliveryAddress] = useState<string>("");
+  const [checkoutNote, setCheckoutNote] = useState<string>("");
   const [checkoutPhone, setCheckoutPhone] = useState<string>("");
   const [checkoutMethod, setCheckoutMethod] = useState<"mpesa" | "cash">("mpesa");
   const [cartCustomizations, setCartCustomizations] = useState<
@@ -3137,6 +3138,7 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
             amount: cartTotal,
             name: checkoutName,
             deliveryAddress: checkoutDeliveryAddress.trim(),
+            note: checkoutNote.trim(),
             cart: checkoutCart,
           }),
         });
@@ -3182,6 +3184,7 @@ const [updatingManagementRoleId, setUpdatingManagementRoleId] = useState<number 
             amount: cartTotal,
             name: checkoutName,
             deliveryAddress: checkoutDeliveryAddress.trim(),
+            note: checkoutNote.trim(),
             cart: checkoutCart,
           }),
         });
@@ -11542,6 +11545,22 @@ useEffect(() => {
     <span className="text-[8px] text-slate-400 block">
       Include area, landmark, and phone contact if someone else will receive the order.
     </span>
+  </div>
+
+  {/* Order Note */}
+  <div className="space-y-1">
+    <label className="text-[9px] text-slate-400 font-bold uppercase block">
+      Order Note (optional)
+    </label>
+
+    <textarea
+      rows={2}
+      maxLength={500}
+      placeholder="Anything else we should know? e.g. preferred delivery time, a gift message..."
+      value={checkoutNote}
+      onChange={(e) => setCheckoutNote(e.target.value)}
+      className="w-full text-xs p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 resize-none"
+    />
   </div>
 
   {/* Jersey personalization */}
