@@ -106,8 +106,40 @@ export function normalizeMatchStatus(status: string): MatchStatusValue {
   return "upcoming";
 }
 
-export function getMatchStatusMeta(status: string) {
-  const value = normalizeMatchStatus(status);
+/** A match is treated as finished 120 minutes after kickoff if no result has been recorded yet. */
+export const LIVE_MATCH_DURATION_MS = 120 * 60 * 1000;
+
+/**
+ * The status actually shown to fans: derived from kickoff time rather than
+ * relying on an admin to manually flip Upcoming -> Live -> Full Time.
+ * Postponed/cancelled/completed are admin-set states that time can't
+ * override — once an admin explicitly confirms Full Time, it stays that
+ * way regardless of the clock.
+ */
+export function getEffectiveMatchStatus(fixture: FixtureLike): MatchStatusValue {
+  const raw = normalizeMatchStatus(fixture.status);
+
+  if (raw === "postponed" || raw === "cancelled" || raw === "completed") {
+    return raw;
+  }
+
+  if (!hasKickoffTime(fixture.date)) {
+    return raw;
+  }
+
+  const kickoff = parseFixtureDate(fixture.date);
+  if (!kickoff) return raw;
+
+  const now = Date.now();
+  const kickoffMs = kickoff.getTime();
+
+  if (now < kickoffMs) return "upcoming";
+  if (now < kickoffMs + LIVE_MATCH_DURATION_MS) return "live";
+  return "completed";
+}
+
+export function getMatchStatusMeta(fixture: FixtureLike) {
+  const value = getEffectiveMatchStatus(fixture);
   return MATCH_STATUSES.find((entry) => entry.value === value) ?? MATCH_STATUSES[0];
 }
 
@@ -151,7 +183,7 @@ export function getLegendsScore(fixture: FixtureLike): {
 }
 
 export function isFixtureFinished(fixture: FixtureLike): boolean {
-  const status = normalizeMatchStatus(fixture.status);
+  const status = getEffectiveMatchStatus(fixture);
   return (
     status === "completed" ||
     status === "cancelled" ||
@@ -466,7 +498,7 @@ export function combineFixtureDateTime(date: string, time?: string): string {
 
 export function partitionFixtures(fixtures: FixtureLike[], todayString: string) {
   const live = fixtures
-    .filter((fixture) => normalizeMatchStatus(fixture.status) === "live")
+    .filter((fixture) => getEffectiveMatchStatus(fixture) === "live")
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const upcoming = fixtures
@@ -474,7 +506,7 @@ export function partitionFixtures(fixtures: FixtureLike[], todayString: string) 
       (fixture) =>
         fixture.date >= todayString &&
         !isFixtureFinished(fixture) &&
-        normalizeMatchStatus(fixture.status) !== "live"
+        getEffectiveMatchStatus(fixture) !== "live"
     )
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -483,7 +515,7 @@ export function partitionFixtures(fixtures: FixtureLike[], todayString: string) 
       (fixture) =>
         isFixtureFinished(fixture) ||
         fixture.date < todayString ||
-        normalizeMatchStatus(fixture.status) === "completed"
+        getEffectiveMatchStatus(fixture) === "completed"
     )
     .sort((a, b) => b.date.localeCompare(a.date));
 

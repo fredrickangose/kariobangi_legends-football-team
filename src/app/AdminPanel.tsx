@@ -1847,6 +1847,11 @@ export default function AdminPanel(props: AdminPanelProps) {
                               </option>
                             ))}
                           </select>
+                          <p className="text-[10px] text-slate-500">
+                            Leave as Upcoming — the site auto-switches it to Live at kick-off, then
+                            Full Time 120 minutes later. Only change this manually for Postponed/Cancelled,
+                            or to confirm the final score early.
+                          </p>
                         </div>
                         <div className="space-y-1">
                           <label className="font-bold text-slate-500">Home/Away</label>

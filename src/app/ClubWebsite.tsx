@@ -89,6 +89,7 @@ import {
   formatKickoff,
   getMatchCountdown,
   hasKickoffTime,
+  getEffectiveMatchStatus,
   getHomeAwayTeams,
   getMatchResult,
   getMatchStatusMeta,
@@ -106,6 +107,7 @@ import {
   getSquadTeamMeta,
   toFixtureDateInputValue,
   toFixtureTimeInputValue,
+  type FixtureLike,
   type MatchTypeValue,
   type TeamDisplay,
 } from "@/lib/match-fixtures";
@@ -1610,13 +1612,13 @@ function TeamLogo({
 }
 
 function MatchStatusPill({
-  status,
+  fixture,
   pulseLive = false,
 }: {
-  status: string;
+  fixture: FixtureLike;
   pulseLive?: boolean;
 }) {
-  const meta = getMatchStatusMeta(status);
+  const meta = getMatchStatusMeta(fixture);
   const isLive = meta.value === "live";
 
   return (
@@ -1792,7 +1794,7 @@ function MatchScoreboard({
                 : "px-3 py-1.5 bg-slate-100 text-slate-500 text-[10px] tracking-wider"
             }`}
           >
-            {normalizeMatchStatus(fixture.status) === "live" ? "LIVE" : "VS"}
+            {getEffectiveMatchStatus(fixture) === "live" ? "LIVE" : "VS"}
           </div>
         )}
         {!isCompact && (
@@ -1831,10 +1833,6 @@ function MatchScoreboard({
   );
 }
 
-function normalizeMatchStatus(status: string) {
-  return getMatchStatusMeta(status).value;
-}
-
 function MatchFixtureCard({
   fixture,
   mode,
@@ -1854,7 +1852,7 @@ function MatchFixtureCard({
 }) {
   const result = getMatchResult(fixture);
   const tone = getResultTone(result);
-  const statusMeta = getMatchStatusMeta(fixture.status);
+  const statusMeta = getMatchStatusMeta(fixture);
 
   return (
     <div
@@ -1877,7 +1875,7 @@ function MatchFixtureCard({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <MatchStatusPill status={fixture.status} pulseLive={mode === "live"} />
+          <MatchStatusPill fixture={fixture} pulseLive={mode === "live"} />
           {mode === "result" && result && (
             <span
               className={`text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-full ${tone.badge}`}
@@ -7413,7 +7411,7 @@ useEffect(() => {
                 Status
               </p>
               <p className="text-sm font-bold text-white capitalize">
-                {getMatchStatusMeta(upcomingFixtures[0].status).label}
+                {getMatchStatusMeta(upcomingFixtures[0]).label}
               </p>
             </div>
           </div>
@@ -9455,7 +9453,7 @@ useEffect(() => {
                         {getMatchTypeMeta(fixtureGroups.nextMatch.matchType).label}
                       </span>
                     </div>
-                    <MatchStatusPill status={fixtureGroups.nextMatch.status} />
+                    <MatchStatusPill fixture={fixtureGroups.nextMatch} />
                   </div>
                   <MatchScoreboard fixture={fixtureGroups.nextMatch} variant="hero" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-white/10">
