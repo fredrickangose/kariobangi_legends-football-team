@@ -84,6 +84,7 @@ export const TECHNICAL_ROLE_GROUPS = [
       "Assistant Kit Manager",
       "Grounds Official",
       "Team Driver",
+      "Camera Man",
     ],
   },
 ] as const;
