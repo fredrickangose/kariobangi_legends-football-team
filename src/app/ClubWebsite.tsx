@@ -4716,14 +4716,30 @@ useEffect(() => {
   }
 }, [activeTab, isAdminAuthenticated, adminRole]);
 
-// Surface matches that finished while the admin was away, right when they
-// log in, so results get confirmed promptly instead of sitting stale.
+// Surface matches that need a final score — right at login, and again if a
+// match crosses into "ended" partway through an already-open admin session
+// (pendingResultFixtures re-derives every ~60s off the live-status tick).
+// notifiedPendingFixtureIdsRef stops it from re-popping for a match the
+// admin already saw and dismissed this session.
+const notifiedPendingFixtureIdsRef = useRef<Set<number>>(new Set());
+
 useEffect(() => {
-  if (isAdminAuthenticated && adminRole === "admin" && pendingResultFixtures.length > 0) {
-    setShowPendingResultsModal(true);
+  if (!isAdminAuthenticated) {
+    notifiedPendingFixtureIdsRef.current = new Set();
   }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [isAdminAuthenticated, adminRole]);
+}, [isAdminAuthenticated]);
+
+useEffect(() => {
+  if (!isAdminAuthenticated || adminRole !== "admin") return;
+
+  const newlyPending = pendingResultFixtures.filter(
+    (fixture) => !notifiedPendingFixtureIdsRef.current.has(fixture.id)
+  );
+  if (newlyPending.length === 0) return;
+
+  newlyPending.forEach((fixture) => notifiedPendingFixtureIdsRef.current.add(fixture.id));
+  setShowPendingResultsModal(true);
+}, [isAdminAuthenticated, adminRole, pendingResultFixtures]);
 
 useEffect(() => {
   if (adminRole === "news_editor") {
@@ -7294,7 +7310,7 @@ useEffect(() => {
                 onClick={() =>
                   navAccountAction.signedIn ? openAccountTab() : goToTab("account")
                 }
-                className={`flex items-center gap-2 border font-bold text-[10px] uppercase tracking-wider px-2.5 sm:px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer shrink-0 ${
+                className={`relative flex items-center gap-2 border font-bold text-[10px] uppercase tracking-wider px-2.5 sm:px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer shrink-0 ${
                   navAccountIsActive
                     ? navAccountAction.kind === "admin" || navAccountAction.kind === "press"
                       ? "border-slate-800 bg-slate-950 text-yellow-400 shadow-md shadow-slate-950/20"
@@ -7307,7 +7323,11 @@ useEffect(() => {
                           ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
                           : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50"
                 }`}
-                title={navAccountAction.title}
+                title={
+                  navAccountAction.kind === "admin" && pendingResultFixtures.length > 0
+                    ? `${pendingResultFixtures.length} match${pendingResultFixtures.length !== 1 ? "es" : ""} need a final score`
+                    : navAccountAction.title
+                }
               >
                 {navAccountAction.kind === "admin" ? (
                   <Settings className="w-4 h-4 shrink-0" />
@@ -7315,6 +7335,11 @@ useEffect(() => {
                   <User className="w-4 h-4 shrink-0" />
                 )}
                 <span className="max-lg:sr-only">{navAccountAction.label}</span>
+                {navAccountAction.kind === "admin" && pendingResultFixtures.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 bg-rose-500 text-white font-black text-[9px] rounded-full flex items-center justify-center ring-2 ring-white shadow-sm">
+                    {pendingResultFixtures.length}
+                  </span>
+                )}
               </button>
 
               <button
@@ -7433,6 +7458,10 @@ useEffect(() => {
                         const Icon = tab.icon;
                         const isActive = activeTab === tab.id;
                         const isLiveMatches = tab.id === "fixtures" && hasLiveFixture;
+                        const isPendingAdmin =
+                          tab.id === "account" &&
+                          navAccountAction.kind === "admin" &&
+                          pendingResultFixtures.length > 0;
                         return (
                           <button
                             type="button"
@@ -7454,6 +7483,11 @@ useEffect(() => {
                             <span className="text-xs font-bold uppercase tracking-wide">{tab.label}</span>
                             {isLiveMatches && !isActive && (
                               <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                            )}
+                            {isPendingAdmin && (
+                              <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 bg-rose-500 text-white font-black text-[9px] rounded-full flex items-center justify-center ring-2 ring-white shadow-sm">
+                                {pendingResultFixtures.length}
+                              </span>
                             )}
                           </button>
                         );
