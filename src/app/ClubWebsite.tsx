@@ -103,6 +103,7 @@ import {
   isLeagueMatch,
   MATCH_TYPES,
   normalizeMatchType,
+  normalizeMatchStatus,
   partitionFixtures,
   normalizeSquadTeam,
   getSquadTeamMeta,
@@ -2468,6 +2469,20 @@ export default function ClubWebsite({
     [clubData.fixtures, liveStatusTick]
   );
 
+  // Matches whose 120-minute live window has elapsed (fans already see "Full
+  // Time") but the admin hasn't yet confirmed the result — status is still
+  // upcoming/live in the database, not completed/cancelled/postponed.
+  const pendingResultFixtures = useMemo(
+    () =>
+      clubData.fixtures.filter((fixture) => {
+        if (getEffectiveMatchStatus(fixture) !== "completed") return false;
+        const rawStatus = normalizeMatchStatus(fixture.status);
+        return rawStatus !== "completed" && rawStatus !== "cancelled" && rawStatus !== "postponed";
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clubData.fixtures, liveStatusTick]
+  );
+
   // While any match is live, poll for score/status updates so fans watching
   // the homepage / Match Centre see the score change as the admin enters it,
   // without needing to reload the page.
@@ -2812,6 +2827,7 @@ useEffect(() => {
   const [adminResetNewPassword, setAdminResetNewPassword] = useState("");
   const [adminResetConfirmPassword, setAdminResetConfirmPassword] = useState("");
   const [showNewspaperPasswordReset, setShowNewspaperPasswordReset] = useState(false);
+  const [showPendingResultsModal, setShowPendingResultsModal] = useState(false);
   const [listedShopItemsOpen, setListedShopItemsOpen] = useState(false);
   const [playerPanelOpen, setPlayerPanelOpen] = useState(false);
   const [managementPanelOpen, setManagementPanelOpen] = useState(false);
@@ -4699,6 +4715,15 @@ useEffect(() => {
     loadAdminMemberships();
   }
 }, [activeTab, isAdminAuthenticated, adminRole]);
+
+// Surface matches that finished while the admin was away, right when they
+// log in, so results get confirmed promptly instead of sitting stale.
+useEffect(() => {
+  if (isAdminAuthenticated && adminRole === "admin" && pendingResultFixtures.length > 0) {
+    setShowPendingResultsModal(true);
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [isAdminAuthenticated, adminRole]);
 
 useEffect(() => {
   if (adminRole === "news_editor") {
@@ -12593,6 +12618,77 @@ useEffect(() => {
                 </p>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showPendingResultsModal && pendingResultFixtures.length > 0 && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+            onClick={() => setShowPendingResultsModal(false)}
+          />
+          <div className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white shadow-2xl p-6 space-y-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-2xl bg-rose-100 flex items-center justify-center shrink-0">
+                  <Activity className="w-5 h-5 text-rose-600" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-black text-slate-950">
+                    {pendingResultFixtures.length} match{pendingResultFixtures.length !== 1 ? "es" : ""} need
+                    {pendingResultFixtures.length === 1 ? "s" : ""} a final score
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    These matches finished while you were away. Update the results so fans see accurate stats.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPendingResultsModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-900 shrink-0 cursor-pointer"
+                aria-label="Dismiss"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {pendingResultFixtures.map((fixture) => (
+                <div
+                  key={fixture.id}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-black text-slate-950 truncate">
+                      {fixture.isHome ? "Legends FC" : fixture.opponent} vs{" "}
+                      {fixture.isHome ? fixture.opponent : "Legends FC"}
+                    </p>
+                    <p className="text-[11px] text-slate-500">{formatKickoff(fixture.date)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPendingResultsModal(false);
+                      setAdminPanelView("content");
+                      handleEditFixture(fixture);
+                    }}
+                    className="shrink-0 inline-flex items-center gap-1.5 bg-slate-950 hover:bg-slate-900 text-yellow-400 text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-xl cursor-pointer"
+                  >
+                    Update Result
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowPendingResultsModal(false)}
+              className="w-full text-center text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              Remind me later
+            </button>
           </div>
         </div>
       )}
